@@ -35,13 +35,6 @@ func NewApp() *App {
 		Exec:        []string{os.Args[0]},
 	}
 
-	return a
-}
-
-func (a *App) startup(ctx context.Context) {
-	a.ctx = ctx
-	logger.Debugf("Application startup")
-
 	cfg, err := config.NewManager()
 	if err != nil {
 		logger.Fatalf("Config initialization failed: %v", err)
@@ -54,11 +47,22 @@ func (a *App) startup(ctx context.Context) {
 	logger.Debugf("Config loaded from %s", cfg.Path())
 
 	a.config = cfg
-	a.printerManager = printer.NewManager()
 
-	port, err := cfg.ResolvePort()
+	return a
+}
+
+func (a *App) startup(ctx context.Context) {
+	a.ctx = ctx
+	logger.Debugf("Application startup")
+
+	a.printerManager = printer.NewManager()
+	port, err := a.config.ResolvePort()
 	if err != nil {
 		logger.Warn("Unable to resolve port, using default")
+	}
+
+	if err := a.config.CheckPortChange(); err != nil {
+		logger.Errorf("Failed to check port change: %v", err)
 	}
 
 	a.webserver = server.New(port, a.printerManager)
@@ -91,21 +95,19 @@ type UnavailablePrinter struct {
 
 type Status struct {
 	ServerRunning       bool                 `json:"serverRunning"`
-	DefaultIp           string               `json:"defaultIp"`
 	ErrorMsg            string               `json:"errorMsg"`
 	Printers            []Printer            `json:"printers"`
 	UnavailablePrinters []UnavailablePrinter `json:"unavailablePrinters"`
 	Os                  string               `json:"os"`
 }
 
-func (a *App) GetPrinterIp(id string) string {
-	ip := fmt.Sprintf("127.0.0.1:%d/p/%s", a.webserver.Port, id)
-	logger.Debugf("Generated printer endpoint: %s", ip)
-	return ip
+func (a *App) GetPrinterUrl(id string) string {
+	url := fmt.Sprintf("%s:%d/p/%s", util.GetLocalIP(a.config.IsFirewallEnabled()), a.config.GetPort(), id)
+	logger.Debugf("Generated printer endpoint: %s", url)
+	return url
 }
 
 func (a *App) Status() Status {
-
 	logger.Debug("Collecting printer status")
 
 	printers := make([]Printer, 0)
@@ -122,7 +124,7 @@ func (a *App) Status() Status {
 			printers = append(printers, Printer{
 				Id:     info.Id,
 				Name:   info.Name,
-				Ip:     a.GetPrinterIp(info.Id),
+				Ip:     a.GetPrinterUrl(info.Id),
 				Online: true,
 				Type:   string(info.Type),
 			})
@@ -147,7 +149,7 @@ func (a *App) Status() Status {
 		printers = append(printers, Printer{
 			Id:    info.Id,
 			Name:  fmt.Sprintf("Network - %s", info.IP),
-			Ip:    a.GetPrinterIp(info.Id),
+			Ip:    a.GetPrinterUrl(info.Id),
 			IsLAN: true,
 			LANIp: info.IP,
 			Type:  string(printer.PrinterTypeReceipt),
@@ -156,7 +158,6 @@ func (a *App) Status() Status {
 
 	return Status{
 		ServerRunning:       a.webserver.Running(),
-		DefaultIp:           fmt.Sprintf("127.0.0.1:%d", a.webserver.Port),
 		Printers:            printers,
 		UnavailablePrinters: unavailablePrinters,
 		ErrorMsg:            errorMsg,
@@ -165,7 +166,6 @@ func (a *App) Status() Status {
 }
 
 func (a *App) AddLANPrinter(ip string) error {
-
 	logger.Debugf("Adding LAN printer: %s", ip)
 
 	ip, err := printer.ValidateIPAddress(ip)
@@ -182,12 +182,10 @@ func (a *App) AddLANPrinter(ip string) error {
 	}
 
 	logger.Debugf("LAN printer added successfully: %s", ip)
-
 	return nil
 }
 
 func (a *App) ConfirmRemoveLANPrinter(ip string) (bool, error) {
-
 	logger.Debugf("Remove LAN printer requested: %s", ip)
 
 	result, err := wailsruntime.MessageDialog(a.ctx, wailsruntime.MessageDialogOptions{
@@ -271,4 +269,44 @@ func (a *App) DisableAutostart() error {
 	}
 
 	return nil
+}
+
+func (a *App) ConfigureFirewall() error {
+	logger.Infof("Configuring firewall")
+	err := util.SetFirewallRule(a.config.GetPort(), a.config.GetOldPort())
+	if err != nil {
+		logger.Errorf("Failed to configure firewall: %v", err)
+		return err
+	}
+	logger.Infof("Firewall configured successfully")
+
+	if err := a.config.UpdateFirewallPreference(true); err != nil {
+		logger.Errorf("Failed to save config: %v", err)
+		return fmt.Errorf("config error: %v", err)
+	}
+
+	return nil
+}
+
+func (a *App) DisableFirewall() error {
+	logger.Infof("Remove firewall rule")
+	err := util.UnsetFirewallRule(a.config.GetPort())
+	if err != nil {
+		logger.Errorf("Failed to remove firewall rule: %v", err)
+		return err
+	}
+	logger.Infof("Firewall rule removed successfully")
+
+	if err := a.config.UpdateFirewallPreference(false); err != nil {
+		logger.Errorf("Failed to save config: %v", err)
+		return fmt.Errorf("config error: %v", err)
+	}
+	return nil
+}
+
+func (a *App) IsFirewallEnabled() map[string]bool {
+	return map[string]bool{
+		"isDarwin":          runtime.GOOS == "darwin",
+		"isFirewallEnabled": a.config.IsFirewallEnabled(),
+	}
 }

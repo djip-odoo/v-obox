@@ -60,15 +60,8 @@
 
     </div>
   </div>
-  <div class="mt-6 text-center">
-    <div
-        @click="showAddDialog = true"
-        class="border-2 border-dashed border-gray-300 bg-gray-50 rounded-lg px-4 py-3 text-gray-600 hover:border-gray-400 hover:bg-gray-100 cursor-pointer"
-    >+ Add Network Printer
-    </div>
-  </div>
-
-  <NetworkIpDialog :show="showAddDialog" @close="onNetworkDialogClose" @notify="showToast"/>
+  <NetworkIpDialog @notify="showToast" @refresh="updatePrinters"/>
+  <FirewallSetting @notify="showToast" @refresh="updatePrinters"/>
 
   <teleport to="body">
     <transition
@@ -96,6 +89,7 @@ import {CheckLANPrinterStatus, ConfirmRemoveLANPrinter, Status} from '../wailsjs
 import {brewSteps, linuxSteps, zadigSteps} from "./modal/fix-step";
 import StepModal from "./modal/step-modal.vue";
 import NetworkIpDialog from "./modal/network-ip-dialog.vue";
+import FirewallSetting from "./modal/firewall-setting.vue";
 import PrinterActions from './components/printer-actions.vue'
 
 const printers = ref([])
@@ -107,7 +101,6 @@ const pendingChecks = ref(new Set())
 const showFixModal = ref(false)
 const fixPrinterName = ref(null)
 const os = ref(null)
-const showAddDialog = ref(false)
 const toast = ref({ show: false, message: '', type: 'success' })
 
 let toastTimeout = null
@@ -266,8 +259,4 @@ async function removeLanPrinter(printer) {
   }
 }
 
-function onNetworkDialogClose(shouldRefresh) {
-  showAddDialog.value = false
-  if (shouldRefresh) updatePrinters()
-}
 </script>
