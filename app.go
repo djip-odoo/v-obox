@@ -304,9 +304,6 @@ func (a *App) DisableFirewall() error {
 	return nil
 }
 
-func (a *App) IsFirewallEnabled() map[string]bool {
-	return map[string]bool{
-		"isDarwin":          runtime.GOOS == "darwin",
-		"isFirewallEnabled": a.config.IsFirewallEnabled(),
-	}
+func (a *App) IsFirewallEnabled() map[string]any {
+	return map[string]any{"os": runtime.GOOS, "isFirewallEnabled": a.config.IsFirewallEnabled()}
 }
