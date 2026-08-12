@@ -46,26 +46,18 @@ func TestApp_AppVariableAndPrintersAndGetPrinterIp(t *testing.T) {
 	testutil.ExpectedEqual(t, appVariable.DefaultIp, fmt.Sprintf("127.0.0.1:%d", port))
 	testutil.ExpectedTrue(t, appVariable.Os != "", "Expected non-empty Os field in app variable")
 
-	// At least the configured LAN printer should be present in Printers
-	printerStatus := appPrintersOrSkip(t, app)
+	// Verify Printers() includes the configured LAN printer
+	printerStatus := app.Printers()
 	foundLAN := false
 	for _, p := range printerStatus.Printers {
 		if p.IsLAN && p.LANIp == "192.168.1.100" {
 			foundLAN = true
 			testutil.ExpectedEqual(t, p.Type, string(printer.TypeReceipt))
+			testutil.ExpectedEqual(t, p.Name, "Network - 192.168.1.100")
+			testutil.ExpectedEqual(t, p.Ip, fmt.Sprintf("127.0.0.1:%d/p/%s", port, p.Id))
 		}
 	}
 	testutil.ExpectedTrue(t, foundLAN, "Expected to find configured LAN printer in printer status")
-}
-
-func appPrintersOrSkip(t *testing.T, app *App) (printers Printers) {
-	t.Helper()
-	defer func() {
-		if r := recover(); r != nil {
-			t.Skipf("USB printer enumeration unavailable in this environment: %v", r)
-		}
-	}()
-	return app.Printers()
 }
 
 func TestApp_AddLANPrinter(t *testing.T) {

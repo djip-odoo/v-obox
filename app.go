@@ -113,7 +113,6 @@ func (a *App) GetPrinterIp(id string) string {
 	return ip
 }
 
-// TO-CHECK
 func (a *App) Printers() Printers {
 
 	logger.Debug("Collecting printer status")

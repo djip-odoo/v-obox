@@ -180,10 +180,51 @@ func TestFindPrinterEndpoint(t *testing.T) {
 
 	_, okMissing := findPrinterEndpoint(descMissingBulk)
 	testutil.ExpectedFalse(t, okMissing)
+
+	// Multi-interface device where 2nd interface is a Printer with Bulk OUT
+	descMultiInterface := &gousb.DeviceDesc{
+		Vendor:  0x04B8,
+		Product: 0x0202,
+		Configs: map[int]gousb.ConfigDesc{
+			1: {
+				Number: 1,
+				Interfaces: []gousb.InterfaceDesc{
+					{
+						Number: 0,
+						AltSettings: []gousb.InterfaceSetting{
+							{
+								Class: gousb.ClassHID,
+							},
+						},
+					},
+					{
+						Number: 1,
+						AltSettings: []gousb.InterfaceSetting{
+							{
+								Class: gousb.ClassPrinter,
+								Endpoints: map[gousb.EndpointAddress]gousb.EndpointDesc{
+									gousb.EndpointAddress(2): {
+										Number:       2,
+										Direction:    gousb.EndpointDirectionOut,
+										TransferType: gousb.TransferTypeBulk,
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	epInfoMulti, okMulti := findPrinterEndpoint(descMultiInterface)
+	testutil.ExpectedTrue(t, okMulti)
+	testutil.ExpectedEqual(t, epInfoMulti.iFace, 1)
+	testutil.ExpectedEqual(t, epInfoMulti.outEndpoint, 2)
 }
 
 func TestFingerprintKey(t *testing.T) {
-	desc := &gousb.DeviceDesc{
+	desc1 := &gousb.DeviceDesc{
 		Bus:     1,
 		Address: 4,
 		Vendor:  0x04B8,
@@ -191,7 +232,39 @@ func TestFingerprintKey(t *testing.T) {
 		Path:    []int{1, 2},
 	}
 
-	key := fingerprintKey(desc)
-	testutil.ExpectedTrue(t, key != "")
-	testutil.ExpectedEqual(t, key, fingerprintKey(desc))
+	desc2 := &gousb.DeviceDesc{
+		Bus:     1,
+		Address: 5,
+		Vendor:  0x04B8,
+		Product: 0x0202,
+		Path:    []int{1, 2},
+	}
+
+	key1 := fingerprintKey(desc1)
+	key2 := fingerprintKey(desc2)
+
+	testutil.ExpectedTrue(t, key1 != "")
+	testutil.ExpectedTrue(t, key2 != "")
+	testutil.ExpectedEqual(t, key1, fingerprintKey(desc1))
+	testutil.ExpectedNotEqual(t, key1, key2)
+}
+
+func TestListUSBPrinters(t *testing.T) {
+	// Call ListUSBPrinters directly - should not panic
+	printers, err := ListUSBPrinters()
+	if err != nil {
+		t.Logf("ListUSBPrinters returned error (expected if libusb restricted): %v", err)
+		return
+	}
+	testutil.ExpectedNotNil(t, printers)
+
+	// Second invocation should use cache
+	cached, err2 := ListUSBPrinters()
+	testutil.ExpectedNoError(t, err2)
+	testutil.ExpectedNotNil(t, cached)
+}
+
+func TestGetPrinterFriendlyName(t *testing.T) {
+	name := getPrinterFriendlyName("04B8", "0202")
+	testutil.ExpectedTrue(t, name != "")
 }

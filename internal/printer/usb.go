@@ -49,11 +49,10 @@ func ListUSBPrinters() (*Printers, error) {
 	ctx := gousb.NewContext()
 	defer func(ctx *gousb.Context) {
 		_ = ctx.Close()
-
 	}(ctx)
 
 	var keys []string
-	// First list all  without opening devices, to avoid permission errors on some platforms
+	// First list all without opening devices, to avoid permission errors on some platforms
 	var descriptors []gousb.DeviceDesc
 	_, err := ctx.OpenDevices(func(desc *gousb.DeviceDesc) bool {
 		if _, supported := findPrinterEndpoint(desc); supported {
