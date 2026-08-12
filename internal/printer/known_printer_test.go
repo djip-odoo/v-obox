@@ -1,0 +1,37 @@
+package printer
+
+import (
+	"testing"
+)
+
+func TestGetPrinterType(t *testing.T) {
+	tests := []struct {
+		vidPid   string
+		expected Type
+	}{
+		// Known receipt printers
+		{"2aaf:6015", TypeReceipt},
+		{"2AAF:6015", TypeReceipt}, // case-insensitive
+		{"04b8:0e32", TypeReceipt},
+		{"04B8:0202", TypeReceipt},
+		{"0483:5720", TypeReceipt},
+		{"2d84:c7c8", TypeReceipt},
+		{"4b43:3830", TypeReceipt},
+
+		// Known label printers
+		{"0a5f:0187", TypeLabel},
+		{"0A5F:0187", TypeLabel}, // case-insensitive
+		{"195f:0001", TypeLabel},
+
+		// Unknown VID:PID -> defaults to TypeReceipt
+		{"1234:5678", TypeReceipt},
+		{"", TypeReceipt},
+	}
+
+	for _, tc := range tests {
+		got := getPrinterType(tc.vidPid)
+		if got != tc.expected {
+			t.Errorf("getPrinterType(%q) = %q, want %q", tc.vidPid, got, tc.expected)
+		}
+	}
+}
