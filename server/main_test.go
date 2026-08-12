@@ -3,6 +3,7 @@ package server
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -97,5 +98,26 @@ func TestCustomSerialNumberSupport(t *testing.T) {
 	discoverBytes, _ := io.ReadAll(respDiscover.Body)
 	if !strings.Contains(string(discoverBytes), "BOX-4567") {
 		t.Errorf("Expected discover-boxes to contain BOX-4567, got: %s", string(discoverBytes))
+	}
+}
+
+func TestServerLocalIPAndAddr(t *testing.T) {
+	ip := GetLocalIP()
+	if ip == "" {
+		t.Errorf("Expected non-empty IP from GetLocalIP")
+	}
+
+	mgr := printer.NewManager()
+	port := 4547
+	s := New(port, mgr)
+	defer s.Stop()
+
+	if s.LocalIP() != ip {
+		t.Errorf("Expected s.LocalIP() == %s, got %s", ip, s.LocalIP())
+	}
+
+	expectedAddr := fmt.Sprintf("%s:%d", ip, port)
+	if s.LocalAddr() != expectedAddr {
+		t.Errorf("Expected s.LocalAddr() == %s, got %s", expectedAddr, s.LocalAddr())
 	}
 }

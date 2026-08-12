@@ -19,7 +19,6 @@ import (
 // ── Mock constants ─────────────────────────────────────────────────────────────
 
 const defaultSerialNumber = "12345"
-const mockLocalIP = "127.0.0.1:4545"
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -146,7 +145,7 @@ func (m *oboxModule) registerRoutes() {
 	})
 
 	// ── Mock Obox local device endpoints ──────────────────────────────────
-	// These are hit by obox OWL widgets when local_ip == "127.0.0.1:4545".
+	// These are hit by obox OWL widgets when connecting to the server.
 
 	// GET /odoo/
 	// OboxStatus widget LAN health check
@@ -385,7 +384,7 @@ func (m *oboxModule) executeAction(dev *oboxDevice, action queueAction) {
 
 // dispatchLocalAction calls the mock device endpoint and returns the result.
 func (m *oboxModule) dispatchLocalAction(path, method string, payload interface{}) interface{} {
-	base := fmt.Sprintf("http://%s", mockLocalIP)
+	base := fmt.Sprintf("http://127.0.0.1:%d", m.server.Port)
 	fullURL := base + path
 
 	var req *http.Request
@@ -572,7 +571,7 @@ func (m *oboxModule) callOdooOboxConnect(dbURL, token, serial string) {
 				Params: map[string]interface{}{
 					"serial_number": candSerial,
 					"token":         token,
-					"local_ip":      mockLocalIP,
+					"local_ip":      m.server.LocalAddr(),
 					"services":      []string{"odoo", "usb"},
 				},
 			}
