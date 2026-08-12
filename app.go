@@ -90,7 +90,7 @@ func (a *App) startup(ctx context.Context) {
 		logger.Warn("Unable to resolve port, using default")
 	}
 
-	a.webserver = server.New(port, a.printerManager)
+	a.webserver = server.New(port, a.printerManager, a.config)
 }
 
 func (a *App) shutdown(ctx context.Context) {
