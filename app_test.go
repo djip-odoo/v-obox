@@ -92,8 +92,12 @@ func TestApp_AddLANPrinter(t *testing.T) {
 	}
 
 	// Reachable printer.
-	_, _, err = testutil.StartMockTCPServer(t, printer.LANPort)
-	testutil.ExpectedNoError(t, err)
+	if err := printer.CheckLANPrinter("127.0.0.1"); err != nil {
+		_, _, mockErr := testutil.StartMockTCPServer(t, printer.LANPort)
+		if mockErr != nil {
+			t.Skipf("Cannot bind port %d for live LAN add test: %v", printer.LANPort, mockErr)
+		}
+	}
 
 	err = app.AddLANPrinter("127.0.0.1")
 	testutil.ExpectedNoError(t, err)

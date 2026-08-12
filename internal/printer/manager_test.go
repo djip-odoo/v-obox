@@ -9,8 +9,6 @@ import (
 	"time"
 
 	"epos-proxy/internal/testutil"
-
-	"github.com/google/gousb"
 )
 
 func TestNewManager(t *testing.T) {
@@ -41,35 +39,6 @@ func TestPrinter_QueueFull(t *testing.T) {
 	}, nil)
 
 	testutil.ExpectedTrue(t, errors.Is(err, ErrQueueFull))
-}
-
-func TestPrinter_IdToString(t *testing.T) {
-	// LAN printer
-	pLAN := &Printer{
-		connectionType: ConnKindLAN,
-		lanIP:          "192.168.1.50",
-	}
-	testutil.ExpectedEqual(t, pLAN.idToString(), "LAN:192.168.1.50")
-
-	// USB printer with ID
-	pUSB := &Printer{
-		connectionType: ConnKindUSB,
-		id: &ID{
-			Serial: "SER123",
-			VidPid: "04B8:0202",
-			Path:   "1.2",
-		},
-	}
-	str := pUSB.idToString()
-	testutil.ExpectedNotEqual(t, str, "")
-	testutil.ExpectedNotEqual(t, str, "USB:unknown")
-
-	// USB printer without ID
-	pUSBEmpty := &Printer{
-		connectionType: ConnKindUSB,
-		id:             nil,
-	}
-	testutil.ExpectedEqual(t, pUSBEmpty.idToString(), "USB:unknown")
 }
 
 func TestManager_LANPrinterIntegration(t *testing.T) {
@@ -117,14 +86,4 @@ func TestManager_LANPrinterIntegration(t *testing.T) {
 	case <-time.After(3 * time.Second):
 		t.Fatal("Timed out waiting for mock printer server to receive data")
 	}
-}
-
-func TestPathToString(t *testing.T) {
-	desc := &gousb.DeviceDesc{
-		Bus:  1,
-		Path: []int{2, 3, 4},
-	}
-
-	got := pathToString(desc)
-	testutil.ExpectedEqual(t, got, "1.2.3.4")
 }

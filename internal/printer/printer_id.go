@@ -16,6 +16,30 @@ type ID struct {
 	Path   string
 }
 
+// String returns a human-readable representation of the USB printer identity.
+func (id *ID) String() string {
+	if id == nil {
+		return "unknown"
+	}
+
+	var parts []string
+	if id.Serial != "" {
+		parts = append(parts, "serial="+id.Serial)
+	}
+	if id.VidPid != "" {
+		parts = append(parts, "vid:pid="+id.VidPid)
+	}
+	if id.Path != "" {
+		parts = append(parts, "path="+id.Path)
+	}
+
+	if len(parts) == 0 {
+		return "unknown"
+	}
+
+	return strings.Join(parts, ", ")
+}
+
 func encodePrinterID(libUsbPrinter *LibUsbPrinter) (string, error) {
 	var parts []string
 

@@ -80,3 +80,33 @@ func TestDecodeLANPrinterID_Invalid(t *testing.T) {
 		})
 	}
 }
+
+func TestID_String(t *testing.T) {
+	// 1. nil ID
+	var nilID *ID
+	testutil.ExpectedEqual(t, nilID.String(), "unknown")
+
+	// 2. Serial only
+	idSerial := &ID{Serial: "SN123456"}
+	testutil.ExpectedEqual(t, idSerial.String(), "serial=SN123456")
+
+	// 3. VidPid and Path
+	idVidPidPath := &ID{VidPid: "04B8:0202", Path: "1.2.3"}
+	testutil.ExpectedEqual(t, idVidPidPath.String(), "vid:pid=04B8:0202, path=1.2.3")
+
+	// 4. VidPid only
+	idVidPid := &ID{VidPid: "04B8:0202"}
+	testutil.ExpectedEqual(t, idVidPid.String(), "vid:pid=04B8:0202")
+
+	// 5. Path only
+	idPath := &ID{Path: "1.2.3"}
+	testutil.ExpectedEqual(t, idPath.String(), "path=1.2.3")
+
+	// 6. Serial, VidPid, and Path
+	idAll := &ID{Serial: "SN123", VidPid: "04B8:0202", Path: "1.2"}
+	testutil.ExpectedEqual(t, idAll.String(), "serial=SN123, vid:pid=04B8:0202, path=1.2")
+
+	// 7. Empty ID struct
+	idEmpty := &ID{}
+	testutil.ExpectedEqual(t, idEmpty.String(), "unknown")
+}
