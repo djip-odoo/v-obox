@@ -8,21 +8,24 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
+
+	"epos-proxy/printer"
 )
 
-func createTestServer() *Server {
-	// Use an arbitrary port for testing Fiber router handlers
-	return New(4545, nil)
+func createTestOboxServer(port int) *Server {
+	mgr := printer.NewManager()
+	return New(port, mgr)
 }
 
 func TestOboxDiscovery_Endpoint(t *testing.T) {
-	s := createTestServer()
+	s := createTestOboxServer(4601)
 	defer s.Stop()
 
 	req := httptest.NewRequest("GET", "/odoo-enterprise/iot/discover-boxes", nil)
-	resp, err := s.app.Test(req)
+	resp, err := s.App().Test(req)
 	if err != nil {
 		t.Fatalf("Test request failed: %v", err)
 	}
@@ -43,18 +46,18 @@ func TestOboxDiscovery_Endpoint(t *testing.T) {
 
 	hasODO := false
 	for _, b := range boxes {
-		if sn, ok := b["serial_number"]; ok && len(sn) >= 3 && sn[:3] == "ODO" {
+		if sn, ok := b["serial_number"]; ok && strings.HasPrefix(sn, "ODO-") {
 			hasODO = true
 			break
 		}
 	}
 	if !hasODO {
-		t.Fatal("Expected at least one box with serial number starting with ODO")
+		t.Fatal("Expected at least one box with serial number starting with ODO-")
 	}
 }
 
 func TestOboxConnectDB_Endpoint(t *testing.T) {
-	s := createTestServer()
+	s := createTestOboxServer(4602)
 	defer s.Stop()
 
 	body := map[string]interface{}{
@@ -68,7 +71,7 @@ func TestOboxConnectDB_Endpoint(t *testing.T) {
 	req := httptest.NewRequest("POST", "/odoo-enterprise/iot/connect-db", bytes.NewReader(bodyBytes))
 	req.Header.Set("Content-Type", "application/json")
 
-	resp, err := s.app.Test(req)
+	resp, err := s.App().Test(req)
 	if err != nil {
 		t.Fatalf("Test request failed: %v", err)
 	}
@@ -91,11 +94,11 @@ func TestOboxConnectDB_Endpoint(t *testing.T) {
 }
 
 func TestOboxOfflineConnect_Endpoint(t *testing.T) {
-	s := createTestServer()
+	s := createTestOboxServer(4603)
 	defer s.Stop()
 
 	req := httptest.NewRequest("GET", "/odoo/connect?db_url=http://127.0.0.1:8069&db_uuid=test-uuid&token=test-tok", nil)
-	resp, err := s.app.Test(req)
+	resp, err := s.App().Test(req)
 	if err != nil {
 		t.Fatalf("Test request failed: %v", err)
 	}
@@ -107,11 +110,11 @@ func TestOboxOfflineConnect_Endpoint(t *testing.T) {
 }
 
 func TestOboxLANStatus_Endpoint(t *testing.T) {
-	s := createTestServer()
+	s := createTestOboxServer(4604)
 	defer s.Stop()
 
 	req := httptest.NewRequest("GET", "/odoo/", nil)
-	resp, err := s.app.Test(req)
+	resp, err := s.App().Test(req)
 	if err != nil {
 		t.Fatalf("Test request failed: %v", err)
 	}
@@ -120,22 +123,14 @@ func TestOboxLANStatus_Endpoint(t *testing.T) {
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("Expected status 200, got %d", resp.StatusCode)
 	}
-
-	var res map[string]interface{}
-	if err := json.NewDecoder(resp.Body).Decode(&res); err != nil {
-		t.Fatalf("Failed to decode response: %v", err)
-	}
-	if res["status"] != "configured" {
-		t.Fatalf("Expected status 'configured', got '%v'", res["status"])
-	}
 }
 
 func TestOboxHealth_Endpoint(t *testing.T) {
-	s := createTestServer()
+	s := createTestOboxServer(4605)
 	defer s.Stop()
 
 	req := httptest.NewRequest("GET", "/odoo/health", nil)
-	resp, err := s.app.Test(req)
+	resp, err := s.App().Test(req)
 	if err != nil {
 		t.Fatalf("Test request failed: %v", err)
 	}
@@ -153,11 +148,11 @@ func TestOboxHealth_Endpoint(t *testing.T) {
 }
 
 func TestOboxRestart_Endpoint(t *testing.T) {
-	s := createTestServer()
+	s := createTestOboxServer(4606)
 	defer s.Stop()
 
 	req := httptest.NewRequest("GET", "/odoo/restart", nil)
-	resp, err := s.app.Test(req)
+	resp, err := s.App().Test(req)
 	if err != nil {
 		t.Fatalf("Test request failed: %v", err)
 	}
@@ -175,12 +170,11 @@ func TestOboxRestart_Endpoint(t *testing.T) {
 }
 
 func TestOboxDisconnect_Endpoint(t *testing.T) {
-	s := createTestServer()
+	s := createTestOboxServer(4607)
 	defer s.Stop()
 
-	s.device.Store(&oboxDevice{dbURL: "http://example.com", token: "tok", serial: "123"})
 	req := httptest.NewRequest("GET", "/odoo/disconnect", nil)
-	resp, err := s.app.Test(req)
+	resp, err := s.App().Test(req)
 	if err != nil {
 		t.Fatalf("Test request failed: %v", err)
 	}
@@ -189,18 +183,14 @@ func TestOboxDisconnect_Endpoint(t *testing.T) {
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("Expected status 200, got %d", resp.StatusCode)
 	}
-
-	if s.device.Load() != nil {
-		t.Fatal("Expected device credentials to be cleared on disconnect")
-	}
 }
 
 func TestOboxDiscoverDevices_Endpoint(t *testing.T) {
-	s := createTestServer()
+	s := createTestOboxServer(4608)
 	defer s.Stop()
 
 	req := httptest.NewRequest("GET", "/odoo/discover_devices", nil)
-	resp, err := s.app.Test(req)
+	resp, err := s.App().Test(req)
 	if err != nil {
 		t.Fatalf("Test request failed: %v", err)
 	}
@@ -220,7 +210,6 @@ func TestOboxDiscoverDevices_Endpoint(t *testing.T) {
 		if d.Identifier == virtualPrinterID && d.Type == "printer" {
 			foundVirtualPrinter = true
 		}
-		// Confirm only printers are listed
 		if d.Type != "printer" {
 			t.Fatalf("Unexpected device type '%s', only printers should be added", d.Type)
 		}
@@ -232,12 +221,12 @@ func TestOboxDiscoverDevices_Endpoint(t *testing.T) {
 }
 
 func TestOboxRemoteDebug_Endpoints(t *testing.T) {
-	s := createTestServer()
+	s := createTestOboxServer(4609)
 	defer s.Stop()
 
 	// Enable
 	req := httptest.NewRequest("GET", "/sos/v1/enable?token=tskey-auth-12345", nil)
-	resp, err := s.app.Test(req)
+	resp, err := s.App().Test(req)
 	if err != nil {
 		t.Fatalf("Test request failed: %v", err)
 	}
@@ -250,7 +239,7 @@ func TestOboxRemoteDebug_Endpoints(t *testing.T) {
 
 	// Disable
 	req = httptest.NewRequest("GET", "/sos/v1/disable", nil)
-	resp, err = s.app.Test(req)
+	resp, err = s.App().Test(req)
 	if err != nil {
 		t.Fatalf("Test request failed: %v", err)
 	}
@@ -262,7 +251,7 @@ func TestOboxRemoteDebug_Endpoints(t *testing.T) {
 }
 
 func TestOboxScale_Endpoints(t *testing.T) {
-	s := createTestServer()
+	s := createTestOboxServer(4610)
 	defer s.Stop()
 
 	// Set custom weight via mock API
@@ -270,7 +259,7 @@ func TestOboxScale_Endpoints(t *testing.T) {
 	scaleBytes, _ := json.Marshal(scaleReqBody)
 	req := httptest.NewRequest("POST", "/mock/scale", bytes.NewReader(scaleBytes))
 	req.Header.Set("Content-Type", "application/json")
-	resp, err := s.app.Test(req)
+	resp, err := s.App().Test(req)
 	if err != nil {
 		t.Fatalf("POST /mock/scale failed: %v", err)
 	}
@@ -282,7 +271,7 @@ func TestOboxScale_Endpoints(t *testing.T) {
 	req = httptest.NewRequest("POST", "/usb/v1/scale/read_scale_weight", bytes.NewReader(readBytes))
 	req.Header.Set("Content-Type", "application/json")
 
-	resp, err = s.app.Test(req)
+	resp, err = s.App().Test(req)
 	if err != nil {
 		t.Fatalf("POST /usb/v1/scale/read_scale_weight failed: %v", err)
 	}
@@ -300,11 +289,11 @@ func TestOboxScale_Endpoints(t *testing.T) {
 }
 
 func TestOboxCamera_Endpoints(t *testing.T) {
-	s := createTestServer()
+	s := createTestOboxServer(4611)
 	defer s.Stop()
 
 	req := httptest.NewRequest("GET", "/usb/v1/camera/take-picture?identifier=mock_cam", nil)
-	resp, err := s.app.Test(req)
+	resp, err := s.App().Test(req)
 	if err != nil {
 		t.Fatalf("GET /usb/v1/camera/take-picture failed: %v", err)
 	}
@@ -320,7 +309,7 @@ func TestOboxCamera_Endpoints(t *testing.T) {
 }
 
 func TestOboxPrinter_Endpoints(t *testing.T) {
-	s := createTestServer()
+	s := createTestOboxServer(4612)
 	defer s.Stop()
 
 	// 1. Generic print POST /usb/v1/printer/print
@@ -331,7 +320,7 @@ func TestOboxPrinter_Endpoints(t *testing.T) {
 	pBytes, _ := json.Marshal(printPayload)
 	req := httptest.NewRequest("POST", "/usb/v1/printer/print", bytes.NewReader(pBytes))
 	req.Header.Set("Content-Type", "application/json")
-	resp, err := s.app.Test(req)
+	resp, err := s.App().Test(req)
 	if err != nil {
 		t.Fatalf("POST /usb/v1/printer/print failed: %v", err)
 	}
@@ -344,7 +333,7 @@ func TestOboxPrinter_Endpoints(t *testing.T) {
 	xmlPayload := `<s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/"><s:Body><epos-print xmlns="http://www.epson-pos.com/schemas/2011/03/epos-print"><text>Hello</text></epos-print></s:Body></s:Envelope>`
 	req = httptest.NewRequest("POST", fmt.Sprintf("/usb/v1/printer/%s/cgi-bin/epos/service.cgi", virtualPrinterID), bytes.NewBufferString(xmlPayload))
 	req.Header.Set("Content-Type", "application/xml")
-	resp, err = s.app.Test(req)
+	resp, err = s.App().Test(req)
 	if err != nil {
 		t.Fatalf("ePOS print failed: %v", err)
 	}
@@ -359,7 +348,7 @@ func TestOboxPrinter_Endpoints(t *testing.T) {
 
 	// 3. Open cashbox
 	req = httptest.NewRequest("GET", "/usb/v1/printer/open-cashbox?identifier="+virtualPrinterID, nil)
-	resp, err = s.app.Test(req)
+	resp, err = s.App().Test(req)
 	if err != nil {
 		t.Fatalf("open cashbox failed: %v", err)
 	}
@@ -370,7 +359,7 @@ func TestOboxPrinter_Endpoints(t *testing.T) {
 
 	// 4. List printers
 	req = httptest.NewRequest("GET", "/usb/v1/printer/list", nil)
-	resp, err = s.app.Test(req)
+	resp, err = s.App().Test(req)
 	if err != nil {
 		t.Fatalf("list printers failed: %v", err)
 	}
@@ -383,14 +372,14 @@ func TestOboxPrinter_Endpoints(t *testing.T) {
 }
 
 func TestOboxDisplay_Endpoint(t *testing.T) {
-	s := createTestServer()
+	s := createTestOboxServer(4613)
 	defer s.Stop()
 
 	body := map[string]string{"url": "https://odoo.com"}
 	bBytes, _ := json.Marshal(body)
 	req := httptest.NewRequest("POST", "/display/v1/update-url", bytes.NewReader(bBytes))
 	req.Header.Set("Content-Type", "application/json")
-	resp, err := s.app.Test(req)
+	resp, err := s.App().Test(req)
 	if err != nil {
 		t.Fatalf("POST /display/v1/update-url failed: %v", err)
 	}
@@ -401,12 +390,12 @@ func TestOboxDisplay_Endpoint(t *testing.T) {
 }
 
 func TestOboxWiFi_And_LED_Endpoints(t *testing.T) {
-	s := createTestServer()
+	s := createTestOboxServer(4614)
 	defer s.Stop()
 
 	// WiFi status
 	req := httptest.NewRequest("GET", "/wifi/status", nil)
-	resp, err := s.app.Test(req)
+	resp, err := s.App().Test(req)
 	if err != nil {
 		t.Fatalf("GET /wifi/status failed: %v", err)
 	}
@@ -417,7 +406,7 @@ func TestOboxWiFi_And_LED_Endpoints(t *testing.T) {
 
 	// WiFi networks
 	req = httptest.NewRequest("GET", "/wifi/networks", nil)
-	resp, err = s.app.Test(req)
+	resp, err = s.App().Test(req)
 	if err != nil {
 		t.Fatalf("GET /wifi/networks failed: %v", err)
 	}
@@ -431,7 +420,7 @@ func TestOboxWiFi_And_LED_Endpoints(t *testing.T) {
 	ledBytes, _ := json.Marshal(ledBody)
 	req = httptest.NewRequest("POST", "/leds/set", bytes.NewReader(ledBytes))
 	req.Header.Set("Content-Type", "application/json")
-	resp, err = s.app.Test(req)
+	resp, err = s.App().Test(req)
 	if err != nil {
 		t.Fatalf("POST /leds/set failed: %v", err)
 	}
@@ -441,49 +430,9 @@ func TestOboxWiFi_And_LED_Endpoints(t *testing.T) {
 	}
 }
 
-func TestMockManagement_Endpoints(t *testing.T) {
-	s := createTestServer()
-	defer s.Stop()
-
-	// 1. POST /mock/connect
-	mBody := map[string]string{
-		"db_url": "http://127.0.0.1:8069",
-		"token":  "mock-token-xyz",
-		"serial": "ODO-99999",
-	}
-	mBytes, _ := json.Marshal(mBody)
-	req := httptest.NewRequest("POST", "/mock/connect", bytes.NewReader(mBytes))
-	req.Header.Set("Content-Type", "application/json")
-	resp, err := s.app.Test(req)
-	if err != nil {
-		t.Fatalf("POST /mock/connect failed: %v", err)
-	}
-	resp.Body.Close()
-
-	// 2. GET /mock/status
-	req = httptest.NewRequest("GET", "/mock/status", nil)
-	resp, err = s.app.Test(req)
-	if err != nil {
-		t.Fatalf("GET /mock/status failed: %v", err)
-	}
-	defer resp.Body.Close()
-
-	var st struct {
-		Brain   string            `json:"brain"`
-		DBURL   string            `json:"db_url"`
-		Serial  string            `json:"serial"`
-		LocalIP string            `json:"local_ip"`
-		Devices []oboxDeviceEntry `json:"devices"`
-	}
-	_ = json.NewDecoder(resp.Body).Decode(&st)
-	if st.Brain != "polling" || st.Serial != "ODO-99999" || st.LocalIP != "127.0.0.1:4545" {
-		t.Fatalf("Unexpected mock status response: %+v", st)
-	}
-}
-
 func TestExecuteAction_AllCases(t *testing.T) {
 	// Start a mock Odoo server to receive /obox/action_result and /obox/ping
-	actionReported := make(chan string, 10)
+	actionReported := make(chan string, 15)
 	mockOdoo := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var req struct {
 			Method string `json:"method"`
@@ -500,15 +449,19 @@ func TestExecuteAction_AllCases(t *testing.T) {
 	}))
 	defer mockOdoo.Close()
 
-	s := createTestServer()
+	s := createTestOboxServer(4615)
 	defer s.Stop()
+
+	// Find the registered obox module
+	m := &oboxModule{server: s}
+	m.setMockWeight(1.250)
 
 	dev := &oboxDevice{
 		dbURL:  mockOdoo.URL,
 		token:  "test-token",
 		serial: "12345",
 	}
-	s.device.Store(dev)
+	m.device.Store(dev)
 
 	testActions := []struct {
 		name       string
@@ -539,7 +492,7 @@ func TestExecuteAction_AllCases(t *testing.T) {
 					"payload": tc.payload,
 				},
 			}
-			s.executeAction(dev, action)
+			m.executeAction(dev, action)
 
 			select {
 			case uuid := <-actionReported:

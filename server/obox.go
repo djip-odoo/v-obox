@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"encoding/xml"
 	"fmt"
+	"math"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -18,7 +20,14 @@ import (
 
 // ── Mock constants ─────────────────────────────────────────────────────────────
 
-const defaultSerialNumber = "12345"
+const (
+	defaultSerialNumber = "12345"
+	virtualPrinterID    = "usb_virtual_pos_printer"
+	virtualPrinterName  = "Virtual POS Receipt Printer"
+
+	// Minimal valid base64 1x1 JPEG image for mock camera previews
+	sampleJPEGImageBase64 = "/9j/4AAQSkZJRgABAQEASABIAAD/2wBDAP//////////////////////////////////////////////////////////////////////////////////////wgALCAABAAEBAREA/8QAFBABAAAAAAAAAAAAAAAAAAAAAP/aAAgBAQABPxA="
+)
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -39,8 +48,9 @@ type oboxDevice struct {
 
 // oboxModule encapsulates the state and behavior of the Obox mock service.
 type oboxModule struct {
-	server *Server
-	device atomic.Pointer[oboxDevice]
+	server     *Server
+	device     atomic.Pointer[oboxDevice]
+	mockWeight atomic.Uint64
 }
 
 // ── Auto-binding registration ──────────────────────────────────────────────────
@@ -48,9 +58,22 @@ type oboxModule struct {
 func init() {
 	Register(func(s *Server) {
 		m := &oboxModule{server: s}
+		m.setMockWeight(1.250) // Default mock scale weight in kg
 		m.registerRoutes()
 		go m.deviceBrain()
 	})
+}
+
+func (m *oboxModule) getMockWeight() float64 {
+	bits := m.mockWeight.Load()
+	if bits == 0 {
+		return 1.250
+	}
+	return math.Float64frombits(bits)
+}
+
+func (m *oboxModule) setMockWeight(w float64) {
+	m.mockWeight.Store(math.Float64bits(w))
 }
 
 func (m *oboxModule) registerRoutes() {
@@ -61,10 +84,139 @@ func (m *oboxModule) registerRoutes() {
 	//   http://{local_ip}/usb/v1/printer/{identifier}/cgi-bin/epos/service.cgi
 	s.app.Post("/usb/v1/printer/:printerId/cgi-bin/epos/service.cgi", func(ctx fiber.Ctx) error {
 		id := ctx.Params("printerId")
-		id = strings.TrimPrefix(id, "ipp_")
-		id = strings.TrimPrefix(id, "usb_")
-		logger.Infof("[mock] Obox USB ePOS print for printer: %s", id)
-		return printData(s.mgr, ctx, id)
+		rawID := id
+		cleanID := strings.TrimPrefix(id, "ipp_")
+		cleanID = strings.TrimPrefix(cleanID, "usb_")
+		logger.Infof("[mock] Obox USB ePOS print for printer: %s (clean: %s)", id, cleanID)
+
+		if rawID == virtualPrinterID || cleanID == "virtual_pos_printer" || cleanID == "mock_device" {
+			logger.Infof("[mock] Virtual printer ePOS print success for: %s", id)
+			return ctx.XML(EPOSResponse{Success: true, Code: "", Status: ""})
+		}
+
+		if s.mgr != nil {
+			return printData(s.mgr, ctx, cleanID)
+		}
+		return ctx.XML(EPOSResponse{Success: true, Code: "", Status: ""})
+	})
+
+	// ── Obox USB printer generic print endpoint ────────────────────────────
+	// Called by printer.obox_print() and TestOboxDevice.testPrinter()
+	s.app.Post("/usb/v1/printer/print", func(ctx fiber.Ctx) error {
+		var req struct {
+			Identifier string `json:"identifier"`
+			Document   string `json:"document"`
+			Receipt    string `json:"receipt"`
+			Duplex     bool   `json:"duplex"`
+		}
+		if err := ctx.Bind().JSON(&req); err != nil {
+			logger.Warnf("[mock] /usb/v1/printer/print JSON parse error: %v", err)
+		}
+		logger.Infof("[mock] /usb/v1/printer/print job for printer '%s' (docLen=%d, receiptLen=%d)",
+			req.Identifier, len(req.Document), len(req.Receipt))
+
+		if req.Identifier != "" && req.Identifier != virtualPrinterID && s.mgr != nil {
+			cleanID := strings.TrimPrefix(req.Identifier, "usb_")
+			cleanID = strings.TrimPrefix(cleanID, "ipp_")
+			if req.Document != "" {
+				_ = printLabel(s.mgr, ctx, cleanID)
+			}
+		}
+
+		return ctx.JSON(map[string]string{"status": "ok", "success": "Sent print job"})
+	})
+
+	// ── Obox USB printer cashbox drawer ────────────────────────────────────
+	s.app.Get("/usb/v1/printer/open-cashbox", func(ctx fiber.Ctx) error {
+		identifier := ctx.Query("identifier")
+		logger.Infof("[mock] /usb/v1/printer/open-cashbox for printer '%s'", identifier)
+		return ctx.JSON(map[string]string{"success": "Opened cashbox"})
+	})
+
+	// ── Obox USB printer list ──────────────────────────────────────────────
+	s.app.Get("/usb/v1/printer/list", func(ctx fiber.Ctx) error {
+		logger.Infof("[mock] /usb/v1/printer/list")
+		var list [][]string
+		for _, dev := range m.buildDeviceList() {
+			if dev.Type == "printer" {
+				list = append(list, []string{dev.Identifier, dev.Name})
+			}
+		}
+		return ctx.JSON(list)
+	})
+
+	// ── Simulated Scale endpoints ──────────────────────────────────────────
+	// Called by TestOboxDevice.testScale(), pos_iot, obox_mrp quality check
+	s.app.Post("/usb/v1/scale/read_scale_weight", func(ctx fiber.Ctx) error {
+		var req struct {
+			Identifier string  `json:"identifier"`
+			UnitPrice  float64 `json:"unit_price"`
+		}
+		_ = ctx.Bind().JSON(&req)
+		weight := m.getMockWeight()
+		logger.Infof("[mock] /usb/v1/scale/read_scale_weight for '%s' -> %.3f kg", req.Identifier, weight)
+		return ctx.JSON(map[string]interface{}{
+			"weight": weight,
+			"unit":   "kg",
+			"status": "ok",
+		})
+	})
+
+	s.app.Get("/usb/v1/scale/list", func(ctx fiber.Ctx) error {
+		logger.Infof("[mock] /usb/v1/scale/list")
+		return ctx.JSON([][]string{})
+	})
+
+	// ── Simulated Camera endpoints ─────────────────────────────────────────
+	// Called by TestOboxDevice.testCamera(), obox_mrp picture preview
+	s.app.Get("/usb/v1/camera/take-picture", func(ctx fiber.Ctx) error {
+		identifier := ctx.Query("identifier")
+		logger.Infof("[mock] /usb/v1/camera/take-picture for '%s'", identifier)
+		return ctx.JSON(map[string]string{
+			"image": sampleJPEGImageBase64,
+		})
+	})
+
+	s.app.Get("/usb/v1/camera/list", func(ctx fiber.Ctx) error {
+		logger.Infof("[mock] /usb/v1/camera/list")
+		return ctx.JSON([][]string{})
+	})
+
+	// ── Simulated Display endpoints ────────────────────────────────────────
+	s.app.Post("/display/v1/update-url", func(ctx fiber.Ctx) error {
+		var req struct {
+			URL string `json:"url"`
+		}
+		_ = ctx.Bind().JSON(&req)
+		logger.Infof("[mock] /display/v1/update-url -> %s", req.URL)
+		return ctx.JSON(map[string]string{"status": "success"})
+	})
+
+	// ── Simulated WiFi endpoints ───────────────────────────────────────────
+	s.app.Get("/wifi/", func(ctx fiber.Ctx) error {
+		return ctx.JSON(map[string]string{"status": "ok"})
+	})
+
+	s.app.Get("/wifi/status", func(ctx fiber.Ctx) error {
+		return ctx.JSON(map[string]interface{}{
+			"wired": map[string]string{"status": "connected", "ip": m.server.LocalAddr()},
+			"wifi":  map[string]interface{}{"status": "disconnected", "ip": nil},
+		})
+	})
+
+	s.app.Get("/wifi/networks", func(ctx fiber.Ctx) error {
+		return ctx.JSON([]map[string]interface{}{
+			{"ssid": "Mock_WiFi_Network", "signal": 95},
+		})
+	})
+
+	s.app.Post("/wifi/connect", func(ctx fiber.Ctx) error {
+		return ctx.JSON(map[string]string{"status": "connected"})
+	})
+
+	// ── Simulated LED endpoints ────────────────────────────────────────────
+	s.app.Post("/leds/set", func(ctx fiber.Ctx) error {
+		return ctx.JSON(map[string]string{"status": "ok"})
 	})
 
 	// ── Mock IoT Proxy endpoints ───────────────────────────────────────────
@@ -151,12 +303,29 @@ func (m *oboxModule) registerRoutes() {
 	// OboxStatus widget LAN health check
 	s.app.Get("/odoo/", func(ctx fiber.Ctx) error {
 		logger.Debug("[mock] Obox LAN health check /odoo/")
-		return ctx.SendStatus(fiber.StatusOK)
+		dev := m.device.Load()
+		if dev != nil {
+			return ctx.JSON(map[string]interface{}{
+				"status": "configured",
+				"data": map[string]string{
+					"serial": dev.serial,
+					"db_url": dev.dbURL,
+				},
+			})
+		}
+		return ctx.JSON(map[string]interface{}{
+			"status": "configured",
+			"data":   nil,
+		})
 	})
 
 	// GET /odoo/health (ping)
 	s.app.Get("/odoo/health", func(ctx fiber.Ctx) error {
 		logger.Infof("[mock] Obox /odoo/health ping")
+		dev := m.device.Load()
+		if dev != nil {
+			go m.callOdooPing(dev)
+		}
 		return ctx.JSON(map[string]string{"status": "ok"})
 	})
 
@@ -169,7 +338,8 @@ func (m *oboxModule) registerRoutes() {
 
 	// GET /odoo/disconnect
 	s.app.Get("/odoo/disconnect", func(ctx fiber.Ctx) error {
-		logger.Infof("[mock] Obox disconnect — returning success")
+		logger.Infof("[mock] Obox disconnect — clearing device credentials")
+		m.device.Store(nil)
 		return ctx.JSON(map[string]string{"status": "disconnected"})
 	})
 
@@ -182,14 +352,17 @@ func (m *oboxModule) registerRoutes() {
 
 	// GET /sos/v1/enable
 	s.app.Get("/sos/v1/enable", func(ctx fiber.Ctx) error {
-		logger.Infof("[mock] Obox remote debug enable")
-		return ctx.JSON(map[string]string{"status": "enabled"})
+		token := ctx.Query("token")
+		logger.Infof("[mock] Obox remote debug enable (token=%s)", token)
+		return ctx.JSON(map[string]string{
+			"status": "Remote Debug is enabled, Odoo support team can now access the device.",
+		})
 	})
 
 	// GET /sos/v1/disable
 	s.app.Get("/sos/v1/disable", func(ctx fiber.Ctx) error {
 		logger.Infof("[mock] Obox remote debug disable")
-		return ctx.JSON(map[string]string{"status": "disabled"})
+		return ctx.JSON(map[string]string{"status": "Remote Debug is disabled."})
 	})
 
 	// ── Offline connect handshake ──────────────────────────────────────────
@@ -243,13 +416,32 @@ func (m *oboxModule) registerRoutes() {
 	s.app.Get("/mock/status", func(ctx fiber.Ctx) error {
 		dev := m.device.Load()
 		if dev == nil {
-			return ctx.JSON(map[string]interface{}{"brain": "waiting", "device": nil})
+			return ctx.JSON(map[string]interface{}{
+				"brain":    "waiting",
+				"device":   nil,
+				"local_ip": m.server.LocalAddr(),
+				"devices":  m.buildDeviceList(),
+			})
 		}
 		return ctx.JSON(map[string]interface{}{
-			"brain":  "polling",
-			"db_url": dev.dbURL,
-			"serial": dev.serial,
+			"brain":    "polling",
+			"db_url":   dev.dbURL,
+			"serial":   dev.serial,
+			"local_ip": m.server.LocalAddr(),
+			"devices":  m.buildDeviceList(),
 		})
+	})
+
+	s.app.Post("/mock/scale", func(ctx fiber.Ctx) error {
+		var body struct {
+			Weight float64 `json:"weight"`
+		}
+		if err := ctx.Bind().JSON(&body); err != nil {
+			return ctx.Status(fiber.StatusBadRequest).JSON(map[string]string{"error": "invalid json"})
+		}
+		m.setMockWeight(body.Weight)
+		logger.Infof("[mock] Mock scale weight set to %.3f kg", body.Weight)
+		return ctx.JSON(map[string]interface{}{"status": "ok", "weight": body.Weight})
 	})
 }
 
@@ -318,37 +510,43 @@ func (m *oboxModule) fetchNextActions(dev *oboxDevice) ([]queueAction, error) {
 
 // executeAction processes one queue action and reports the result back to Odoo.
 func (m *oboxModule) executeAction(dev *oboxDevice, action queueAction) {
-	url, _ := action.Payload["url"].(string)
+	rawURL, _ := action.Payload["url"].(string)
 	method, _ := action.Payload["method"].(string)
 	payload := action.Payload["payload"]
 
-	logger.Infof("[mock brain] Executing queue action uuid=%s url=%s method=%s", action.UUID, url, method)
+	actionPath := rawURL
+	if parsed, err := url.Parse(rawURL); err == nil && parsed.Path != "" {
+		actionPath = parsed.Path
+	}
+
+	logger.Infof("[mock brain] Executing queue action uuid=%s path=%s method=%s", action.UUID, actionPath, method)
 
 	var result interface{}
 
-	switch url {
-	case "/odoo/health":
+	switch {
+	case actionPath == "/odoo/health":
 		logger.Infof("[mock brain] Action health ping: returning success")
 		result = map[string]string{"status": "ok"}
 		m.reportActionResult(dev, action.UUID, result)
 		go m.callOdooPing(dev)
 		return
 
-	case "/odoo/restart":
+	case actionPath == "/odoo/restart":
 		// Ignore restart obox call, return success, do NOT attempt to restart eposproxy
 		logger.Infof("[mock brain] Action restart: ignored, returning success")
 		result = map[string]string{"status": "restarted"}
 		m.reportActionResult(dev, action.UUID, result)
 		return
 
-	case "/odoo/disconnect":
+	case actionPath == "/odoo/disconnect":
 		logger.Infof("[mock brain] Action disconnect: returning success")
+		m.device.Store(nil)
 		result = map[string]string{"status": "disconnected"}
 		m.reportActionResult(dev, action.UUID, result)
 		return
 
-	case "/odoo/discover_devices":
-		logger.Infof("[mock brain] Action discover_devices: fetching printer list")
+	case actionPath == "/odoo/discover_devices":
+		logger.Infof("[mock brain] Action discover_devices: fetching device list")
 		devices := m.buildDeviceList()
 		devicesJSON, err := json.Marshal(devices)
 		if err == nil {
@@ -360,24 +558,54 @@ func (m *oboxModule) executeAction(dev *oboxDevice, action queueAction) {
 		m.reportActionResult(dev, action.UUID, result)
 		return
 
-	case "/sos/v1/enable":
+	case strings.HasPrefix(actionPath, "/sos/v1/enable"):
 		result = "enabled"
 		m.reportActionResult(dev, action.UUID, result)
 		return
 
-	case "/sos/v1/disable":
+	case strings.HasPrefix(actionPath, "/sos/v1/disable"):
 		result = "disabled"
 		m.reportActionResult(dev, action.UUID, result)
 		return
 
-	case "/usb/v1/printer/print":
-		logger.Infof("hello")
+	case actionPath == "/usb/v1/printer/print":
+		logger.Infof("[mock brain] Action printer print: executing print simulation")
+		result = map[string]string{"status": "ok"}
+		m.reportActionResult(dev, action.UUID, result)
+		return
+
+	case actionPath == "/usb/v1/scale/read_scale_weight":
+		logger.Infof("[mock brain] Action read scale weight")
+		result = map[string]interface{}{
+			"weight": m.getMockWeight(),
+			"unit":   "kg",
+			"status": "ok",
+		}
+		m.reportActionResult(dev, action.UUID, result)
+		return
+
+	case strings.HasPrefix(actionPath, "/usb/v1/camera/take-picture"):
+		logger.Infof("[mock brain] Action take picture")
+		result = map[string]interface{}{
+			"image": sampleJPEGImageBase64,
+		}
+		m.reportActionResult(dev, action.UUID, result)
+		return
+
+	case actionPath == "/display/v1/update-url":
+		logger.Infof("[mock brain] Action display update-url")
+		result = map[string]string{"status": "success"}
+		m.reportActionResult(dev, action.UUID, result)
+		return
+
+	case actionPath == "/leds/set":
+		logger.Infof("[mock brain] Action leds set")
 		result = map[string]string{"status": "ok"}
 		m.reportActionResult(dev, action.UUID, result)
 		return
 
 	default:
-		result = m.dispatchLocalAction(url, method, payload)
+		result = m.dispatchLocalAction(rawURL, method, payload)
 		m.reportActionResult(dev, action.UUID, result)
 	}
 }
@@ -396,7 +624,7 @@ func (m *oboxModule) dispatchLocalAction(path, method string, payload interface{
 		bodyBytes, err = json.Marshal(payload)
 		if err != nil {
 			logger.Errorf("[mock brain] marshal payload error: %v", err)
-			return "ok"
+			return map[string]string{"status": "ok"}
 		}
 		req, err = http.NewRequest("POST", fullURL, bytes.NewReader(bodyBytes))
 		if err == nil {
@@ -408,14 +636,14 @@ func (m *oboxModule) dispatchLocalAction(path, method string, payload interface{
 
 	if err != nil {
 		logger.Errorf("[mock brain] build request error: %v", err)
-		return "ok"
+		return map[string]string{"status": "ok"}
 	}
 
 	client := &http.Client{Timeout: 5 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
 		logger.Errorf("[mock brain] local action HTTP error url=%s: %v", fullURL, err)
-		return "ok"
+		return map[string]string{"status": "ok"}
 	}
 	defer resp.Body.Close()
 
@@ -521,6 +749,13 @@ func (m *oboxModule) buildDeviceList() []oboxDeviceEntry {
 		}
 	}
 
+	// Virtual POS Receipt Printer only (as requested, no other device added)
+	devices = append(devices, oboxDeviceEntry{
+		Name:       virtualPrinterName,
+		Identifier: virtualPrinterID,
+		Type:       "printer",
+	})
+
 	logger.Infof("[mock] buildDeviceList: %d devices found", len(devices))
 	return devices
 }
@@ -572,7 +807,7 @@ func (m *oboxModule) callOdooOboxConnect(dbURL, token, serial string) {
 					"serial_number": candSerial,
 					"token":         token,
 					"local_ip":      m.server.LocalAddr(),
-					"services":      []string{"odoo", "usb"},
+					"services":      []string{"odoo", "usb", "display", "wifi", "leds", "sos"},
 				},
 			}
 
