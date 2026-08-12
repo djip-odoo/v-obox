@@ -11,36 +11,13 @@ import (
 
 func TestMatchBulkOutEndpoint(t *testing.T) {
 	// Case 1: Bulk OUT endpoint present
-	altWithBulkOut := gousb.InterfaceSetting{
-		Endpoints: map[gousb.EndpointAddress]gousb.EndpointDesc{
-			gousb.EndpointAddress(1): {
-				Number:       1,
-				Direction:    gousb.EndpointDirectionIn,
-				TransferType: gousb.TransferTypeBulk,
-			},
-			gousb.EndpointAddress(2): {
-				Number:       2,
-				Direction:    gousb.EndpointDirectionOut,
-				TransferType: gousb.TransferTypeBulk,
-			},
-		},
-	}
-
+	altWithBulkOut := testutil.MockAltWithBulkOut()
 	epNum, ok := matchBulkOutEndpoint(altWithBulkOut)
 	testutil.ExpectedTrue(t, ok)
 	testutil.ExpectedEqual(t, epNum, 2)
 
 	// Case 2: Only Interrupt OUT (not Bulk)
-	altInterrupt := gousb.InterfaceSetting{
-		Endpoints: map[gousb.EndpointAddress]gousb.EndpointDesc{
-			gousb.EndpointAddress(3): {
-				Number:       3,
-				Direction:    gousb.EndpointDirectionOut,
-				TransferType: gousb.TransferTypeInterrupt,
-			},
-		},
-	}
-
+	altInterrupt := testutil.MockAltInterrupt()
 	_, okInterrupt := matchBulkOutEndpoint(altInterrupt)
 	testutil.ExpectedFalse(t, okInterrupt)
 
@@ -51,35 +28,7 @@ func TestMatchBulkOutEndpoint(t *testing.T) {
 
 func TestFindPrinterEndpoint(t *testing.T) {
 	// Standard USB printer class device (Class 7) with Bulk OUT endpoint
-	descPrinterClass := &gousb.DeviceDesc{
-		Vendor:  0x04B8,
-		Product: 0x0001,
-		Configs: map[int]gousb.ConfigDesc{
-			1: {
-				Number: 1,
-				Interfaces: []gousb.InterfaceDesc{
-					{
-						Number: 0,
-						AltSettings: []gousb.InterfaceSetting{
-							{
-								Number:    0,
-								Alternate: 0,
-								Class:     gousb.ClassPrinter,
-								Endpoints: map[gousb.EndpointAddress]gousb.EndpointDesc{
-									gousb.EndpointAddress(1): {
-										Number:       1,
-										Direction:    gousb.EndpointDirectionOut,
-										TransferType: gousb.TransferTypeBulk,
-									},
-								},
-							},
-						},
-					},
-				},
-			},
-		},
-	}
-
+	descPrinterClass := testutil.MockEpsonPrinterDesc()
 	epInfo, ok := findPrinterEndpoint(descPrinterClass)
 	testutil.ExpectedTrue(t, ok)
 	testutil.ExpectedEqual(t, epInfo.outEndpoint, 1)
@@ -87,137 +36,23 @@ func TestFindPrinterEndpoint(t *testing.T) {
 	testutil.ExpectedEqual(t, epInfo.config, 1)
 
 	// Known printer (e.g. 0a5f:0187 Zebra) with vendor-specific class (Class 0xFF)
-	descKnownVendorClass := &gousb.DeviceDesc{
-		Vendor:  0x0A5F,
-		Product: 0x0187,
-		Configs: map[int]gousb.ConfigDesc{
-			1: {
-				Number: 1,
-				Interfaces: []gousb.InterfaceDesc{
-					{
-						Number: 0,
-						AltSettings: []gousb.InterfaceSetting{
-							{
-								Number:    0,
-								Alternate: 0,
-								Class:     gousb.ClassVendorSpec,
-								Endpoints: map[gousb.EndpointAddress]gousb.EndpointDesc{
-									gousb.EndpointAddress(2): {
-										Number:       2,
-										Direction:    gousb.EndpointDirectionOut,
-										TransferType: gousb.TransferTypeBulk,
-									},
-								},
-							},
-						},
-					},
-				},
-			},
-		},
-	}
-
+	descKnownVendorClass := testutil.MockZebraPrinterDesc()
 	epInfoKnown, okKnown := findPrinterEndpoint(descKnownVendorClass)
 	testutil.ExpectedTrue(t, okKnown)
 	testutil.ExpectedEqual(t, epInfoKnown.outEndpoint, 2)
 
 	// Non-printer device (e.g. Mass Storage Class 8, unknown VID/PID)
-	descNonPrinter := &gousb.DeviceDesc{
-		Vendor:  0x1234,
-		Product: 0x5678,
-		Configs: map[int]gousb.ConfigDesc{
-			1: {
-				Number: 1,
-				Interfaces: []gousb.InterfaceDesc{
-					{
-						Number: 0,
-						AltSettings: []gousb.InterfaceSetting{
-							{
-								Class: gousb.ClassMassStorage,
-								Endpoints: map[gousb.EndpointAddress]gousb.EndpointDesc{
-									gousb.EndpointAddress(1): {
-										Number:       1,
-										Direction:    gousb.EndpointDirectionOut,
-										TransferType: gousb.TransferTypeBulk,
-									},
-								},
-							},
-						},
-					},
-				},
-			},
-		},
-	}
-
+	descNonPrinter := testutil.MockMassStorageDesc()
 	_, okNonPrinter := findPrinterEndpoint(descNonPrinter)
 	testutil.ExpectedFalse(t, okNonPrinter)
 
 	// Printer class device missing Bulk OUT endpoint
-	descMissingBulk := &gousb.DeviceDesc{
-		Vendor:  0x04B8,
-		Product: 0x0001,
-		Configs: map[int]gousb.ConfigDesc{
-			1: {
-				Number: 1,
-				Interfaces: []gousb.InterfaceDesc{
-					{
-						Number: 0,
-						AltSettings: []gousb.InterfaceSetting{
-							{
-								Class: gousb.ClassPrinter,
-								Endpoints: map[gousb.EndpointAddress]gousb.EndpointDesc{
-									gousb.EndpointAddress(1): {
-										Number:       1,
-										Direction:    gousb.EndpointDirectionIn,
-										TransferType: gousb.TransferTypeBulk,
-									},
-								},
-							},
-						},
-					},
-				},
-			},
-		},
-	}
-
+	descMissingBulk := testutil.MockMissingBulkPrinterDesc()
 	_, okMissing := findPrinterEndpoint(descMissingBulk)
 	testutil.ExpectedFalse(t, okMissing)
 
 	// Multi-interface device where 2nd interface is a Printer with Bulk OUT
-	descMultiInterface := &gousb.DeviceDesc{
-		Vendor:  0x04B8,
-		Product: 0x0202,
-		Configs: map[int]gousb.ConfigDesc{
-			1: {
-				Number: 1,
-				Interfaces: []gousb.InterfaceDesc{
-					{
-						Number: 0,
-						AltSettings: []gousb.InterfaceSetting{
-							{
-								Class: gousb.ClassHID,
-							},
-						},
-					},
-					{
-						Number: 1,
-						AltSettings: []gousb.InterfaceSetting{
-							{
-								Class: gousb.ClassPrinter,
-								Endpoints: map[gousb.EndpointAddress]gousb.EndpointDesc{
-									gousb.EndpointAddress(2): {
-										Number:       2,
-										Direction:    gousb.EndpointDirectionOut,
-										TransferType: gousb.TransferTypeBulk,
-									},
-								},
-							},
-						},
-					},
-				},
-			},
-		},
-	}
-
+	descMultiInterface := testutil.MockMultiInterfacePrinterDesc()
 	epInfoMulti, okMulti := findPrinterEndpoint(descMultiInterface)
 	testutil.ExpectedTrue(t, okMulti)
 	testutil.ExpectedEqual(t, epInfoMulti.iFace, 1)
@@ -267,78 +102,9 @@ func TestListUSBPrinters(t *testing.T) {
 
 func TestListUSBPrinters_WithMockOpenDevices(t *testing.T) {
 	mockPrinters := []*gousb.DeviceDesc{
-		{
-			Bus:     1,
-			Address: 2,
-			Vendor:  0x04B8,
-			Product: 0x0202,
-			Path:    []int{1, 2},
-			Configs: map[int]gousb.ConfigDesc{
-				1: {
-					Number: 1,
-					Interfaces: []gousb.InterfaceDesc{
-						{
-							Number: 0,
-							AltSettings: []gousb.InterfaceSetting{
-								{
-									Class: gousb.ClassPrinter,
-									Endpoints: map[gousb.EndpointAddress]gousb.EndpointDesc{
-										1: {Number: 1, Direction: gousb.EndpointDirectionOut, TransferType: gousb.TransferTypeBulk},
-									},
-								},
-							},
-						},
-					},
-				},
-			},
-		},
-		{
-			Bus:     1,
-			Address: 3,
-			Vendor:  0x0A5F,
-			Product: 0x0187,
-			Path:    []int{1, 3},
-			Configs: map[int]gousb.ConfigDesc{
-				1: {
-					Number: 1,
-					Interfaces: []gousb.InterfaceDesc{
-						{
-							Number: 0,
-							AltSettings: []gousb.InterfaceSetting{
-								{
-									Class: gousb.ClassVendorSpec,
-									Endpoints: map[gousb.EndpointAddress]gousb.EndpointDesc{
-										2: {Number: 2, Direction: gousb.EndpointDirectionOut, TransferType: gousb.TransferTypeBulk},
-									},
-								},
-							},
-						},
-					},
-				},
-			},
-		},
-		{
-			// Mass storage device (should be ignored)
-			Bus:     1,
-			Address: 4,
-			Vendor:  0x1234,
-			Product: 0x5678,
-			Configs: map[int]gousb.ConfigDesc{
-				1: {
-					Number: 1,
-					Interfaces: []gousb.InterfaceDesc{
-						{
-							Number: 0,
-							AltSettings: []gousb.InterfaceSetting{
-								{
-									Class: gousb.ClassMassStorage,
-								},
-							},
-						},
-					},
-				},
-			},
-		},
+		testutil.MockEpsonPrinterDesc(),
+		testutil.MockZebraPrinterDesc(),
+		testutil.MockMassStorageDesc(),
 	}
 
 	oldOpenDevices := openDevices
@@ -382,31 +148,7 @@ func TestListUSBPrinters_OpenDevicesError(t *testing.T) {
 
 func TestListUSBPrinters_UnavailableDevice(t *testing.T) {
 	mockPrinters := []*gousb.DeviceDesc{
-		{
-			Bus:     1,
-			Address: 2,
-			Vendor:  0x04B8,
-			Product: 0x0202,
-			Path:    []int{1, 2},
-			Configs: map[int]gousb.ConfigDesc{
-				1: {
-					Number: 1,
-					Interfaces: []gousb.InterfaceDesc{
-						{
-							Number: 0,
-							AltSettings: []gousb.InterfaceSetting{
-								{
-									Class: gousb.ClassPrinter,
-									Endpoints: map[gousb.EndpointAddress]gousb.EndpointDesc{
-										1: {Number: 1, Direction: gousb.EndpointDirectionOut, TransferType: gousb.TransferTypeBulk},
-									},
-								},
-							},
-						},
-					},
-				},
-			},
-		},
+		testutil.MockEpsonPrinterDesc(),
 	}
 
 	oldOpenDevices := openDevices
