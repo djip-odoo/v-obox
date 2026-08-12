@@ -64,13 +64,6 @@ func NewApp() *App {
 		Exec:        []string{os.Args[0]},
 	}
 
-	return a
-}
-
-func (a *App) startup(ctx context.Context) {
-	a.ctx = ctx
-	logger.Debugf("Application startup")
-
 	cfg, err := config.NewManager()
 	if err != nil {
 		logger.Fatalf("Config initialization failed: %v", err)
@@ -79,13 +72,18 @@ func (a *App) startup(ctx context.Context) {
 	if err := cfg.Load(); err != nil {
 		logger.Warnf("Config load warning: %v", err)
 	}
-
 	logger.Debugf("Config loaded from %s", cfg.Path())
-
 	a.config = cfg
-	a.printerManager = printer.NewManager()
 
-	port, err := cfg.ResolvePort()
+	a.printerManager = printer.NewManager()
+	return a
+}
+
+func (a *App) startup(ctx context.Context) {
+	a.ctx = ctx
+	logger.Debugf("Application startup")
+
+	port, err := a.config.ResolvePort()
 	if err != nil {
 		logger.Warn("Unable to resolve port, using default")
 	}
@@ -115,6 +113,7 @@ func (a *App) GetPrinterIp(id string) string {
 	return ip
 }
 
+// TO-CHECK
 func (a *App) Printers() Printers {
 
 	logger.Debug("Collecting printer status")

@@ -30,42 +30,29 @@ func TestAssertions_Success(t *testing.T) {
 	mt := &mockTB{}
 
 	ExpectedTrue(mt, true, "should pass")
-	AssertTrue(mt, true)
 	ExpectedFalse(mt, false, "should pass")
-	AssertFalse(mt, false)
 
 	ExpectedEqual(mt, 42, 42, "numbers equal")
-	AssertEqual(mt, "hello", "hello")
 	ExpectedNotEqual(mt, 1, 2)
-	AssertNotEqual(mt, "a", "b")
 
 	ExpectedBytesEqual(mt, []byte{1, 2}, []byte{1, 2})
-	AssertBytesEqual(mt, []byte{3}, []byte{3})
 
 	ExpectedNoError(mt, nil)
-	AssertNoError(mt, nil)
 
 	testErr := errors.New("something went wrong")
 	ExpectedError(mt, testErr)
-	AssertError(mt, testErr)
 	ExpectedErrorContains(mt, testErr, "went wrong")
-	AssertErrorContains(mt, testErr, "something")
 
 	ExpectedContains(mt, "hello world", "world")
-	AssertContains(mt, "apple banana", "apple")
 	ExpectedNotContains(mt, "hello world", "foo")
-	AssertNotContains(mt, "apple banana", "orange")
 
 	var nilPtr *int = nil
 	ExpectedNil(mt, nilPtr)
-	AssertNil(mt, nil)
 
 	notNilVal := 10
 	ExpectedNotNil(mt, &notNilVal)
-	AssertNotNil(mt, "string")
 
 	ExpectedLen(mt, []int{1, 2, 3}, 3)
-	AssertLen(mt, []string{"a"}, 1)
 
 	if mt.failed {
 		t.Fatalf("Expected all valid assertions to pass, but mockTB failed with: %s", mt.fatalMsg)
@@ -134,4 +121,16 @@ func TestStartMockTCPServer(t *testing.T) {
 	if got != "PING" {
 		t.Errorf("Received %q, want 'PING'", got)
 	}
+}
+
+func TestGetFreePort(t *testing.T) {
+	port := GetFreePort(t)
+	if port <= 0 {
+		t.Errorf("Expected port > 0, got %d", port)
+	}
+
+	// Verify we can listen on the returned port
+	ln, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", port))
+	ExpectedNoError(t, err)
+	_ = ln.Close()
 }

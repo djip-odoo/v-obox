@@ -33,12 +33,6 @@ func ExpectedTrue(t testing.TB, condition bool, msgAndArgs ...interface{}) {
 	}
 }
 
-// AssertTrue is an alias for ExpectedTrue.
-func AssertTrue(t testing.TB, condition bool, msgAndArgs ...interface{}) {
-	t.Helper()
-	ExpectedTrue(t, condition, msgAndArgs...)
-}
-
 // ExpectedFalse asserts that the given condition is false.
 func ExpectedFalse(t testing.TB, condition bool, msgAndArgs ...interface{}) {
 	t.Helper()
@@ -47,12 +41,6 @@ func ExpectedFalse(t testing.TB, condition bool, msgAndArgs ...interface{}) {
 		t.Fatal(msg)
 		return
 	}
-}
-
-// AssertFalse is an alias for ExpectedFalse.
-func AssertFalse(t testing.TB, condition bool, msgAndArgs ...interface{}) {
-	t.Helper()
-	ExpectedFalse(t, condition, msgAndArgs...)
 }
 
 // ExpectedEqual asserts that actual equals expected.
@@ -65,12 +53,6 @@ func ExpectedEqual[T comparable](t testing.TB, actual, expected T, msgAndArgs ..
 	}
 }
 
-// AssertEqual is an alias for ExpectedEqual.
-func AssertEqual[T comparable](t testing.TB, actual, expected T, msgAndArgs ...interface{}) {
-	t.Helper()
-	ExpectedEqual(t, actual, expected, msgAndArgs...)
-}
-
 // ExpectedNotEqual asserts that actual is not equal to expected.
 func ExpectedNotEqual[T comparable](t testing.TB, actual, expected T, msgAndArgs ...interface{}) {
 	t.Helper()
@@ -79,12 +61,6 @@ func ExpectedNotEqual[T comparable](t testing.TB, actual, expected T, msgAndArgs
 		t.Fatal(msg)
 		return
 	}
-}
-
-// AssertNotEqual is an alias for ExpectedNotEqual.
-func AssertNotEqual[T comparable](t testing.TB, actual, expected T, msgAndArgs ...interface{}) {
-	t.Helper()
-	ExpectedNotEqual(t, actual, expected, msgAndArgs...)
 }
 
 // ExpectedBytesEqual asserts that actual byte slice equals expected byte slice.
@@ -97,12 +73,6 @@ func ExpectedBytesEqual(t testing.TB, actual, expected []byte, msgAndArgs ...int
 	}
 }
 
-// AssertBytesEqual is an alias for ExpectedBytesEqual.
-func AssertBytesEqual(t testing.TB, actual, expected []byte, msgAndArgs ...interface{}) {
-	t.Helper()
-	ExpectedBytesEqual(t, actual, expected, msgAndArgs...)
-}
-
 // ExpectedNoError asserts that err is nil.
 func ExpectedNoError(t testing.TB, err error, msgAndArgs ...interface{}) {
 	t.Helper()
@@ -113,12 +83,6 @@ func ExpectedNoError(t testing.TB, err error, msgAndArgs ...interface{}) {
 	}
 }
 
-// AssertNoError is an alias for ExpectedNoError.
-func AssertNoError(t testing.TB, err error, msgAndArgs ...interface{}) {
-	t.Helper()
-	ExpectedNoError(t, err, msgAndArgs...)
-}
-
 // ExpectedError asserts that err is not nil.
 func ExpectedError(t testing.TB, err error, msgAndArgs ...interface{}) {
 	t.Helper()
@@ -127,12 +91,6 @@ func ExpectedError(t testing.TB, err error, msgAndArgs ...interface{}) {
 		t.Fatal(msg)
 		return
 	}
-}
-
-// AssertError is an alias for ExpectedError.
-func AssertError(t testing.TB, err error, msgAndArgs ...interface{}) {
-	t.Helper()
-	ExpectedError(t, err, msgAndArgs...)
 }
 
 // ExpectedErrorContains asserts that err is non-nil and contains the specified substring.
@@ -150,12 +108,6 @@ func ExpectedErrorContains(t testing.TB, err error, substr string, msgAndArgs ..
 	}
 }
 
-// AssertErrorContains is an alias for ExpectedErrorContains.
-func AssertErrorContains(t testing.TB, err error, substr string, msgAndArgs ...interface{}) {
-	t.Helper()
-	ExpectedErrorContains(t, err, substr, msgAndArgs...)
-}
-
 // ExpectedContains asserts that str contains substr.
 func ExpectedContains(t testing.TB, str, substr string, msgAndArgs ...interface{}) {
 	t.Helper()
@@ -166,12 +118,6 @@ func ExpectedContains(t testing.TB, str, substr string, msgAndArgs ...interface{
 	}
 }
 
-// AssertContains is an alias for ExpectedContains.
-func AssertContains(t testing.TB, str, substr string, msgAndArgs ...interface{}) {
-	t.Helper()
-	ExpectedContains(t, str, substr, msgAndArgs...)
-}
-
 // ExpectedNotContains asserts that str does not contain substr.
 func ExpectedNotContains(t testing.TB, str, substr string, msgAndArgs ...interface{}) {
 	t.Helper()
@@ -180,12 +126,6 @@ func ExpectedNotContains(t testing.TB, str, substr string, msgAndArgs ...interfa
 		t.Fatal(msg)
 		return
 	}
-}
-
-// AssertNotContains is an alias for ExpectedNotContains.
-func AssertNotContains(t testing.TB, str, substr string, msgAndArgs ...interface{}) {
-	t.Helper()
-	ExpectedNotContains(t, str, substr, msgAndArgs...)
 }
 
 // ExpectedNil asserts that val is nil (either untyped nil or typed nil pointer/interface).
@@ -204,12 +144,6 @@ func ExpectedNil(t testing.TB, val interface{}, msgAndArgs ...interface{}) {
 	msg := formatMessage(fmt.Sprintf("expected nil, got %v", val), msgAndArgs...)
 	t.Fatal(msg)
 	return
-}
-
-// AssertNil is an alias for ExpectedNil.
-func AssertNil(t testing.TB, val interface{}, msgAndArgs ...interface{}) {
-	t.Helper()
-	ExpectedNil(t, val, msgAndArgs...)
 }
 
 // ExpectedNotNil asserts that val is not nil.
@@ -231,12 +165,6 @@ func ExpectedNotNil(t testing.TB, val interface{}, msgAndArgs ...interface{}) {
 	}
 }
 
-// AssertNotNil is an alias for ExpectedNotNil.
-func AssertNotNil(t testing.TB, val interface{}, msgAndArgs ...interface{}) {
-	t.Helper()
-	ExpectedNotNil(t, val, msgAndArgs...)
-}
-
 // ExpectedLen asserts that slice has the expected length.
 func ExpectedLen[T any](t testing.TB, slice []T, expectedLen int, msgAndArgs ...interface{}) {
 	t.Helper()
@@ -245,12 +173,6 @@ func ExpectedLen[T any](t testing.TB, slice []T, expectedLen int, msgAndArgs ...
 		t.Fatal(msg)
 		return
 	}
-}
-
-// AssertLen is an alias for ExpectedLen.
-func AssertLen[T any](t testing.TB, slice []T, expectedLen int, msgAndArgs ...interface{}) {
-	t.Helper()
-	ExpectedLen(t, slice, expectedLen, msgAndArgs...)
 }
 
 // StartMockTCPServer starts a local TCP listener on 127.0.0.1:<port> (or 0 for ephemeral)
@@ -282,4 +204,14 @@ func StartMockTCPServer(t testing.TB, port int, onConnect ...func(conn net.Conn)
 	}()
 
 	return ln, actualPort, nil
+}
+
+// GetFreePort finds an available ephemeral TCP port and returns it.
+func GetFreePort(t testing.TB) int {
+	t.Helper()
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	ExpectedNoError(t, err)
+	port := ln.Addr().(*net.TCPAddr).Port
+	_ = ln.Close()
+	return port
 }

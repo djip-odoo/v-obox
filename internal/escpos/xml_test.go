@@ -8,17 +8,15 @@ import (
 	"epos-proxy/internal/testutil"
 )
 
-func TestParseXML_MissingRoot(t *testing.T) {
+func TestParseXML_MissingRoot_MalformedXML(t *testing.T) {
 	_, err := ParseXML([]byte("<invalid>text</invalid>"))
 	testutil.ExpectedErrorContains(t, err, "no <epos-print> element found")
-}
 
-func TestParseXML_MalformedXML(t *testing.T) {
-	_, err := ParseXML([]byte("<epos-print><text>unclosed"))
+	_, err = ParseXML([]byte("<epos-print><text>unclosed"))
 	testutil.ExpectedErrorContains(t, err, "no <epos-print> element found")
 
-	_, err2 := ParseXML([]byte("<epos-print><text>unclosed</epos-print>"))
-	testutil.ExpectedErrorContains(t, err2, "XML parse error")
+	_, err = ParseXML([]byte("<epos-print><text>unclosed</epos-print>"))
+	testutil.ExpectedErrorContains(t, err, "XML parse error")
 }
 
 func TestParseXML_TextElement(t *testing.T) {

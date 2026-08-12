@@ -24,11 +24,7 @@ func TestInitLogger(t *testing.T) {
 	logFile := filepath.Join(dir, "epos-proxy.log")
 	_, err = os.Stat(logFile)
 	testutil.ExpectedNoError(t, err)
-}
 
-func TestLogDirectory(t *testing.T) {
-	InitLogger()
-	dir := LogDirectory()
 	testutil.ExpectedContains(t, dir, "EposProxy")
 	testutil.ExpectedContains(t, dir, "logs")
 }

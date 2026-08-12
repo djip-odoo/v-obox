@@ -16,42 +16,12 @@ func TestValidateIPAddress(t *testing.T) {
 		expected  string
 		expectErr bool
 	}{
-		{
-			name:      "valid IPv4",
-			input:     "192.168.1.50",
-			expected:  "192.168.1.50",
-			expectErr: false,
-		},
-		{
-			name:      "valid IPv4 with whitespace",
-			input:     "  10.0.0.1  ",
-			expected:  "10.0.0.1",
-			expectErr: false,
-		},
-		{
-			name:      "valid IPv6",
-			input:     "::1",
-			expected:  "::1",
-			expectErr: false,
-		},
-		{
-			name:      "empty string",
-			input:     "   ",
-			expected:  "",
-			expectErr: true,
-		},
-		{
-			name:      "invalid format",
-			input:     "999.999.999.999",
-			expected:  "",
-			expectErr: true,
-		},
-		{
-			name:      "alphabetic string",
-			input:     "not.an.ip.address",
-			expected:  "",
-			expectErr: true,
-		},
+		{name: "valid IPv4", input: "192.168.1.50", expected: "192.168.1.50", expectErr: false},
+		{name: "valid IPv4 with whitespace", input: "  10.0.0.1  ", expected: "10.0.0.1", expectErr: false},
+		{name: "valid IPv6", input: "::1", expected: "::1", expectErr: false},
+		{name: "empty string", input: "   ", expected: "", expectErr: true},
+		{name: "invalid format", input: "999.999.999.999", expected: "", expectErr: true},
+		{name: "alphabetic string", input: "not.an.ip.address", expected: "", expectErr: true},
 	}
 
 	for _, tc := range tests {

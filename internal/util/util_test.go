@@ -54,7 +54,7 @@ func TestZipLogs_Success(t *testing.T) {
 	testutil.ExpectedEqual(t, foundMap["error.log"], content2)
 }
 
-func TestZipLogs_EmptyDirectory(t *testing.T) {
+func TestZipLogs_EmptyDirectory_SourceDirNotFound_InvalidTargetZip(t *testing.T) {
 	tempDir := t.TempDir()
 	sourceDir := filepath.Join(tempDir, "empty_logs")
 	err := os.MkdirAll(sourceDir, 0755)
@@ -69,26 +69,21 @@ func TestZipLogs_EmptyDirectory(t *testing.T) {
 	defer r.Close()
 
 	testutil.ExpectedLen(t, r.File, 0)
-}
 
-func TestZipLogs_SourceDirNotFound(t *testing.T) {
-	tempDir := t.TempDir()
 	nonExistent := filepath.Join(tempDir, "non_existent_dir")
-	targetZip := filepath.Join(tempDir, "output.zip")
+	targetZip = filepath.Join(tempDir, "output.zip")
 
-	err := ZipLogs(nonExistent, targetZip)
+	err = ZipLogs(nonExistent, targetZip)
 	testutil.ExpectedErrorContains(t, err, "failed to read source directory")
-}
 
-func TestZipLogs_InvalidTargetZip(t *testing.T) {
-	tempDir := t.TempDir()
-	sourceDir := filepath.Join(tempDir, "logs")
-	_ = os.MkdirAll(sourceDir, 0755)
+	sourceDir = filepath.Join(tempDir, "logs")
+	err = os.MkdirAll(sourceDir, 0755)
+	testutil.ExpectedNoError(t, err)
 
 	// Invalid target path: write into non-existent parent directory
 	invalidTarget := filepath.Join(tempDir, "no_such_folder", "output.zip")
 
-	err := ZipLogs(sourceDir, invalidTarget)
+	err = ZipLogs(sourceDir, invalidTarget)
 	testutil.ExpectedErrorContains(t, err, "failed to create zip file")
 }
 

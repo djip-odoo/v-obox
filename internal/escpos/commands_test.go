@@ -208,24 +208,22 @@ func TestBuildImage_RawBase64(t *testing.T) {
 	}
 	expected := append(expectedPrefix, bitmap...)
 	testutil.ExpectedBytesEqual(t, got, expected)
-}
 
-func TestBuildImage_InvalidBase64(t *testing.T) {
-	_, err := BuildImage("!!not-valid-base64!!", ImageAttrs{Width: 8, Height: 1})
+	_, err = BuildImage("!!invalid-base64!!", ImageAttrs{Width: 8, Height: 1})
 	testutil.ExpectedError(t, err)
 }
 
-func TestBuildImage_DataTooShort(t *testing.T) {
+func TestBuildImage_DataHandling(t *testing.T) {
+	// Data too short.
 	bitmap := []byte{0x01, 0x02}
 	b64 := base64.StdEncoding.EncodeToString(bitmap)
 
 	_, err := BuildImage(b64, ImageAttrs{Width: 16, Height: 2})
 	testutil.ExpectedError(t, err)
-}
 
-func TestBuildImage_DataTruncation(t *testing.T) {
-	bitmap := []byte{0x01, 0x02, 0x99, 0x99}
-	b64 := base64.StdEncoding.EncodeToString(bitmap)
+	// Data longer than expected is truncated.
+	bitmap = []byte{0x01, 0x02, 0x99, 0x99}
+	b64 = base64.StdEncoding.EncodeToString(bitmap)
 
 	got, err := BuildImage(b64, ImageAttrs{Width: 8, Height: 2})
 	testutil.ExpectedNoError(t, err)
@@ -237,16 +235,15 @@ func TestBuildImage_DataTruncation(t *testing.T) {
 		0x01, 0x02, // truncated data
 	}
 	testutil.ExpectedBytesEqual(t, got, expectedPrefix)
-}
 
-func TestBuildImage_MultiSlice(t *testing.T) {
-	bitmap := make([]byte, 300)
+	// Image data larger than one slice is split into multiple chunks.
+	bitmap = make([]byte, 300)
 	for i := range bitmap {
 		bitmap[i] = byte(i % 256)
 	}
-	b64 := base64.StdEncoding.EncodeToString(bitmap)
+	b64 = base64.StdEncoding.EncodeToString(bitmap)
 
-	got, err := BuildImage(b64, ImageAttrs{Width: 8, Height: 300})
+	got, err = BuildImage(b64, ImageAttrs{Width: 8, Height: 300})
 	testutil.ExpectedNoError(t, err)
 	testutil.ExpectedLen(t, got, 316)
 

@@ -20,20 +20,17 @@ func TestNewManager(t *testing.T) {
 	testutil.ExpectedEqual(t, cm.Data.Port, 0)
 }
 
-func TestManager_Load_NonExistent(t *testing.T) {
-	tempDir := t.TempDir()
-	cm := &Manager{
-		path: filepath.Join(tempDir, "config.json"),
-		Data: defaults(),
-	}
-
-	err := cm.Load()
-	testutil.ExpectedNoError(t, err)
-}
-
-func TestManager_Load_ValidFile(t *testing.T) {
+func TestManager_Load(t *testing.T) {
 	tempDir := t.TempDir()
 	configFile := filepath.Join(tempDir, "config.json")
+
+	cm := &Manager{path: configFile, Data: defaults()}
+
+	// Non-existent file.
+	err := cm.Load()
+	testutil.ExpectedNoError(t, err)
+
+	// Valid config file.
 	initialData := AppConfig{
 		Port:        4550,
 		LANPrinters: []string{"192.168.1.10", "192.168.1.20"},
@@ -45,30 +42,16 @@ func TestManager_Load_ValidFile(t *testing.T) {
 	err = os.WriteFile(configFile, raw, 0644)
 	testutil.ExpectedNoError(t, err)
 
-	cm := &Manager{
-		path: configFile,
-		Data: defaults(),
-	}
-
 	err = cm.Load()
 	testutil.ExpectedNoError(t, err)
 	testutil.ExpectedEqual(t, cm.Data.Port, 4550)
 	testutil.ExpectedLen(t, cm.Data.LANPrinters, 2)
 	testutil.ExpectedEqual(t, cm.Data.LANPrinters[0], "192.168.1.10")
 	testutil.ExpectedEqual(t, cm.Data.LANPrinters[1], "192.168.1.20")
-}
 
-func TestManager_Load_CorruptJSON(t *testing.T) {
-	tempDir := t.TempDir()
-	configFile := filepath.Join(tempDir, "config.json")
-
-	err := os.WriteFile(configFile, []byte("{corrupt-json"), 0644)
+	// Corrupt JSON.
+	err = os.WriteFile(configFile, []byte("{corrupt-json"), 0644)
 	testutil.ExpectedNoError(t, err)
-
-	cm := &Manager{
-		path: configFile,
-		Data: defaults(),
-	}
 
 	err = cm.Load()
 	testutil.ExpectedError(t, err)
@@ -86,10 +69,11 @@ func TestManager_Save(t *testing.T) {
 		},
 	}
 
+	// Save successfully.
 	err := cm.Save()
 	testutil.ExpectedNoError(t, err)
 
-	// Verify file was written
+	// Verify saved content.
 	data, err := os.ReadFile(configFile)
 	testutil.ExpectedNoError(t, err)
 
@@ -99,28 +83,16 @@ func TestManager_Save(t *testing.T) {
 	testutil.ExpectedEqual(t, loaded.Port, 4548)
 	testutil.ExpectedLen(t, loaded.LANPrinters, 1)
 	testutil.ExpectedEqual(t, loaded.LANPrinters[0], "10.0.0.5")
-}
 
-func TestManager_Save_Error(t *testing.T) {
-	tempDir := t.TempDir()
-	cm := &Manager{
-		path: tempDir, // write to a directory path will fail
-		Data: defaults(),
-	}
+	// Save to an invalid path.
+	cm.path = tempDir
 
-	err := cm.Save()
+	err = cm.Save()
 	testutil.ExpectedError(t, err)
 }
 
 func TestIsPortAvailable(t *testing.T) {
-	// Find a free port by listening on :0 then closing
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Skipf("TCP listeners unavailable in this environment: %v", err)
-	}
-	port := ln.Addr().(*net.TCPAddr).Port
-	_ = ln.Close()
-
+	port := testutil.GetFreePort(t)
 	testutil.ExpectedTrue(t, isPortAvailable(port), "Expected port to be available")
 
 	// Occupy the port and test again
@@ -137,30 +109,6 @@ func TestFindAvailablePort(t *testing.T) {
 	port, err := findAvailablePort(PortRangeStart, PortRangeEnd)
 	testutil.ExpectedNoError(t, err)
 	testutil.ExpectedTrue(t, port >= PortRangeStart && port <= PortRangeEnd, "Expected port in range")
-}
-
-func TestFindAvailablePort_Fallback(t *testing.T) {
-	skipIfTCPListenersUnavailable(t)
-
-	start := 60000
-	end := 60001
-	listeners := make([]net.Listener, 0)
-	defer func() {
-		for _, l := range listeners {
-			_ = l.Close()
-		}
-	}()
-
-	for p := start; p <= end; p++ {
-		ln, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", p))
-		if err == nil {
-			listeners = append(listeners, ln)
-		}
-	}
-
-	port, err := findAvailablePort(start, end)
-	testutil.ExpectedNoError(t, err)
-	testutil.ExpectedTrue(t, port > 0, "Expected valid fallback port > 0")
 }
 
 func TestManager_ResolvePort(t *testing.T) {

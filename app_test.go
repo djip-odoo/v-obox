@@ -14,27 +14,18 @@ func TestNewApp(t *testing.T) {
 	app := NewApp()
 	testutil.ExpectedNotNil(t, app)
 	testutil.ExpectedNotNil(t, app.autoStart)
+	testutil.ExpectedNotNil(t, app.config)
+	testutil.ExpectedNotNil(t, app.printerManager)
 }
 
-func TestApp_GetPrinterIp(t *testing.T) {
-	app := &App{
-		webserver: &server.Server{
-			Port: 4545,
-		},
-	}
-
-	got := app.GetPrinterIp("czpTTjEyMzQ1Ng")
-	testutil.ExpectedEqual(t, got, "127.0.0.1:4545/p/czpTTjEyMzQ1Ng")
-}
-
-func TestApp_AppVariableAndPrinters(t *testing.T) {
+func TestApp_AppVariableAndPrintersAndGetPrinterIp(t *testing.T) {
 	tempDir := t.TempDir()
 	t.Setenv("HOME", tempDir)
 
 	cfg, err := config.NewManager()
 	testutil.ExpectedNoError(t, err)
 
-	port := 4545
+	port := testutil.GetFreePort(t)
 
 	err = cfg.AddLanEposPrinter("192.168.1.100")
 	testutil.ExpectedNoError(t, err)
@@ -50,6 +41,7 @@ func TestApp_AppVariableAndPrinters(t *testing.T) {
 	}
 
 	appVariable := app.AppVariable()
+	testutil.ExpectedEqual(t, app.GetPrinterIp("czpTTjEyMzQ1Ng"), fmt.Sprintf("127.0.0.1:%d/p/czpTTjEyMzQ1Ng", port))
 	testutil.ExpectedTrue(t, appVariable.ServerRunning, "Expected ServerRunning to be true")
 	testutil.ExpectedEqual(t, appVariable.DefaultIp, fmt.Sprintf("127.0.0.1:%d", port))
 	testutil.ExpectedTrue(t, appVariable.Os != "", "Expected non-empty Os field in app variable")
@@ -76,19 +68,7 @@ func appPrintersOrSkip(t *testing.T, app *App) (printers Printers) {
 	return app.Printers()
 }
 
-func TestApp_AddLANPrinter_InvalidIP(t *testing.T) {
-	app := &App{}
-
-	// Invalid format
-	err := app.AddLANPrinter("not.an.ip")
-	testutil.ExpectedError(t, err)
-
-	// Empty string
-	errEmpty := app.AddLANPrinter("  ")
-	testutil.ExpectedError(t, errEmpty)
-}
-
-func TestApp_AddLANPrinter_Unreachable(t *testing.T) {
+func TestApp_AddLANPrinter(t *testing.T) {
 	tempDir := t.TempDir()
 	t.Setenv("HOME", tempDir)
 
@@ -97,28 +77,23 @@ func TestApp_AddLANPrinter_Unreachable(t *testing.T) {
 
 	app := &App{config: cfg}
 
-	// Unreachable IP/port (using closed localhost port for instant rejection)
+	// Invalid IP format.
+	err = app.AddLANPrinter("not.an.ip")
+	testutil.ExpectedError(t, err)
+
+	// Empty IP.
+	err = app.AddLANPrinter("  ")
+	testutil.ExpectedError(t, err)
+
+	// Unreachable printer.
 	err = app.AddLANPrinter("127.0.0.1")
 	if err == nil {
 		t.Log("Note: 127.0.0.1:9100 happened to be open")
 	}
-}
 
-func TestApp_AddLANPrinter_Success(t *testing.T) {
-	_, _, err := testutil.StartMockTCPServer(t, printer.LANPort)
-	if err != nil {
-		t.Skipf("Cannot bind port %d for live LAN add test: %v", printer.LANPort, err)
-	}
-
-	tempDir := t.TempDir()
-	t.Setenv("HOME", tempDir)
-
-	cfg, err := config.NewManager()
+	// Reachable printer.
+	_, _, err = testutil.StartMockTCPServer(t, printer.LANPort)
 	testutil.ExpectedNoError(t, err)
-
-	app := &App{
-		config: cfg,
-	}
 
 	err = app.AddLANPrinter("127.0.0.1")
 	testutil.ExpectedNoError(t, err)

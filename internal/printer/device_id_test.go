@@ -10,26 +10,10 @@ func TestSanitizeDeviceID(t *testing.T) {
 		input    string
 		expected string
 	}{
-		{
-			name:     "plain ascii",
-			input:    "MFG:EPSON;MDL:TM-T20II;",
-			expected: "MFG:EPSON;MDL:TM-T20II;",
-		},
-		{
-			name:     "contains null bytes and control chars",
-			input:    "MFG:EPSON\x00;MDL:\x01TM-T20II\x00;\x1f",
-			expected: "MFG:EPSON;MDL:TM-T20II;",
-		},
-		{
-			name:     "empty string",
-			input:    "",
-			expected: "",
-		},
-		{
-			name:     "unicode printables preserved",
-			input:    "MFG:ÜberPrinter;",
-			expected: "MFG:ÜberPrinter;",
-		},
+		{name: "contains null bytes and control chars", input: "MFG:EPSON\x00;MDL:\x01TM-T20II\x00;\x1f", expected: "MFG:EPSON;MDL:TM-T20II;"},
+		{name: "unicode printables preserved", input: "MFG:ÜberPrinter;", expected: "MFG:ÜberPrinter;"},
+		{name: "plain ascii", input: "MFG:EPSON;MDL:TM-T20II;", expected: "MFG:EPSON;MDL:TM-T20II;"},
+		{name: "empty string", input: "", expected: ""},
 	}
 
 	for _, tc := range tests {
