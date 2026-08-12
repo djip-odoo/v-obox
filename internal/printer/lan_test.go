@@ -1,12 +1,12 @@
 package printer
 
 import (
-	"fmt"
 	"net"
 	"path/filepath"
 	"testing"
 
 	"epos-proxy/internal/config"
+	"epos-proxy/internal/testutil"
 )
 
 func TestValidateIPAddress(t *testing.T) {
@@ -27,12 +27,12 @@ func TestValidateIPAddress(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			got, err := ValidateIPAddress(tc.input)
-			if (err != nil) != tc.expectErr {
-				t.Fatalf("ValidateIPAddress(%q) error = %v, expectErr %v", tc.input, err, tc.expectErr)
+			if tc.expectErr {
+				testutil.ExpectedError(t, err)
+			} else {
+				testutil.ExpectedNoError(t, err)
 			}
-			if got != tc.expected {
-				t.Errorf("ValidateIPAddress(%q) = %q, want %q", tc.input, got, tc.expected)
-			}
+			testutil.ExpectedEqual(t, got, tc.expected)
 		})
 	}
 }
@@ -40,26 +40,17 @@ func TestValidateIPAddress(t *testing.T) {
 func TestCheckLANPrinter_SuccessAndOffline(t *testing.T) {
 	// 1. Offline IP / unreachable port
 	err := CheckLANPrinter("127.0.0.1")
-	// Since port 9100 is typically not open in test environment, it should return error
-	// If 9100 happens to be open, we still test that dialing a closed port behaves predictably
 	if err == nil {
 		t.Log("Note: 127.0.0.1:9100 was reachable in this environment")
 	}
 
-	// 2. Mock a live TCP server on port 9100 (if possible)
-	ln, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", LANPort))
+	// 2. Mock a live TCP server on port 9100
+	_, _, err = testutil.StartMockTCPServer(t, LANPort, func(conn net.Conn) {
+		_ = conn.Close()
+	})
 	if err == nil {
-		defer ln.Close()
-		go func() {
-			conn, err := ln.Accept()
-			if err == nil {
-				_ = conn.Close()
-			}
-		}()
-
-		if err := CheckLANPrinter("127.0.0.1"); err != nil {
-			t.Errorf("Expected CheckLANPrinter to succeed for active listener, got: %v", err)
-		}
+		err = CheckLANPrinter("127.0.0.1")
+		testutil.ExpectedNoError(t, err)
 	} else {
 		t.Logf("Could not bind port %d for live test: %v (skipping active listener check)", LANPort, err)
 	}
@@ -75,14 +66,9 @@ func TestListLANPrinters(t *testing.T) {
 	_ = filepath.Join(tempDir, "config.json") // satisfies path usage
 
 	printers := ListLANPrinters(cfg)
-	if len(printers) != 2 {
-		t.Fatalf("Expected 2 LAN printers, got %d", len(printers))
-	}
-
-	if printers[0].IP != "192.168.1.100" || printers[0].Id != EncodeLANPrinterID("192.168.1.100") {
-		t.Errorf("Mismatch for printer 0: %+v", printers[0])
-	}
-	if printers[1].IP != "192.168.1.101" || printers[1].Id != EncodeLANPrinterID("192.168.1.101") {
-		t.Errorf("Mismatch for printer 1: %+v", printers[1])
-	}
+	testutil.ExpectedLen(t, printers, 2)
+	testutil.ExpectedEqual(t, printers[0].IP, "192.168.1.100")
+	testutil.ExpectedEqual(t, printers[0].Id, EncodeLANPrinterID("192.168.1.100"))
+	testutil.ExpectedEqual(t, printers[1].IP, "192.168.1.101")
+	testutil.ExpectedEqual(t, printers[1].Id, EncodeLANPrinterID("192.168.1.101"))
 }

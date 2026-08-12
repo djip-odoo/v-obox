@@ -2,24 +2,21 @@ package printer
 
 import (
 	"errors"
-	"fmt"
 	"io"
 	"net"
 	"sync"
 	"testing"
 	"time"
 
+	"epos-proxy/internal/testutil"
+
 	"github.com/google/gousb"
 )
 
 func TestNewManager(t *testing.T) {
 	mgr := NewManager()
-	if mgr == nil {
-		t.Fatal("Expected non-nil Manager")
-	}
-	if mgr.printers == nil {
-		t.Fatal("Expected initialized printers map")
-	}
+	testutil.ExpectedNotNil(t, mgr)
+	testutil.ExpectedNotNil(t, mgr.printers)
 }
 
 func TestPrinter_QueueFull(t *testing.T) {
@@ -35,9 +32,7 @@ func TestPrinter_QueueFull(t *testing.T) {
 		err := p.Enqueue(func(p *Printer) JobResult {
 			return JobResult{OK: true}
 		}, nil)
-		if err != nil {
-			t.Fatalf("Enqueue failed on item %d: %v", i, err)
-		}
+		testutil.ExpectedNoError(t, err)
 	}
 
 	// 101st enqueue must return ErrQueueFull
@@ -45,9 +40,7 @@ func TestPrinter_QueueFull(t *testing.T) {
 		return JobResult{OK: true}
 	}, nil)
 
-	if !errors.Is(err, ErrQueueFull) {
-		t.Errorf("Expected ErrQueueFull, got: %v", err)
-	}
+	testutil.ExpectedTrue(t, errors.Is(err, ErrQueueFull))
 }
 
 func TestPrinter_IdToString(t *testing.T) {
@@ -56,9 +49,7 @@ func TestPrinter_IdToString(t *testing.T) {
 		connectionType: ConnKindLAN,
 		lanIP:          "192.168.1.50",
 	}
-	if pLAN.idToString() != "LAN:192.168.1.50" {
-		t.Errorf("Unexpected LAN idToString: %s", pLAN.idToString())
-	}
+	testutil.ExpectedEqual(t, pLAN.idToString(), "LAN:192.168.1.50")
 
 	// USB printer with ID
 	pUSB := &Printer{
@@ -70,61 +61,50 @@ func TestPrinter_IdToString(t *testing.T) {
 		},
 	}
 	str := pUSB.idToString()
-	if str == "" || str == "USB:unknown" {
-		t.Errorf("Unexpected USB idToString: %s", str)
-	}
+	testutil.ExpectedNotEqual(t, str, "")
+	testutil.ExpectedNotEqual(t, str, "USB:unknown")
 
 	// USB printer without ID
 	pUSBEmpty := &Printer{
 		connectionType: ConnKindUSB,
 		id:             nil,
 	}
-	if pUSBEmpty.idToString() != "USB:unknown" {
-		t.Errorf("Expected 'USB:unknown', got: %s", pUSBEmpty.idToString())
-	}
+	testutil.ExpectedEqual(t, pUSBEmpty.idToString(), "USB:unknown")
 }
 
 func TestManager_LANPrinterIntegration(t *testing.T) {
-	// Start a mock TCP printer listener on 127.0.0.1:9100 (if possible)
-	ln, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", LANPort))
-	if err != nil {
-		t.Skipf("Cannot bind port %d for mock printer integration test: %v", LANPort, err)
-	}
-	defer ln.Close()
-
 	var receivedData []byte
 	var mu sync.Mutex
 	done := make(chan struct{})
 
-	go func() {
-		conn, err := ln.Accept()
-		if err != nil {
-			return
-		}
-		defer conn.Close()
-
+	// Start a mock TCP printer listener on 127.0.0.1:9100
+	_, _, err := testutil.StartMockTCPServer(t, LANPort, func(conn net.Conn) {
 		buf := make([]byte, 1024)
 		n, _ := io.ReadAtLeast(conn, buf, 1)
 		mu.Lock()
 		receivedData = append(receivedData, buf[:n]...)
 		mu.Unlock()
-		close(done)
-	}()
+		select {
+		case <-done:
+		default:
+			close(done)
+		}
+	})
+	if err != nil {
+		t.Skipf("Cannot bind port %d for mock printer integration test: %v", LANPort, err)
+	}
 
 	mgr := NewManager()
 	printerID := EncodeLANPrinterID("127.0.0.1")
 
 	testPayload := []byte("TEST PRINT DATA FOR LAN")
 	replyChan, err := mgr.WriteAsync(printerID, testPayload)
-	if err != nil {
-		t.Fatalf("WriteAsync failed: %v", err)
-	}
+	testutil.ExpectedNoError(t, err)
 
 	select {
 	case res := <-replyChan:
-		if !res.OK || res.Err != nil {
-			t.Fatalf("Print job returned error: %v", res.Err)
-		}
+		testutil.ExpectedTrue(t, res.OK)
+		testutil.ExpectedNoError(t, res.Err)
 	case <-time.After(5 * time.Second):
 		t.Fatal("Timed out waiting for print job reply")
 	}
@@ -132,9 +112,7 @@ func TestManager_LANPrinterIntegration(t *testing.T) {
 	select {
 	case <-done:
 		mu.Lock()
-		if string(receivedData) != string(testPayload) {
-			t.Errorf("Received data %q != expected %q", string(receivedData), string(testPayload))
-		}
+		testutil.ExpectedBytesEqual(t, receivedData, testPayload)
 		mu.Unlock()
 	case <-time.After(3 * time.Second):
 		t.Fatal("Timed out waiting for mock printer server to receive data")
@@ -148,8 +126,5 @@ func TestPathToString(t *testing.T) {
 	}
 
 	got := pathToString(desc)
-	expected := "1.2.3.4"
-	if got != expected {
-		t.Errorf("pathToString() = %q, want %q", got, expected)
-	}
+	testutil.ExpectedEqual(t, got, "1.2.3.4")
 }

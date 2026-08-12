@@ -2,6 +2,8 @@ package printer
 
 import (
 	"testing"
+
+	"epos-proxy/internal/testutil"
 )
 
 func TestSanitizeDeviceID(t *testing.T) {
@@ -19,9 +21,7 @@ func TestSanitizeDeviceID(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			got := sanitizeDeviceID(tc.input)
-			if got != tc.expected {
-				t.Errorf("sanitizeDeviceID(%q) = %q, want %q", tc.input, got, tc.expected)
-			}
+			testutil.ExpectedEqual(t, got, tc.expected)
 		})
 	}
 }
@@ -48,9 +48,7 @@ func TestNormalizeKey(t *testing.T) {
 
 	for _, tc := range tests {
 		got := normalizeKey(tc.input)
-		if got != tc.expected {
-			t.Errorf("normalizeKey(%q) = %q, want %q", tc.input, got, tc.expected)
-		}
+		testutil.ExpectedEqual(t, got, tc.expected)
 	}
 }
 
@@ -58,38 +56,23 @@ func TestParseDeviceID(t *testing.T) {
 	raw := "MFG:EPSON;CMD:ESC/POS;MDL:TM-T20II;CLS:PRINTER;DESCRIPTION:Receipt Printer;"
 	got := parseDeviceID(raw)
 
-	if got["MFG"] != "EPSON" {
-		t.Errorf("Expected MFG=EPSON, got: %s", got["MFG"])
-	}
-	if got["CMD"] != "ESC/POS" {
-		t.Errorf("Expected CMD=ESC/POS, got: %s", got["CMD"])
-	}
-	if got["MDL"] != "TM-T20II" {
-		t.Errorf("Expected MDL=TM-T20II, got: %s", got["MDL"])
-	}
-	if got["CLS"] != "PRINTER" {
-		t.Errorf("Expected CLS=PRINTER, got: %s", got["CLS"])
-	}
-	if got["DESCRIPTION"] != "Receipt Printer" {
-		t.Errorf("Expected DESCRIPTION='Receipt Printer', got: %s", got["DESCRIPTION"])
-	}
+	testutil.ExpectedEqual(t, got["MFG"], "EPSON")
+	testutil.ExpectedEqual(t, got["CMD"], "ESC/POS")
+	testutil.ExpectedEqual(t, got["MDL"], "TM-T20II")
+	testutil.ExpectedEqual(t, got["CLS"], "PRINTER")
+	testutil.ExpectedEqual(t, got["DESCRIPTION"], "Receipt Printer")
 }
 
 func TestParseDeviceID_DuplicateKeys(t *testing.T) {
 	// Aliases map "COMMAND" and "CMD" both to "CMD" -> should be concatenated with comma
 	raw := "CMD:ESC/POS;COMMAND:STAR;"
 	got := parseDeviceID(raw)
-
-	if got["CMD"] != "ESC/POS,STAR" {
-		t.Errorf("Expected CMD='ESC/POS,STAR', got: %s", got["CMD"])
-	}
+	testutil.ExpectedEqual(t, got["CMD"], "ESC/POS,STAR")
 
 	// Repeated identical value should not be duplicated
 	rawSame := "CMD:ESC/POS;COMMAND:ESC/POS;"
 	gotSame := parseDeviceID(rawSame)
-	if gotSame["CMD"] != "ESC/POS" {
-		t.Errorf("Expected CMD='ESC/POS', got: %s", gotSame["CMD"])
-	}
+	testutil.ExpectedEqual(t, gotSame["CMD"], "ESC/POS")
 }
 
 func TestParseDeviceID_MalformedAndEdgeCases(t *testing.T) {
@@ -97,10 +80,14 @@ func TestParseDeviceID_MalformedAndEdgeCases(t *testing.T) {
 	raw := ";;;NO_COLON;EMPTY_VAL:;:EMPTY_KEY;  ;MFG:ACME;"
 	got := parseDeviceID(raw)
 
-	if len(got) != 1 {
-		t.Errorf("Expected exactly 1 valid key-value pair, got %d: %v", len(got), got)
+	testutil.ExpectedLen(t, mapKeys(got), 1)
+	testutil.ExpectedEqual(t, got["MFG"], "ACME")
+}
+
+func mapKeys[K comparable, V any](m map[K]V) []K {
+	keys := make([]K, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
 	}
-	if got["MFG"] != "ACME" {
-		t.Errorf("Expected MFG=ACME, got: %s", got["MFG"])
-	}
+	return keys
 }

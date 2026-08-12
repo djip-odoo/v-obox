@@ -2,6 +2,8 @@ package printer
 
 import (
 	"testing"
+
+	"epos-proxy/internal/testutil"
 )
 
 func TestGetPrinterType(t *testing.T) {
@@ -30,8 +32,6 @@ func TestGetPrinterType(t *testing.T) {
 
 	for _, tc := range tests {
 		got := getPrinterType(tc.vidPid)
-		if got != tc.expected {
-			t.Errorf("getPrinterType(%q) = %q, want %q", tc.vidPid, got, tc.expected)
-		}
+		testutil.ExpectedEqual(t, got, tc.expected)
 	}
 }

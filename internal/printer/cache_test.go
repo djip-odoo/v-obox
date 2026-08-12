@@ -3,6 +3,8 @@ package printer
 import (
 	"sync"
 	"testing"
+
+	"epos-proxy/internal/testutil"
 )
 
 func TestBuildSnapshot(t *testing.T) {
@@ -13,28 +15,18 @@ func TestBuildSnapshot(t *testing.T) {
 	snap1 := buildSnapshot(keys1)
 	snap2 := buildSnapshot(keys2)
 
-	if snap1 != snap2 {
-		t.Errorf("Expected identical snapshots, got %q and %q", snap1, snap2)
-	}
-
-	expected := "dev-A|dev-B|dev-C"
-	if snap1 != expected {
-		t.Errorf("Expected snapshot %q, got %q", expected, snap1)
-	}
+	testutil.ExpectedEqual(t, snap1, snap2)
+	testutil.ExpectedEqual(t, snap1, "dev-A|dev-B|dev-C")
 
 	// Empty keys
-	if got := buildSnapshot([]string{}); got != "" {
-		t.Errorf("Expected empty snapshot for empty keys, got: %q", got)
-	}
+	testutil.ExpectedEqual(t, buildSnapshot([]string{}), "")
 }
 
 func TestPrinterCache_Lifecycle(t *testing.T) {
 	cache := &printerCache{}
 
 	keys := []string{"dev1", "dev2"}
-	if !cache.HasChanged(keys) {
-		t.Error("Expected HasChanged to be true on uninitialized cache")
-	}
+	testutil.ExpectedTrue(t, cache.HasChanged(keys))
 
 	available := []Info{
 		{Id: "p1", Name: "Printer 1", Type: TypeReceipt},
@@ -46,37 +38,26 @@ func TestPrinterCache_Lifecycle(t *testing.T) {
 	cache.Update(keys, available, unavailable)
 
 	// Now cache has been updated with keys -> HasChanged should be false
-	if cache.HasChanged(keys) {
-		t.Error("Expected HasChanged to be false after Update with same keys")
-	}
+	testutil.ExpectedFalse(t, cache.HasChanged(keys))
 
 	// HasUnavailable should be true
-	if !cache.HasUnavailable() {
-		t.Error("Expected HasUnavailable to be true")
-	}
+	testutil.ExpectedTrue(t, cache.HasUnavailable())
 
 	// Get should return copy of available printers
 	printers := cache.Get()
-	if len(printers) != 1 || printers[0].Id != "p1" {
-		t.Errorf("Unexpected cached printers: %+v", printers)
-	}
+	testutil.ExpectedLen(t, printers, 1)
+	testutil.ExpectedEqual(t, printers[0].Id, "p1")
 
 	// Mutating returned slice should not mutate internal cache
 	printers[0].Name = "MUTATED"
-	if cache.Get()[0].Name == "MUTATED" {
-		t.Error("cache.Get() did not return a defensive copy")
-	}
+	testutil.ExpectedNotEqual(t, cache.Get()[0].Name, "MUTATED")
 
 	// Update with new keys and no unavailable printers
 	newKeys := []string{"dev1", "dev2", "dev3"}
 	cache.Update(newKeys, available, nil)
 
-	if cache.HasUnavailable() {
-		t.Error("Expected HasUnavailable to be false after clearing unavailable")
-	}
-	if cache.HasChanged(newKeys) {
-		t.Error("Expected HasChanged to be false for updated keys")
-	}
+	testutil.ExpectedFalse(t, cache.HasUnavailable())
+	testutil.ExpectedFalse(t, cache.HasChanged(newKeys))
 }
 
 func TestPrinterCache_Concurrency(t *testing.T) {
