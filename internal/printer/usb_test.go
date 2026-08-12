@@ -1,6 +1,7 @@
 package printer
 
 import (
+	"errors"
 	"testing"
 
 	"epos-proxy/internal/testutil"
@@ -262,6 +263,178 @@ func TestListUSBPrinters(t *testing.T) {
 	cached, err2 := ListUSBPrinters()
 	testutil.ExpectedNoError(t, err2)
 	testutil.ExpectedNotNil(t, cached)
+}
+
+func TestListUSBPrinters_WithMockOpenDevices(t *testing.T) {
+	mockPrinters := []*gousb.DeviceDesc{
+		{
+			Bus:     1,
+			Address: 2,
+			Vendor:  0x04B8,
+			Product: 0x0202,
+			Path:    []int{1, 2},
+			Configs: map[int]gousb.ConfigDesc{
+				1: {
+					Number: 1,
+					Interfaces: []gousb.InterfaceDesc{
+						{
+							Number: 0,
+							AltSettings: []gousb.InterfaceSetting{
+								{
+									Class: gousb.ClassPrinter,
+									Endpoints: map[gousb.EndpointAddress]gousb.EndpointDesc{
+										1: {Number: 1, Direction: gousb.EndpointDirectionOut, TransferType: gousb.TransferTypeBulk},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+		{
+			Bus:     1,
+			Address: 3,
+			Vendor:  0x0A5F,
+			Product: 0x0187,
+			Path:    []int{1, 3},
+			Configs: map[int]gousb.ConfigDesc{
+				1: {
+					Number: 1,
+					Interfaces: []gousb.InterfaceDesc{
+						{
+							Number: 0,
+							AltSettings: []gousb.InterfaceSetting{
+								{
+									Class: gousb.ClassVendorSpec,
+									Endpoints: map[gousb.EndpointAddress]gousb.EndpointDesc{
+										2: {Number: 2, Direction: gousb.EndpointDirectionOut, TransferType: gousb.TransferTypeBulk},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+		{
+			// Mass storage device (should be ignored)
+			Bus:     1,
+			Address: 4,
+			Vendor:  0x1234,
+			Product: 0x5678,
+			Configs: map[int]gousb.ConfigDesc{
+				1: {
+					Number: 1,
+					Interfaces: []gousb.InterfaceDesc{
+						{
+							Number: 0,
+							AltSettings: []gousb.InterfaceSetting{
+								{
+									Class: gousb.ClassMassStorage,
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	oldOpenDevices := openDevices
+	defer func() {
+		openDevices = oldOpenDevices
+		usbCache.Update(nil, nil, nil)
+	}()
+
+	openDevices = func(ctx *gousb.Context, fn func(desc *gousb.DeviceDesc) bool) ([]*gousb.Device, error) {
+		for _, d := range mockPrinters {
+			_ = fn(d)
+		}
+		return nil, nil
+	}
+
+	res, err := ListUSBPrinters()
+	testutil.ExpectedNoError(t, err)
+	testutil.ExpectedNotNil(t, res)
+
+	// Second invocation should hit cache
+	cachedRes, err := ListUSBPrinters()
+	testutil.ExpectedNoError(t, err)
+	testutil.ExpectedNotNil(t, cachedRes)
+}
+
+func TestListUSBPrinters_OpenDevicesError(t *testing.T) {
+	oldOpenDevices := openDevices
+	defer func() {
+		openDevices = oldOpenDevices
+		usbCache.Update(nil, nil, nil)
+	}()
+
+	openDevices = func(ctx *gousb.Context, fn func(desc *gousb.DeviceDesc) bool) ([]*gousb.Device, error) {
+		return nil, errors.New("simulated libusb error")
+	}
+
+	res, err := ListUSBPrinters()
+	testutil.ExpectedError(t, err)
+	testutil.ExpectedNil(t, res)
+}
+
+func TestListUSBPrinters_UnavailableDevice(t *testing.T) {
+	mockPrinters := []*gousb.DeviceDesc{
+		{
+			Bus:     1,
+			Address: 2,
+			Vendor:  0x04B8,
+			Product: 0x0202,
+			Path:    []int{1, 2},
+			Configs: map[int]gousb.ConfigDesc{
+				1: {
+					Number: 1,
+					Interfaces: []gousb.InterfaceDesc{
+						{
+							Number: 0,
+							AltSettings: []gousb.InterfaceSetting{
+								{
+									Class: gousb.ClassPrinter,
+									Endpoints: map[gousb.EndpointAddress]gousb.EndpointDesc{
+										1: {Number: 1, Direction: gousb.EndpointDirectionOut, TransferType: gousb.TransferTypeBulk},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	oldOpenDevices := openDevices
+	defer func() {
+		openDevices = oldOpenDevices
+		usbCache.Update(nil, nil, nil)
+	}()
+
+	callCount := 0
+	openDevices = func(ctx *gousb.Context, fn func(desc *gousb.DeviceDesc) bool) ([]*gousb.Device, error) {
+		callCount++
+		if callCount == 1 {
+			// First scan call lists descriptors
+			for _, d := range mockPrinters {
+				_ = fn(d)
+			}
+			return nil, nil
+		}
+		// Second call (in GetPrinterInfo) fails opening device
+		return nil, errors.New("device locked by another process")
+	}
+
+	res, err := ListUSBPrinters()
+	testutil.ExpectedNoError(t, err)
+	testutil.ExpectedNotNil(t, res)
+	testutil.ExpectedLen(t, res.Unavailable, 1)
+	testutil.ExpectedTrue(t, res.Unavailable[0].Name != "")
+	testutil.ExpectedEqual(t, res.Unavailable[0].Error, "failed to open USB device for info retrieval: device locked by another process")
 }
 
 func TestGetPrinterFriendlyName(t *testing.T) {

@@ -8,6 +8,11 @@ import (
 	"github.com/google/gousb"
 )
 
+
+var openDevices = func(ctx *gousb.Context, fn func(desc *gousb.DeviceDesc) bool) ([]*gousb.Device, error) {
+	return ctx.OpenDevices(fn)
+}
+
 func pathToString(desc *gousb.DeviceDesc) string {
 	parts := make([]string, 0, len(desc.Path)+1)
 
