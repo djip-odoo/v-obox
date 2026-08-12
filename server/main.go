@@ -2,13 +2,13 @@ package server
 
 import (
 	"fmt"
-	"net"
 	"sync"
 	"sync/atomic"
 
 	"epos-proxy/config"
 	"epos-proxy/logger"
 	"epos-proxy/printer"
+	"epos-proxy/util"
 
 	"github.com/gofiber/fiber/v3"
 	"github.com/gofiber/fiber/v3/middleware/cors"
@@ -58,57 +58,9 @@ func (s *Server) Cfg() *config.Manager {
 	return s.cfg
 }
 
-// GetLocalIP returns the outbound IPv4 address of the machine, or 127.0.0.1 if none is found.
-func GetLocalIP() string {
-	conn, err := net.Dial("udp", "8.8.8.8:80")
-	if err == nil {
-		defer conn.Close()
-		localAddr, ok := conn.LocalAddr().(*net.UDPAddr)
-		if ok && localAddr.IP != nil && !localAddr.IP.IsLoopback() {
-			if ip4 := localAddr.IP.To4(); ip4 != nil {
-				return ip4.String()
-			}
-		}
-	}
-
-	ifaces, err := net.Interfaces()
-	if err == nil {
-		for _, iface := range ifaces {
-			if iface.Flags&net.FlagUp == 0 || iface.Flags&net.FlagLoopback != 0 {
-				continue
-			}
-			addrs, err := iface.Addrs()
-			if err != nil {
-				continue
-			}
-			for _, addr := range addrs {
-				var ip net.IP
-				switch v := addr.(type) {
-				case *net.IPNet:
-					ip = v.IP
-				case *net.IPAddr:
-					ip = v.IP
-				}
-				if ip != nil && !ip.IsLoopback() {
-					if ip4 := ip.To4(); ip4 != nil {
-						return ip4.String()
-					}
-				}
-			}
-		}
-	}
-
-	return "127.0.0.1"
-}
-
-// LocalIP returns the local IP address of the machine.
-func (s *Server) LocalIP() string {
-	return GetLocalIP()
-}
-
 // LocalAddr returns the host:port address of the server matching its current IP and running port.
 func (s *Server) LocalAddr() string {
-	return fmt.Sprintf("%s:%d", s.LocalIP(), s.Port)
+	return fmt.Sprintf("%s:%d",util.GetLocalIP(false), s.Port)
 }
 
 // ── Constructor ────────────────────────────────────────────────────────────────

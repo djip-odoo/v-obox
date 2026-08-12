@@ -11,6 +11,8 @@ import (
 	"testing"
 
 	"epos-proxy/printer"
+	"epos-proxy/util"
+
 	"github.com/gofiber/fiber/v3"
 )
 
@@ -102,7 +104,7 @@ func TestCustomSerialNumberSupport(t *testing.T) {
 }
 
 func TestServerLocalIPAndAddr(t *testing.T) {
-	ip := GetLocalIP()
+	ip := util.GetLocalIP(false)
 	if ip == "" {
 		t.Errorf("Expected non-empty IP from GetLocalIP")
 	}
@@ -112,8 +114,8 @@ func TestServerLocalIPAndAddr(t *testing.T) {
 	s := New(port, mgr)
 	defer s.Stop()
 
-	if s.LocalIP() != ip {
-		t.Errorf("Expected s.LocalIP() == %s, got %s", ip, s.LocalIP())
+	if util.GetLocalIP(false) != ip {
+		t.Errorf("Expected s.LocalIP() == %s, got %s", ip, util.GetLocalIP(false))
 	}
 
 	expectedAddr := fmt.Sprintf("%s:%d", ip, port)
