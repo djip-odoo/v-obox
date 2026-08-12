@@ -18,7 +18,7 @@ import (
 
 // ── Mock constants ─────────────────────────────────────────────────────────────
 
-const mockSerialNumber = "12345"
+const defaultSerialNumber = "12345"
 const mockLocalIP = "127.0.0.1:4545"
 
 // ── Types ──────────────────────────────────────────────────────────────────────
@@ -74,9 +74,23 @@ func (m *oboxModule) registerRoutes() {
 	// Called by discover_obox.js → rpc(ODOO_PROXY_DISCOVER_BOXES_ENDPOINT)
 	s.app.Get("/odoo-enterprise/iot/discover-boxes", func(ctx fiber.Ctx) error {
 		logger.Infof("[mock] IoT discover-boxes")
+		serial := ctx.Query("serial")
+		if serial == "" {
+			serial = ctx.Query("serial_number")
+		}
+		if serial == "" {
+			if dev := m.device.Load(); dev != nil && dev.serial != "" {
+				serial = dev.serial
+			}
+		}
+		if serial == "" {
+			serial = defaultSerialNumber
+		}
+
+		cleanSerial := strings.TrimPrefix(strings.TrimPrefix(serial, "ODO-"), "ODO")
 		boxes := []map[string]string{
-			{"serial_number": "ODO-" + mockSerialNumber, "pairing_code": "MOCKPAIR01"},
-			{"serial_number": mockSerialNumber, "pairing_code": "MOCKPAIR01"},
+			{"serial_number": "ODO-" + cleanSerial, "pairing_code": "MOCKPAIR01"},
+			{"serial_number": cleanSerial, "pairing_code": "MOCKPAIR01"},
 		}
 		return ctx.JSON(boxes)
 	})
@@ -88,23 +102,45 @@ func (m *oboxModule) registerRoutes() {
 
 		var body struct {
 			Params struct {
-				DatabaseURL string `json:"database_url"`
-				Token       string `json:"token"`
+				DatabaseURL  string `json:"database_url"`
+				Token        string `json:"token"`
+				SerialNumber string `json:"serial_number"`
+				Serial       string `json:"serial"`
 			} `json:"params"`
 		}
+
+		var serial string
 		if err := json.Unmarshal(ctx.Body(), &body); err == nil &&
 			body.Params.DatabaseURL != "" && body.Params.Token != "" {
 			dbURL := body.Params.DatabaseURL
 			token := body.Params.Token
-			logger.Infof("[mock] connect-db: got credentials db=%s — seeding brain + calling back /obox/connect", dbURL)
-			go m.callOdooOboxConnect(dbURL, token, mockSerialNumber)
+			serial = body.Params.SerialNumber
+			if serial == "" {
+				serial = body.Params.Serial
+			}
+			if serial == "" {
+				if dev := m.device.Load(); dev != nil && dev.serial != "" {
+					serial = dev.serial
+				}
+			}
+			if serial == "" {
+				serial = defaultSerialNumber
+			}
+			logger.Infof("[mock] connect-db: got credentials db=%s serial=%s — seeding brain + calling back /obox/connect", dbURL, serial)
+			go m.callOdooOboxConnect(dbURL, token, serial)
 		} else {
 			logger.Warn("[mock] connect-db: could not parse credentials from request body")
+			if serial == "" {
+				serial = defaultSerialNumber
+			}
 		}
 
+		cleanSerial := strings.TrimPrefix(strings.TrimPrefix(serial, "ODO-"), "ODO")
 		return ctx.JSON(map[string]interface{}{
 			"result": []map[string]string{
-				{"serial_number": mockSerialNumber},
+				{"serial_number": serial},
+				{"serial_number": "ODO-" + cleanSerial},
+				{"serial_number": cleanSerial},
 			},
 		})
 	})
@@ -158,13 +194,25 @@ func (m *oboxModule) registerRoutes() {
 	})
 
 	// ── Offline connect handshake ──────────────────────────────────────────
-	// GET /odoo/connect?db_url=...&db_uuid=...&token=...
+	// GET /odoo/connect?db_url=...&db_uuid=...&token=...&serial=...
 	s.app.Get("/odoo/connect", func(ctx fiber.Ctx) error {
 		dbURL := ctx.Query("db_url")
 		token := ctx.Query("token")
-		logger.Infof("[mock] Obox offline connect received: db_url=%s, token=%s", dbURL, token)
+		serial := ctx.Query("serial_number")
+		if serial == "" {
+			serial = ctx.Query("serial")
+		}
+		if serial == "" {
+			if dev := m.device.Load(); dev != nil && dev.serial != "" {
+				serial = dev.serial
+			}
+		}
+		if serial == "" {
+			serial = defaultSerialNumber
+		}
+		logger.Infof("[mock] Obox offline connect received: db_url=%s, token=%s, serial=%s", dbURL, token, serial)
 		if dbURL != "" && token != "" {
-			go m.callOdooOboxConnect(dbURL, token, mockSerialNumber)
+			go m.callOdooOboxConnect(dbURL, token, serial)
 		}
 		return ctx.SendStatus(fiber.StatusOK)
 	})
@@ -172,21 +220,25 @@ func (m *oboxModule) registerRoutes() {
 	// ── /mock/* management endpoints ─────────────────────────────────────
 	s.app.Post("/mock/connect", func(ctx fiber.Ctx) error {
 		var body struct {
-			DbURL  string `json:"db_url"`
-			Token  string `json:"token"`
-			Serial string `json:"serial"`
+			DbURL        string `json:"db_url"`
+			Token        string `json:"token"`
+			Serial       string `json:"serial"`
+			SerialNumber string `json:"serial_number"`
 		}
 		if err := ctx.Bind().JSON(&body); err != nil || body.DbURL == "" || body.Token == "" {
 			return ctx.Status(fiber.StatusBadRequest).JSON(map[string]string{"error": "db_url and token are required"})
 		}
 		serial := body.Serial
 		if serial == "" {
-			serial = mockSerialNumber
+			serial = body.SerialNumber
+		}
+		if serial == "" {
+			serial = defaultSerialNumber
 		}
 		m.device.Store(&oboxDevice{dbURL: body.DbURL, token: body.Token, serial: serial})
 		logger.Infof("[mock] Credentials registered via /mock/connect: db=%s serial=%s", body.DbURL, serial)
 		go m.callOdooOboxConnect(body.DbURL, body.Token, serial)
-		return ctx.JSON(map[string]string{"status": "ok"})
+		return ctx.JSON(map[string]string{"status": "ok", "serial": serial})
 	})
 
 	s.app.Get("/mock/status", func(ctx fiber.Ctx) error {
@@ -478,16 +530,26 @@ func (m *oboxModule) buildDeviceList() []oboxDeviceEntry {
 
 func (m *oboxModule) callOdooOboxConnect(dbURL, token, serial string) {
 	if serial == "" {
-		serial = mockSerialNumber
+		serial = defaultSerialNumber
 	}
 
-	// Candidates to try in case Odoo has "12345" or "ODO-12345"
-	candidateSerials := []string{serial}
-	if serial == mockSerialNumber {
-		candidateSerials = append(candidateSerials, "ODO-"+mockSerialNumber, "ODO"+mockSerialNumber)
-	} else if len(serial) > 4 && serial[:4] == "ODO-" {
-		candidateSerials = append(candidateSerials, serial[4:])
+	cleanSerial := strings.TrimPrefix(strings.TrimPrefix(serial, "ODO-"), "ODO")
+
+	// Generate all candidate serial variations for Odoo pairing
+	candidateMap := make(map[string]bool)
+	var candidateSerials []string
+
+	addCandidate := func(s string) {
+		if s != "" && !candidateMap[s] {
+			candidateMap[s] = true
+			candidateSerials = append(candidateSerials, s)
+		}
 	}
+
+	addCandidate(serial)
+	addCandidate(cleanSerial)
+	addCandidate("ODO-" + cleanSerial)
+	addCandidate("ODO" + cleanSerial)
 
 	endpoint := dbURL + "/obox/connect"
 	client := &http.Client{Timeout: 5 * time.Second}
