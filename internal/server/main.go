@@ -24,6 +24,16 @@ type Server struct {
 	mgr *printer.Manager
 	// cfg is kept for LAN printer listing
 	cfg *config.Manager
+
+	obox *oboxModule
+}
+
+// OdooStatus represents the connection and websocket status between proxy and Odoo.
+type OdooStatus struct {
+	Connected       bool   `json:"connected"`
+	DbURL           string `json:"dbUrl"`
+	WebsocketStatus string `json:"websocketStatus"`
+	Serial          string `json:"serial"`
 }
 
 // Binder is a function that configures routes, middlewares, or background workers on a Server instance.
@@ -69,6 +79,26 @@ func (s *Server) AppID() string {
 		return s.cfg.GetAppID()
 	}
 	return ""
+}
+
+// GetOdooStatus returns the current connection and websocket status with Odoo.
+func (s *Server) GetOdooStatus() OdooStatus {
+	if s.obox != nil {
+		return s.obox.getStatus()
+	}
+	if s.cfg != nil && s.cfg.HasOdooCredentials() {
+		return OdooStatus{
+			Connected:       true,
+			DbURL:           s.cfg.GetOdooDbURL(),
+			WebsocketStatus: "connected",
+			Serial:          s.cfg.GetOdooSerial(),
+		}
+	}
+	return OdooStatus{
+		Connected:       false,
+		WebsocketStatus: "disconnected",
+		Serial:          s.AppID(),
+	}
 }
 
 // ── Constructor ────────────────────────────────────────────────────────────────

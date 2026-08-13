@@ -41,9 +41,15 @@ type oboxDevice struct {
 
 // oboxModule encapsulates the state and behavior of the Obox mock service.
 type oboxModule struct {
-	server     *Server
-	device     atomic.Pointer[oboxDevice]
-	mockWeight atomic.Uint64
+	server          *Server
+	device          atomic.Pointer[oboxDevice]
+	mockWeight      atomic.Uint64
+	liveStatus      atomic.Pointer[string]
+	lastContactTime atomic.Int64
+}
+
+func (m *oboxModule) setLiveStatus(st string) {
+	m.liveStatus.Store(&st)
 }
 
 // ── Auto-binding registration ──────────────────────────────────────────────────
@@ -51,7 +57,9 @@ type oboxModule struct {
 func init() {
 	Register(func(s *Server) {
 		m := &oboxModule{server: s}
+		s.obox = m
 		m.setMockWeight(1.250) // Default mock scale weight in kg
+		initialStatus := "disconnected"
 		if s.cfg != nil && s.cfg.HasOdooCredentials() {
 			odooCfg := s.cfg.GetOdooConfig()
 			m.device.Store(&oboxDevice{
@@ -59,11 +67,42 @@ func init() {
 				token:  odooCfg.Token,
 				serial: odooCfg.SerialNumber,
 			})
+			initialStatus = "connecting"
 			logger.Infof("[mock] Restored Odoo credentials from storage: db=%s serial=%s", odooCfg.DbURL, odooCfg.SerialNumber)
 		}
+		m.setLiveStatus(initialStatus)
 		m.registerRoutes()
 		go m.deviceBrain()
 	})
+}
+
+func (m *oboxModule) getStatus() OdooStatus {
+	dev := m.device.Load()
+	if dev != nil && dev.dbURL != "" {
+		st := "connecting"
+		if ptr := m.liveStatus.Load(); ptr != nil && *ptr != "" {
+			st = *ptr
+		}
+		return OdooStatus{
+			Connected:       true,
+			DbURL:           dev.dbURL,
+			WebsocketStatus: st,
+			Serial:          dev.serial,
+		}
+	}
+	if m.server != nil && m.server.cfg != nil && m.server.cfg.HasOdooCredentials() {
+		return OdooStatus{
+			Connected:       true,
+			DbURL:           m.server.cfg.GetOdooDbURL(),
+			WebsocketStatus: "connecting",
+			Serial:          m.server.cfg.GetOdooSerial(),
+		}
+	}
+	return OdooStatus{
+		Connected:       false,
+		WebsocketStatus: "disconnected",
+		Serial:          m.appID(),
+	}
 }
 
 func (m *oboxModule) appID() string {
@@ -350,6 +389,7 @@ func (m *oboxModule) registerRoutes() {
 	s.app.Get("/odoo/disconnect", func(ctx fiber.Ctx) error {
 		logger.Infof("[mock] Obox disconnect — clearing device credentials")
 		m.device.Store(nil)
+		m.setLiveStatus("disconnected")
 		if m.server.cfg != nil {
 			if err := m.server.cfg.ClearOdooConfig(); err != nil {
 				logger.Warnf("[mock] Failed to clear Odoo credentials from storage: %v", err)
@@ -406,6 +446,8 @@ func (m *oboxModule) registerRoutes() {
 
 		logger.Infof("[mock] Obox offline connect received: db_url=%s, token=%s, serial=%s, db_uuid=%s", dbURL, token, serial, dbUUID)
 		if dbURL != "" && token != "" {
+			m.device.Store(&oboxDevice{dbURL: dbURL, token: token, serial: serial})
+			m.setLiveStatus("connecting")
 			if m.server.cfg != nil {
 				if err := m.server.cfg.SetOdooCredentials(dbURL, token, serial, dbUUID); err != nil {
 					logger.Warnf("[mock] Failed to save Odoo credentials to storage: %v", err)
@@ -447,6 +489,7 @@ func (m *oboxModule) registerRoutes() {
 		}
 
 		m.device.Store(&oboxDevice{dbURL: body.DbURL, token: body.Token, serial: serial})
+		m.setLiveStatus("connecting")
 		if m.server.cfg != nil {
 			if err := m.server.cfg.SetOdooCredentials(body.DbURL, body.Token, serial, ""); err != nil {
 				logger.Warnf("[mock] Failed to save Odoo credentials to storage: %v", err)
@@ -498,14 +541,24 @@ func (m *oboxModule) deviceBrain() {
 
 		dev := m.device.Load()
 		if dev == nil {
+			m.setLiveStatus("disconnected")
 			continue
 		}
 
 		actions, err := m.fetchNextActions(dev)
 		if err != nil {
 			logger.Debugf("[mock brain] fetchNextActions: %v", err)
+			last := m.lastContactTime.Load()
+			if last == 0 || time.Since(time.UnixMilli(last)) > 8*time.Second {
+				m.setLiveStatus("disconnected")
+			} else {
+				m.setLiveStatus("connecting")
+			}
 			continue
 		}
+
+		m.setLiveStatus("connected")
+		m.lastContactTime.Store(time.Now().UnixMilli())
 
 		for _, action := range actions {
 			go m.executeAction(dev, action)

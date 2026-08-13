@@ -50,6 +50,13 @@ type AppVariable struct {
 	AppID         string `json:"appId,omitempty"`
 }
 
+type OdooStatus struct {
+	Connected       bool   `json:"connected"`
+	DbURL           string `json:"dbUrl"`
+	WebsocketStatus string `json:"websocketStatus"`
+	Serial          string `json:"serial"`
+}
+
 type Printers struct {
 	AppId               string               `json:"appId"`
 	IpAddress           string               `json:"ipAddress"`
@@ -302,4 +309,33 @@ func (a *App) DisableAutostart() error {
 	}
 
 	return nil
+}
+
+func (a *App) OdooStatus() OdooStatus {
+	if a.webserver != nil {
+		status := a.webserver.GetOdooStatus()
+		return OdooStatus{
+			Connected:       status.Connected,
+			DbURL:           status.DbURL,
+			WebsocketStatus: status.WebsocketStatus,
+			Serial:          status.Serial,
+		}
+	}
+	if a.config != nil && a.config.HasOdooCredentials() {
+		return OdooStatus{
+			Connected:       true,
+			DbURL:           a.config.GetOdooDbURL(),
+			WebsocketStatus: "connected",
+			Serial:          a.config.GetOdooSerial(),
+		}
+	}
+	appID := ""
+	if a.config != nil {
+		appID = a.config.GetAppID()
+	}
+	return OdooStatus{
+		Connected:       false,
+		WebsocketStatus: "disconnected",
+		Serial:          appID,
+	}
 }
