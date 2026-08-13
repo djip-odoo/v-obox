@@ -12,7 +12,7 @@ type OdooConfig struct {
 
 // AppConfig represents the root application configuration stored on disk.
 type AppConfig struct {
-	AppID       string     `json:"app_id,omitempty"`
+	AppID       string     `json:"app_id"`
 	Port        int        `json:"port"`
 	LANPrinters []string   `json:"lan_printers,omitempty"`
 	Odoo        OdooConfig `json:"odoo,omitempty"`

@@ -2,33 +2,40 @@ package config
 
 import (
 	"path/filepath"
+	"regexp"
 	"testing"
-
-	"github.com/google/uuid"
 )
+
+func TestAppID_GenerateDefaultFormat(t *testing.T) {
+	appID := GenerateDefaultAppID()
+	if len(appID) != 10 {
+		t.Fatalf("Expected 10 characters, got %d (%s)", len(appID), appID)
+	}
+
+	match, err := regexp.MatchString(`^[0-9A-Z]{10}$`, appID)
+	if err != nil || !match {
+		t.Fatalf("Expected 10 alphanumeric uppercase characters, got %s", appID)
+	}
+}
 
 func TestAppID_EnsureAndPersist(t *testing.T) {
 	tempDir := t.TempDir()
 	configPath := filepath.Join(tempDir, "config.json")
 	cm := NewManagerWithPath(configPath)
 
-	// Initially empty
-	if id := cm.GetAppID(); id != "" {
-		t.Fatalf("Expected empty AppID initially, got %s", id)
-	}
-
-	// EnsureAppID should generate and save
+	// EnsureAppID should generate and save 10-char uppercase ID
 	appID, err := cm.EnsureAppID()
 	if err != nil {
 		t.Fatalf("EnsureAppID failed: %v", err)
 	}
-	if appID == "" {
-		t.Fatal("Expected non-empty AppID")
+	if len(appID) != 10 {
+		t.Fatalf("Expected 10-char AppID, got %d (%s)", len(appID), appID)
 	}
 
-	// Validate it is a valid UUID
-	if _, err := uuid.Parse(appID); err != nil {
-		t.Fatalf("Expected valid UUID format, got %s: %v", appID, err)
+	// Validate it is uppercase alphanumeric
+	match, err := regexp.MatchString(`^[0-9A-Z]{10}$`, appID)
+	if err != nil || !match {
+		t.Fatalf("Expected 10 alphanumeric uppercase characters, got %s", appID)
 	}
 
 	// Calling EnsureAppID again should return the identical AppID
@@ -47,29 +54,5 @@ func TestAppID_EnsureAndPersist(t *testing.T) {
 	}
 	if cm2.GetAppID() != appID {
 		t.Fatalf("Expected reloaded AppID to match %s, got %s", appID, cm2.GetAppID())
-	}
-}
-
-func TestAppID_SetCustom(t *testing.T) {
-	tempDir := t.TempDir()
-	configPath := filepath.Join(tempDir, "config.json")
-	cm := NewManagerWithPath(configPath)
-
-	customID := "custom-machine-id-12345"
-	if err := cm.SetAppID(customID); err != nil {
-		t.Fatalf("SetAppID failed: %v", err)
-	}
-
-	if cm.GetAppID() != customID {
-		t.Fatalf("Expected AppID %s, got %s", customID, cm.GetAppID())
-	}
-
-	// EnsureAppID should preserve custom ID
-	ensured, err := cm.EnsureAppID()
-	if err != nil {
-		t.Fatalf("EnsureAppID failed: %v", err)
-	}
-	if ensured != customID {
-		t.Fatalf("Expected ensured AppID to be %s, got %s", customID, ensured)
 	}
 }

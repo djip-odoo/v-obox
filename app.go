@@ -51,6 +51,8 @@ type AppVariable struct {
 }
 
 type Printers struct {
+	AppId               string               `json:"appId"`
+	IpAddress           string               `json:"ipAddress"`
 	ErrorMsg            string               `json:"errorMsg"`
 	Printers            []Printer            `json:"printers"`
 	UnavailablePrinters []UnavailablePrinter `json:"unavailablePrinters"`
@@ -185,6 +187,8 @@ func (a *App) Printers() Printers {
 	}
 
 	return Printers{
+		AppId:               a.config.GetAppID(),
+		IpAddress:           fmt.Sprintf("127.0.0.1:%d", a.webserver.Port),
 		Printers:            printers,
 		UnavailablePrinters: unavailablePrinters,
 		ErrorMsg:            errorMsg,

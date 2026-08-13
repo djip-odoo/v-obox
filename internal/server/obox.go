@@ -18,23 +18,8 @@ import (
 	"github.com/gofiber/fiber/v3"
 )
 
-// ── Mock constants ─────────────────────────────────────────────────────────────
-
-const (
-	virtualPrinterID   = "usb_virtual_pos_printer"
-	virtualPrinterName = "Virtual POS Receipt Printer"
-)
-
-func cleanSerial(s string) string {
-	s = strings.TrimPrefix(s, "ODO-")
-	s = strings.TrimPrefix(s, "ODO")
-	return strings.TrimSpace(s)
-}
-
 func matchSerial(s1, s2 string) bool {
-	c1 := cleanSerial(s1)
-	c2 := cleanSerial(s2)
-	return c1 != "" && c2 != "" && c1 == c2
+	return s1 != "" && s2 != "" && s1 == s2
 }
 
 // ── Types ──────────────────────────────────────────────────────────────────────
@@ -108,12 +93,11 @@ func (m *oboxModule) registerRoutes() {
 	//   http://{local_ip}/usb/v1/printer/{identifier}/cgi-bin/epos/service.cgi
 	s.app.Post("/usb/v1/printer/:printerId/cgi-bin/epos/service.cgi", func(ctx fiber.Ctx) error {
 		id := ctx.Params("printerId")
-		rawID := id
 		cleanID := strings.TrimPrefix(id, "ipp_")
 		cleanID = strings.TrimPrefix(cleanID, "usb_")
 		logger.Infof("[mock] Obox USB ePOS print for printer: %s (clean: %s)", id, cleanID)
 
-		if rawID == virtualPrinterID || cleanID == "virtual_pos_printer" || cleanID == "mock_device" {
+		if cleanID == "virtual_pos_printer" || cleanID == "mock_device" {
 			logger.Infof("[mock] Virtual printer ePOS print success for: %s", id)
 			return ctx.XML(EPOSResponse{Success: true, Code: "", Status: ""})
 		}
@@ -139,7 +123,7 @@ func (m *oboxModule) registerRoutes() {
 		logger.Infof("[mock] /usb/v1/printer/print job for printer '%s' (docLen=%d, receiptLen=%d)",
 			req.Identifier, len(req.Document), len(req.Receipt))
 
-		if req.Identifier != "" && req.Identifier != virtualPrinterID && s.mgr != nil {
+		if req.Identifier != "" && s.mgr != nil {
 			cleanID := strings.TrimPrefix(req.Identifier, "usb_")
 			cleanID = strings.TrimPrefix(cleanID, "ipp_")
 			if req.Document != "" {
@@ -249,7 +233,6 @@ func (m *oboxModule) registerRoutes() {
 	s.app.Get("/odoo-enterprise/iot/discover-boxes", func(ctx fiber.Ctx) error {
 		logger.Infof("[mock] IoT discover-boxes")
 		appID := m.appID()
-		cleanAppID := cleanSerial(appID)
 
 		reqSerial := ctx.Query("serial")
 		if reqSerial == "" {
@@ -264,8 +247,7 @@ func (m *oboxModule) registerRoutes() {
 		}
 
 		boxes := []map[string]string{
-			{"serial_number": "ODO-" + cleanAppID, "pairing_code": "MOCKPAIR01"},
-			{"serial_number": cleanAppID, "pairing_code": "MOCKPAIR01"},
+			{"serial_number": appID, "pairing_code": "MOCKPAIR01"},
 		}
 		return ctx.JSON(boxes)
 	})
@@ -305,10 +287,6 @@ func (m *oboxModule) registerRoutes() {
 		}
 
 		serial := appID
-		if reqSerial != "" {
-			serial = reqSerial
-		}
-
 		dbURL := body.Params.DatabaseURL
 		token := body.Params.Token
 
@@ -321,12 +299,9 @@ func (m *oboxModule) registerRoutes() {
 		logger.Infof("[mock] connect-db: got credentials db=%s serial=%s — seeding brain + calling back /obox/connect", dbURL, serial)
 		go m.callOdooOboxConnect(dbURL, token, serial)
 
-		cleanSerialStr := cleanSerial(serial)
 		return ctx.JSON(map[string]interface{}{
 			"result": []map[string]string{
 				{"serial_number": serial},
-				{"serial_number": "ODO-" + cleanSerialStr},
-				{"serial_number": cleanSerialStr},
 			},
 		})
 	})
@@ -792,13 +767,6 @@ type oboxDeviceEntry struct {
 
 func (m *oboxModule) buildDeviceList() []oboxDeviceEntry {
 	var devices []oboxDeviceEntry
-
-	// Virtual POS receipt printer (always available for mock/test)
-	devices = append(devices, oboxDeviceEntry{
-		Name:       virtualPrinterName,
-		Identifier: virtualPrinterID,
-		Type:       "printer",
-	})
 
 	// USB printers
 	infos, err := printer.ListUSBPrinters()
