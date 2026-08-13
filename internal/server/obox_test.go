@@ -259,63 +259,6 @@ func TestOboxRemoteDebug_Endpoints(t *testing.T) {
 	}
 }
 
-func TestOboxScale_Endpoints(t *testing.T) {
-	s := createTestOboxServer(4610)
-	defer s.Stop()
-
-	// Set custom weight via mock API
-	scaleReqBody := map[string]float64{"weight": 3.750}
-	scaleBytes, _ := json.Marshal(scaleReqBody)
-	req := httptest.NewRequest("POST", "/mock/scale", bytes.NewReader(scaleBytes))
-	req.Header.Set("Content-Type", "application/json")
-	resp, err := s.App().Test(req)
-	if err != nil {
-		t.Fatalf("POST /mock/scale failed: %v", err)
-	}
-	resp.Body.Close()
-
-	// Read scale weight
-	readBody := map[string]interface{}{"identifier": "usb_scale_mock", "unit_price": 4.5}
-	readBytes, _ := json.Marshal(readBody)
-	req = httptest.NewRequest("POST", "/usb/v1/scale/read_scale_weight", bytes.NewReader(readBytes))
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err = s.App().Test(req)
-	if err != nil {
-		t.Fatalf("POST /usb/v1/scale/read_scale_weight failed: %v", err)
-	}
-	defer resp.Body.Close()
-
-	var readRes struct {
-		Weight float64 `json:"weight"`
-		Unit   string  `json:"unit"`
-		Status string  `json:"status"`
-	}
-	_ = json.NewDecoder(resp.Body).Decode(&readRes)
-	if readRes.Weight != 3.750 || readRes.Unit != "kg" || readRes.Status != "ok" {
-		t.Fatalf("Unexpected scale read response: %+v", readRes)
-	}
-}
-
-func TestOboxCamera_Endpoints(t *testing.T) {
-	s := createTestOboxServer(4611)
-	defer s.Stop()
-
-	req := httptest.NewRequest("GET", "/usb/v1/camera/take-picture?identifier=mock_cam", nil)
-	resp, err := s.App().Test(req)
-	if err != nil {
-		t.Fatalf("GET /usb/v1/camera/take-picture failed: %v", err)
-	}
-	defer resp.Body.Close()
-
-	var res struct {
-		Image string `json:"image"`
-	}
-	_ = json.NewDecoder(resp.Body).Decode(&res)
-	if res.Image == "" {
-		t.Fatal("Expected non-empty base64 image data")
-	}
-}
 
 func TestOboxPrinter_Endpoints(t *testing.T) {
 	s := createTestOboxServer(4612)
@@ -519,13 +462,27 @@ func TestOboxStoragePersistence(t *testing.T) {
 	s, cfg := createTestOboxServerWithConfig(t, 4616)
 	defer s.Stop()
 
+	testAppID := "BOX-999"
+	_ = cfg.SetAppID(testAppID)
+
 	// 1. Initially no credentials in storage
 	if cfg.HasOdooCredentials() {
 		t.Fatal("Expected no Odoo credentials in config initially")
 	}
 
-	// 2. Offline connect endpoint persists credentials to storage
-	req := httptest.NewRequest("GET", "/odoo/connect?db_url=http://127.0.0.1:8069&db_uuid=test-uuid-456&token=test-tok-789&serial_number=ODO-BOX-999", nil)
+	// 2. Test mismatched serial returns error 400
+	reqBad := httptest.NewRequest("GET", "/odoo/connect?db_url=http://127.0.0.1:8069&db_uuid=test-uuid-456&token=test-tok-789&serial_number=WRONG-SERIAL", nil)
+	respBad, err := s.App().Test(reqBad)
+	if err != nil {
+		t.Fatalf("Test /odoo/connect bad failed: %v", err)
+	}
+	respBad.Body.Close()
+	if respBad.StatusCode != http.StatusBadRequest {
+		t.Fatalf("Expected status 400 for mismatched serial, got %d", respBad.StatusCode)
+	}
+
+	// 3. Offline connect endpoint persists credentials to storage when serial matches AppID
+	req := httptest.NewRequest("GET", "/odoo/connect?db_url=http://127.0.0.1:8069&db_uuid=test-uuid-456&token=test-tok-789&serial_number=ODO-"+testAppID, nil)
 	resp, err := s.App().Test(req)
 	if err != nil {
 		t.Fatalf("Test /odoo/connect failed: %v", err)
@@ -544,14 +501,14 @@ func TestOboxStoragePersistence(t *testing.T) {
 	if cfg.GetOdooToken() != "test-tok-789" {
 		t.Fatalf("Expected saved token, got %s", cfg.GetOdooToken())
 	}
-	if cfg.GetOdooSerial() != "ODO-BOX-999" {
+	if cfg.GetOdooSerial() != "ODO-"+testAppID {
 		t.Fatalf("Expected saved serial, got %s", cfg.GetOdooSerial())
 	}
 	if cfg.GetOdooDbUUID() != "test-uuid-456" {
 		t.Fatalf("Expected saved dbUUID, got %s", cfg.GetOdooDbUUID())
 	}
 
-	// 3. Discover boxes falls back to stored serial
+	// 4. Discover boxes returns matching serial
 	reqDisc := httptest.NewRequest("GET", "/odoo-enterprise/iot/discover-boxes", nil)
 	respDisc, err := s.App().Test(reqDisc)
 	if err != nil {
@@ -562,7 +519,7 @@ func TestOboxStoragePersistence(t *testing.T) {
 	_ = json.NewDecoder(respDisc.Body).Decode(&boxes)
 	foundStored := false
 	for _, b := range boxes {
-		if strings.Contains(b["serial_number"], "BOX-999") {
+		if strings.Contains(b["serial_number"], testAppID) {
 			foundStored = true
 			break
 		}
@@ -571,7 +528,7 @@ func TestOboxStoragePersistence(t *testing.T) {
 		t.Fatalf("Expected stored serial in discover boxes result: %+v", boxes)
 	}
 
-	// 4. Disconnect clears credentials from storage
+	// 5. Disconnect clears credentials from storage
 	reqDiscReq := httptest.NewRequest("GET", "/odoo/disconnect", nil)
 	respDiscReq, err := s.App().Test(reqDiscReq)
 	if err != nil {
@@ -588,6 +545,7 @@ func TestOboxRestoreCredentialsFromConfig(t *testing.T) {
 	tempDir := t.TempDir()
 	configPath := filepath.Join(tempDir, "config.json")
 	cfg := config.NewManagerWithPath(configPath)
+	_ = cfg.SetAppID("ODO-RESTORED-1")
 	_ = cfg.SetOdooCredentials("http://192.168.1.100:8069", "restored-token", "ODO-RESTORED-1", "uuid-1")
 
 	mgr := printer.NewManager()

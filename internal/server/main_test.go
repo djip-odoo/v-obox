@@ -63,8 +63,10 @@ func TestCustomSerialNumberSupport(t *testing.T) {
 	s := New(4546, mgr)
 	defer s.Stop()
 
-	// 1. Test /mock/connect with custom serial
 	customSerial := "MY-CUSTOM-SERIAL-888"
+	_ = s.Cfg().SetAppID(customSerial)
+
+	// 1. Test /mock/connect with matching custom serial
 	bodyPayload, _ := json.Marshal(map[string]string{
 		"db_url": "http://127.0.0.1:8069",
 		"token":  "test-token",
@@ -80,7 +82,23 @@ func TestCustomSerialNumberSupport(t *testing.T) {
 		t.Fatalf("Expected 200 from /mock/connect, got %d", respConnect.StatusCode)
 	}
 
-	// 2. Test /mock/status returns the custom serial
+	// 2. Test /mock/connect with mismatched serial returns 400 Bad Request
+	mismatchPayload, _ := json.Marshal(map[string]string{
+		"db_url": "http://127.0.0.1:8069",
+		"token":  "test-token",
+		"serial": "MISMATCHED-SERIAL-999",
+	})
+	reqMismatch := httptest.NewRequest("POST", "/mock/connect", bytes.NewReader(mismatchPayload))
+	reqMismatch.Header.Set("Content-Type", "application/json")
+	respMismatch, err := s.App().Test(reqMismatch)
+	if err != nil {
+		t.Fatalf("POST /mock/connect mismatch test failed: %v", err)
+	}
+	if respMismatch.StatusCode != http.StatusBadRequest {
+		t.Fatalf("Expected 400 from /mock/connect with mismatched serial, got %d", respMismatch.StatusCode)
+	}
+
+	// 3. Test /mock/status returns the custom serial
 	reqStatus := httptest.NewRequest("GET", "/mock/status", nil)
 	respStatus, err := s.App().Test(reqStatus)
 	if err != nil {
@@ -91,15 +109,25 @@ func TestCustomSerialNumberSupport(t *testing.T) {
 		t.Errorf("Expected status to contain %q, got: %s", customSerial, string(bodyBytes))
 	}
 
-	// 3. Test /odoo-enterprise/iot/discover-boxes with custom serial query param
-	reqDiscover := httptest.NewRequest("GET", "/odoo-enterprise/iot/discover-boxes?serial=BOX-4567", nil)
+	// 4. Test /odoo-enterprise/iot/discover-boxes with matching serial
+	reqDiscover := httptest.NewRequest("GET", "/odoo-enterprise/iot/discover-boxes?serial="+customSerial, nil)
 	respDiscover, err := s.App().Test(reqDiscover)
 	if err != nil {
 		t.Fatalf("GET /odoo-enterprise/iot/discover-boxes failed: %v", err)
 	}
 	discoverBytes, _ := io.ReadAll(respDiscover.Body)
-	if !strings.Contains(string(discoverBytes), "BOX-4567") {
-		t.Errorf("Expected discover-boxes to contain BOX-4567, got: %s", string(discoverBytes))
+	if !strings.Contains(string(discoverBytes), customSerial) {
+		t.Errorf("Expected discover-boxes to contain %s, got: %s", customSerial, string(discoverBytes))
+	}
+
+	// 5. Test /odoo-enterprise/iot/discover-boxes with mismatched serial returns 400
+	reqDiscoverBad := httptest.NewRequest("GET", "/odoo-enterprise/iot/discover-boxes?serial=BAD-SERIAL", nil)
+	respDiscoverBad, err := s.App().Test(reqDiscoverBad)
+	if err != nil {
+		t.Fatalf("GET /odoo-enterprise/iot/discover-boxes bad test failed: %v", err)
+	}
+	if respDiscoverBad.StatusCode != http.StatusBadRequest {
+		t.Fatalf("Expected 400 from discover-boxes with mismatched serial, got %d", respDiscoverBad.StatusCode)
 	}
 }
 

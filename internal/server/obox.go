@@ -21,13 +21,21 @@ import (
 // ── Mock constants ─────────────────────────────────────────────────────────────
 
 const (
-	defaultSerialNumber = "12345"
-	virtualPrinterID    = "usb_virtual_pos_printer"
-	virtualPrinterName  = "Virtual POS Receipt Printer"
-
-	// Minimal valid base64 1x1 JPEG image for mock camera previews
-	sampleJPEGImageBase64 = "/9j/4AAQSkZJRgABAQEASABIAAD/2wBDAP//////////////////////////////////////////////////////////////////////////////////////wgALCAABAAEBAREA/8QAFBABAAAAAAAAAAAAAAAAAAAAAP/aAAgBAQABPxA="
+	virtualPrinterID   = "usb_virtual_pos_printer"
+	virtualPrinterName = "Virtual POS Receipt Printer"
 )
+
+func cleanSerial(s string) string {
+	s = strings.TrimPrefix(s, "ODO-")
+	s = strings.TrimPrefix(s, "ODO")
+	return strings.TrimSpace(s)
+}
+
+func matchSerial(s1, s2 string) bool {
+	c1 := cleanSerial(s1)
+	c2 := cleanSerial(s2)
+	return c1 != "" && c2 != "" && c1 == c2
+}
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -71,6 +79,13 @@ func init() {
 		m.registerRoutes()
 		go m.deviceBrain()
 	})
+}
+
+func (m *oboxModule) appID() string {
+	if m.server != nil {
+		return m.server.AppID()
+	}
+	return ""
 }
 
 func (m *oboxModule) getMockWeight() float64 {
@@ -176,13 +191,12 @@ func (m *oboxModule) registerRoutes() {
 		return ctx.JSON([][]string{})
 	})
 
-	// ── Simulated Camera endpoints ─────────────────────────────────────────
-	// Called by TestOboxDevice.testCamera(), obox_mrp picture preview
+	// ── Camera endpoints ───────────────────────────────────────────────────
 	s.app.Get("/usb/v1/camera/take-picture", func(ctx fiber.Ctx) error {
 		identifier := ctx.Query("identifier")
-		logger.Infof("[mock] /usb/v1/camera/take-picture for '%s'", identifier)
-		return ctx.JSON(map[string]string{
-			"image": sampleJPEGImageBase64,
+		logger.Errorf("[camera] /usb/v1/camera/take-picture failed: camera device not supported for identifier '%s'", identifier)
+		return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{
+			"error": fmt.Sprintf("camera device not supported for identifier '%s'", identifier),
 		})
 	})
 
@@ -234,26 +248,24 @@ func (m *oboxModule) registerRoutes() {
 	// Called by discover_obox.js → rpc(ODOO_PROXY_DISCOVER_BOXES_ENDPOINT)
 	s.app.Get("/odoo-enterprise/iot/discover-boxes", func(ctx fiber.Ctx) error {
 		logger.Infof("[mock] IoT discover-boxes")
-		serial := ctx.Query("serial")
-		if serial == "" {
-			serial = ctx.Query("serial_number")
-		}
-		if serial == "" {
-			if dev := m.device.Load(); dev != nil && dev.serial != "" {
-				serial = dev.serial
-			}
-		}
-		if serial == "" && m.server.cfg != nil {
-			serial = m.server.cfg.GetOdooSerial()
-		}
-		if serial == "" {
-			serial = defaultSerialNumber
+		appID := m.appID()
+		cleanAppID := cleanSerial(appID)
+
+		reqSerial := ctx.Query("serial")
+		if reqSerial == "" {
+			reqSerial = ctx.Query("serial_number")
 		}
 
-		cleanSerial := strings.TrimPrefix(strings.TrimPrefix(serial, "ODO-"), "ODO")
+		if reqSerial != "" && !matchSerial(reqSerial, appID) {
+			logger.Warnf("[mock] discover-boxes: requested serial '%s' does not match app ID '%s'", reqSerial, appID)
+			return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+				"error": fmt.Sprintf("serial number '%s' does not match application ID '%s'", reqSerial, appID),
+			})
+		}
+
 		boxes := []map[string]string{
-			{"serial_number": "ODO-" + cleanSerial, "pairing_code": "MOCKPAIR01"},
-			{"serial_number": cleanSerial, "pairing_code": "MOCKPAIR01"},
+			{"serial_number": "ODO-" + cleanAppID, "pairing_code": "MOCKPAIR01"},
+			{"serial_number": cleanAppID, "pairing_code": "MOCKPAIR01"},
 		}
 		return ctx.JSON(boxes)
 	})
@@ -272,46 +284,49 @@ func (m *oboxModule) registerRoutes() {
 			} `json:"params"`
 		}
 
-		var serial string
-		if err := json.Unmarshal(ctx.Body(), &body); err == nil &&
-			body.Params.DatabaseURL != "" && body.Params.Token != "" {
-			dbURL := body.Params.DatabaseURL
-			token := body.Params.Token
-			serial = body.Params.SerialNumber
-			if serial == "" {
-				serial = body.Params.Serial
-			}
-			if serial == "" {
-				if dev := m.device.Load(); dev != nil && dev.serial != "" {
-					serial = dev.serial
-				}
-			}
-			if serial == "" && m.server.cfg != nil {
-				serial = m.server.cfg.GetOdooSerial()
-			}
-			if serial == "" {
-				serial = defaultSerialNumber
-			}
-			if m.server.cfg != nil {
-				if err := m.server.cfg.SetOdooCredentials(dbURL, token, serial, ""); err != nil {
-					logger.Warnf("[mock] Failed to save Odoo credentials to storage: %v", err)
-				}
-			}
-			logger.Infof("[mock] connect-db: got credentials db=%s serial=%s — seeding brain + calling back /obox/connect", dbURL, serial)
-			go m.callOdooOboxConnect(dbURL, token, serial)
-		} else {
-			logger.Warn("[mock] connect-db: could not parse credentials from request body")
-			if serial == "" {
-				serial = defaultSerialNumber
+		if err := json.Unmarshal(ctx.Body(), &body); err != nil ||
+			body.Params.DatabaseURL == "" || body.Params.Token == "" {
+			return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+				"error": "database_url and token are required",
+			})
+		}
+
+		appID := m.appID()
+		reqSerial := body.Params.SerialNumber
+		if reqSerial == "" {
+			reqSerial = body.Params.Serial
+		}
+
+		if reqSerial != "" && !matchSerial(reqSerial, appID) {
+			logger.Warnf("[mock] connect-db: requested serial '%s' does not match app ID '%s'", reqSerial, appID)
+			return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+				"error": fmt.Sprintf("serial number '%s' does not match application ID '%s'", reqSerial, appID),
+			})
+		}
+
+		serial := appID
+		if reqSerial != "" {
+			serial = reqSerial
+		}
+
+		dbURL := body.Params.DatabaseURL
+		token := body.Params.Token
+
+		if m.server.cfg != nil {
+			if err := m.server.cfg.SetOdooCredentials(dbURL, token, serial, ""); err != nil {
+				logger.Warnf("[mock] Failed to save Odoo credentials to storage: %v", err)
 			}
 		}
 
-		cleanSerial := strings.TrimPrefix(strings.TrimPrefix(serial, "ODO-"), "ODO")
+		logger.Infof("[mock] connect-db: got credentials db=%s serial=%s — seeding brain + calling back /obox/connect", dbURL, serial)
+		go m.callOdooOboxConnect(dbURL, token, serial)
+
+		cleanSerialStr := cleanSerial(serial)
 		return ctx.JSON(map[string]interface{}{
 			"result": []map[string]string{
 				{"serial_number": serial},
-				{"serial_number": "ODO-" + cleanSerial},
-				{"serial_number": cleanSerial},
+				{"serial_number": "ODO-" + cleanSerialStr},
+				{"serial_number": cleanSerialStr},
 			},
 		})
 	})
@@ -396,21 +411,24 @@ func (m *oboxModule) registerRoutes() {
 		dbURL := ctx.Query("db_url")
 		token := ctx.Query("token")
 		dbUUID := ctx.Query("db_uuid")
-		serial := ctx.Query("serial_number")
-		if serial == "" {
-			serial = ctx.Query("serial")
+		reqSerial := ctx.Query("serial_number")
+		if reqSerial == "" {
+			reqSerial = ctx.Query("serial")
 		}
-		if serial == "" {
-			if dev := m.device.Load(); dev != nil && dev.serial != "" {
-				serial = dev.serial
-			}
+
+		appID := m.appID()
+		if reqSerial != "" && !matchSerial(reqSerial, appID) {
+			logger.Warnf("[mock] /odoo/connect: requested serial '%s' does not match app ID '%s'", reqSerial, appID)
+			return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+				"error": fmt.Sprintf("serial number '%s' does not match application ID '%s'", reqSerial, appID),
+			})
 		}
-		if serial == "" && m.server.cfg != nil {
-			serial = m.server.cfg.GetOdooSerial()
+
+		serial := appID
+		if reqSerial != "" {
+			serial = reqSerial
 		}
-		if serial == "" {
-			serial = defaultSerialNumber
-		}
+
 		logger.Infof("[mock] Obox offline connect received: db_url=%s, token=%s, serial=%s, db_uuid=%s", dbURL, token, serial, dbUUID)
 		if dbURL != "" && token != "" {
 			if m.server.cfg != nil {
@@ -434,16 +452,25 @@ func (m *oboxModule) registerRoutes() {
 		if err := ctx.Bind().JSON(&body); err != nil || body.DbURL == "" || body.Token == "" {
 			return ctx.Status(fiber.StatusBadRequest).JSON(map[string]string{"error": "db_url and token are required"})
 		}
-		serial := body.Serial
-		if serial == "" {
-			serial = body.SerialNumber
+
+		reqSerial := body.Serial
+		if reqSerial == "" {
+			reqSerial = body.SerialNumber
 		}
-		if serial == "" && m.server.cfg != nil {
-			serial = m.server.cfg.GetOdooSerial()
+
+		appID := m.appID()
+		if reqSerial != "" && !matchSerial(reqSerial, appID) {
+			logger.Warnf("[mock] /mock/connect: requested serial '%s' does not match app ID '%s'", reqSerial, appID)
+			return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+				"error": fmt.Sprintf("serial number '%s' does not match application ID '%s'", reqSerial, appID),
+			})
 		}
-		if serial == "" {
-			serial = defaultSerialNumber
+
+		serial := appID
+		if reqSerial != "" {
+			serial = reqSerial
 		}
+
 		m.device.Store(&oboxDevice{dbURL: body.DbURL, token: body.Token, serial: serial})
 		if m.server.cfg != nil {
 			if err := m.server.cfg.SetOdooCredentials(body.DbURL, body.Token, serial, ""); err != nil {
@@ -627,9 +654,9 @@ func (m *oboxModule) executeAction(dev *oboxDevice, action queueAction) {
 		return
 
 	case strings.HasPrefix(actionPath, "/usb/v1/camera/take-picture"):
-		logger.Infof("[mock brain] Action take picture")
+		logger.Errorf("[camera] Action take-picture failed: camera not supported")
 		result = map[string]interface{}{
-			"image": sampleJPEGImageBase64,
+			"error": "camera device not supported",
 		}
 		m.reportActionResult(dev, action.UUID, result)
 		return
@@ -806,7 +833,7 @@ func (m *oboxModule) buildDeviceList() []oboxDeviceEntry {
 
 func (m *oboxModule) callOdooOboxConnect(dbURL, token, serial string) {
 	if serial == "" {
-		serial = defaultSerialNumber
+		serial = m.appID()
 	}
 
 	cleanSerial := strings.TrimPrefix(strings.TrimPrefix(serial, "ODO-"), "ODO")

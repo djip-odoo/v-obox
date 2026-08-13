@@ -63,6 +63,14 @@ func (s *Server) LocalAddr() string {
 	return fmt.Sprintf("%s:%d", util.GetLocalIP(false), s.Port)
 }
 
+// AppID returns the application ID configured or generated on this server.
+func (s *Server) AppID() string {
+	if s.cfg != nil {
+		return s.cfg.GetAppID()
+	}
+	return ""
+}
+
 // ── Constructor ────────────────────────────────────────────────────────────────
 
 func New(port int, mgr *printer.Manager, cfg ...*config.Manager) *Server {
@@ -75,9 +83,12 @@ func New(port int, mgr *printer.Manager, cfg ...*config.Manager) *Server {
 	}))
 
 	var conf *config.Manager
-	if len(cfg) > 0 {
+	if len(cfg) > 0 && cfg[0] != nil {
 		conf = cfg[0]
+	} else {
+		conf = config.NewManagerWithPath("")
 	}
+	_, _ = conf.EnsureAppID()
 
 	s := &Server{
 		app:  app,
