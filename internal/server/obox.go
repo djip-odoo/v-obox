@@ -59,6 +59,15 @@ func init() {
 	Register(func(s *Server) {
 		m := &oboxModule{server: s}
 		m.setMockWeight(1.250) // Default mock scale weight in kg
+		if s.cfg != nil && s.cfg.HasOdooCredentials() {
+			odooCfg := s.cfg.GetOdooConfig()
+			m.device.Store(&oboxDevice{
+				dbURL:  odooCfg.DbURL,
+				token:  odooCfg.Token,
+				serial: odooCfg.SerialNumber,
+			})
+			logger.Infof("[mock] Restored Odoo credentials from storage: db=%s serial=%s", odooCfg.DbURL, odooCfg.SerialNumber)
+		}
 		m.registerRoutes()
 		go m.deviceBrain()
 	})
@@ -234,6 +243,9 @@ func (m *oboxModule) registerRoutes() {
 				serial = dev.serial
 			}
 		}
+		if serial == "" && m.server.cfg != nil {
+			serial = m.server.cfg.GetOdooSerial()
+		}
 		if serial == "" {
 			serial = defaultSerialNumber
 		}
@@ -274,8 +286,16 @@ func (m *oboxModule) registerRoutes() {
 					serial = dev.serial
 				}
 			}
+			if serial == "" && m.server.cfg != nil {
+				serial = m.server.cfg.GetOdooSerial()
+			}
 			if serial == "" {
 				serial = defaultSerialNumber
+			}
+			if m.server.cfg != nil {
+				if err := m.server.cfg.SetOdooCredentials(dbURL, token, serial, ""); err != nil {
+					logger.Warnf("[mock] Failed to save Odoo credentials to storage: %v", err)
+				}
 			}
 			logger.Infof("[mock] connect-db: got credentials db=%s serial=%s — seeding brain + calling back /obox/connect", dbURL, serial)
 			go m.callOdooOboxConnect(dbURL, token, serial)
@@ -340,6 +360,11 @@ func (m *oboxModule) registerRoutes() {
 	s.app.Get("/odoo/disconnect", func(ctx fiber.Ctx) error {
 		logger.Infof("[mock] Obox disconnect — clearing device credentials")
 		m.device.Store(nil)
+		if m.server.cfg != nil {
+			if err := m.server.cfg.ClearOdooConfig(); err != nil {
+				logger.Warnf("[mock] Failed to clear Odoo credentials from storage: %v", err)
+			}
+		}
 		return ctx.JSON(map[string]string{"status": "disconnected"})
 	})
 
@@ -370,6 +395,7 @@ func (m *oboxModule) registerRoutes() {
 	s.app.Get("/odoo/connect", func(ctx fiber.Ctx) error {
 		dbURL := ctx.Query("db_url")
 		token := ctx.Query("token")
+		dbUUID := ctx.Query("db_uuid")
 		serial := ctx.Query("serial_number")
 		if serial == "" {
 			serial = ctx.Query("serial")
@@ -379,11 +405,19 @@ func (m *oboxModule) registerRoutes() {
 				serial = dev.serial
 			}
 		}
+		if serial == "" && m.server.cfg != nil {
+			serial = m.server.cfg.GetOdooSerial()
+		}
 		if serial == "" {
 			serial = defaultSerialNumber
 		}
-		logger.Infof("[mock] Obox offline connect received: db_url=%s, token=%s, serial=%s", dbURL, token, serial)
+		logger.Infof("[mock] Obox offline connect received: db_url=%s, token=%s, serial=%s, db_uuid=%s", dbURL, token, serial, dbUUID)
 		if dbURL != "" && token != "" {
+			if m.server.cfg != nil {
+				if err := m.server.cfg.SetOdooCredentials(dbURL, token, serial, dbUUID); err != nil {
+					logger.Warnf("[mock] Failed to save Odoo credentials to storage: %v", err)
+				}
+			}
 			go m.callOdooOboxConnect(dbURL, token, serial)
 		}
 		return ctx.SendStatus(fiber.StatusOK)
@@ -404,10 +438,18 @@ func (m *oboxModule) registerRoutes() {
 		if serial == "" {
 			serial = body.SerialNumber
 		}
+		if serial == "" && m.server.cfg != nil {
+			serial = m.server.cfg.GetOdooSerial()
+		}
 		if serial == "" {
 			serial = defaultSerialNumber
 		}
 		m.device.Store(&oboxDevice{dbURL: body.DbURL, token: body.Token, serial: serial})
+		if m.server.cfg != nil {
+			if err := m.server.cfg.SetOdooCredentials(body.DbURL, body.Token, serial, ""); err != nil {
+				logger.Warnf("[mock] Failed to save Odoo credentials to storage: %v", err)
+			}
+		}
 		logger.Infof("[mock] Credentials registered via /mock/connect: db=%s serial=%s", body.DbURL, serial)
 		go m.callOdooOboxConnect(body.DbURL, body.Token, serial)
 		return ctx.JSON(map[string]string{"status": "ok", "serial": serial})
@@ -724,6 +766,13 @@ type oboxDeviceEntry struct {
 func (m *oboxModule) buildDeviceList() []oboxDeviceEntry {
 	var devices []oboxDeviceEntry
 
+	// Virtual POS receipt printer (always available for mock/test)
+	devices = append(devices, oboxDeviceEntry{
+		Name:       virtualPrinterName,
+		Identifier: virtualPrinterID,
+		Type:       "printer",
+	})
+
 	// USB printers
 	infos, err := printer.ListUSBPrinters()
 	if err == nil {
@@ -831,6 +880,9 @@ func (m *oboxModule) callOdooOboxConnect(dbURL, token, serial string) {
 					token:  token,
 					serial: candSerial,
 				})
+				if m.server.cfg != nil {
+					_ = m.server.cfg.SetOdooCredentials(dbURL, token, candSerial, "")
+				}
 				return
 			}
 

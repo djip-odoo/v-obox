@@ -47,6 +47,7 @@ type AppVariable struct {
 	ServerRunning bool   `json:"serverRunning"`
 	DefaultIp     string `json:"defaultIp"`
 	Os            string `json:"os"`
+	AppID         string `json:"appId,omitempty"`
 }
 
 type Printers struct {
@@ -80,6 +81,12 @@ func (a *App) startup(ctx context.Context) {
 		logger.Warnf("Config load warning: %v", err)
 	}
 
+	appID, err := cfg.EnsureAppID()
+	if err != nil {
+		logger.Warnf("EnsureAppID warning: %v", err)
+	}
+	logger.Infof("Application ID: %s", appID)
+
 	logger.Debugf("Config loaded from %s", cfg.Path())
 
 	a.config = cfg
@@ -102,11 +109,23 @@ func (a *App) shutdown(ctx context.Context) {
 }
 
 func (a *App) AppVariable() AppVariable {
+	var appID string
+	if a.config != nil {
+		appID = a.config.GetAppID()
+	}
 	return AppVariable{
 		Os:            runtime.GOOS,
 		ServerRunning: a.webserver.Running(),
 		DefaultIp:     fmt.Sprintf("127.0.0.1:%d", a.webserver.Port),
+		AppID:         appID,
 	}
+}
+
+func (a *App) GetAppID() string {
+	if a.config == nil {
+		return ""
+	}
+	return a.config.GetAppID()
 }
 
 func (a *App) GetPrinterIp(id string) string {

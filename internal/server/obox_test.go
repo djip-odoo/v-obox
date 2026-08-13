@@ -8,16 +8,25 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	"epos-proxy/internal/config"
 	"epos-proxy/internal/printer"
 )
 
 func createTestOboxServer(port int) *Server {
 	mgr := printer.NewManager()
 	return New(port, mgr)
+}
+
+func createTestOboxServerWithConfig(t *testing.T, port int) (*Server, *config.Manager) {
+	tempDir := t.TempDir()
+	cfg := config.NewManagerWithPath(filepath.Join(tempDir, "config.json"))
+	mgr := printer.NewManager()
+	return New(port, mgr, cfg), cfg
 }
 
 func TestOboxDiscovery_Endpoint(t *testing.T) {
@@ -505,3 +514,104 @@ func TestExecuteAction_AllCases(t *testing.T) {
 		})
 	}
 }
+
+func TestOboxStoragePersistence(t *testing.T) {
+	s, cfg := createTestOboxServerWithConfig(t, 4616)
+	defer s.Stop()
+
+	// 1. Initially no credentials in storage
+	if cfg.HasOdooCredentials() {
+		t.Fatal("Expected no Odoo credentials in config initially")
+	}
+
+	// 2. Offline connect endpoint persists credentials to storage
+	req := httptest.NewRequest("GET", "/odoo/connect?db_url=http://127.0.0.1:8069&db_uuid=test-uuid-456&token=test-tok-789&serial_number=ODO-BOX-999", nil)
+	resp, err := s.App().Test(req)
+	if err != nil {
+		t.Fatalf("Test /odoo/connect failed: %v", err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("Expected status 200, got %d", resp.StatusCode)
+	}
+
+	if !cfg.HasOdooCredentials() {
+		t.Fatal("Expected Odoo credentials to be saved in config")
+	}
+	if cfg.GetOdooDbURL() != "http://127.0.0.1:8069" {
+		t.Fatalf("Expected saved dbURL, got %s", cfg.GetOdooDbURL())
+	}
+	if cfg.GetOdooToken() != "test-tok-789" {
+		t.Fatalf("Expected saved token, got %s", cfg.GetOdooToken())
+	}
+	if cfg.GetOdooSerial() != "ODO-BOX-999" {
+		t.Fatalf("Expected saved serial, got %s", cfg.GetOdooSerial())
+	}
+	if cfg.GetOdooDbUUID() != "test-uuid-456" {
+		t.Fatalf("Expected saved dbUUID, got %s", cfg.GetOdooDbUUID())
+	}
+
+	// 3. Discover boxes falls back to stored serial
+	reqDisc := httptest.NewRequest("GET", "/odoo-enterprise/iot/discover-boxes", nil)
+	respDisc, err := s.App().Test(reqDisc)
+	if err != nil {
+		t.Fatalf("Test /odoo-enterprise/iot/discover-boxes failed: %v", err)
+	}
+	defer respDisc.Body.Close()
+	var boxes []map[string]string
+	_ = json.NewDecoder(respDisc.Body).Decode(&boxes)
+	foundStored := false
+	for _, b := range boxes {
+		if strings.Contains(b["serial_number"], "BOX-999") {
+			foundStored = true
+			break
+		}
+	}
+	if !foundStored {
+		t.Fatalf("Expected stored serial in discover boxes result: %+v", boxes)
+	}
+
+	// 4. Disconnect clears credentials from storage
+	reqDiscReq := httptest.NewRequest("GET", "/odoo/disconnect", nil)
+	respDiscReq, err := s.App().Test(reqDiscReq)
+	if err != nil {
+		t.Fatalf("Test /odoo/disconnect failed: %v", err)
+	}
+	respDiscReq.Body.Close()
+
+	if cfg.HasOdooCredentials() {
+		t.Fatal("Expected Odoo credentials to be cleared from config")
+	}
+}
+
+func TestOboxRestoreCredentialsFromConfig(t *testing.T) {
+	tempDir := t.TempDir()
+	configPath := filepath.Join(tempDir, "config.json")
+	cfg := config.NewManagerWithPath(configPath)
+	_ = cfg.SetOdooCredentials("http://192.168.1.100:8069", "restored-token", "ODO-RESTORED-1", "uuid-1")
+
+	mgr := printer.NewManager()
+	s := New(4617, mgr, cfg)
+	defer s.Stop()
+
+	// Hit /odoo/ to verify credentials were automatically restored into module
+	req := httptest.NewRequest("GET", "/odoo/", nil)
+	resp, err := s.App().Test(req)
+	if err != nil {
+		t.Fatalf("GET /odoo/ failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	var result struct {
+		Status string            `json:"status"`
+		Data   map[string]string `json:"data"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		t.Fatalf("Failed to decode response: %v", err)
+	}
+
+	if result.Data == nil || result.Data["serial"] != "ODO-RESTORED-1" || result.Data["db_url"] != "http://192.168.1.100:8069" {
+		t.Fatalf("Expected restored credentials in /odoo/, got %+v", result)
+	}
+}
+
