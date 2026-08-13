@@ -1,6 +1,9 @@
 import { createContext, useCallback, useEffect, useState } from "react";
 import { main } from "../../wailsjs/go/models";
-import { OdooStatus } from "../../wailsjs/go/main/App";
+import {
+  ConfirmDisconnectOdoo,
+  OdooStatus,
+} from "../../wailsjs/go/main/App";
 
 const POLL_INTERVAL = 1500;
 
@@ -11,6 +14,7 @@ export type OdooContextType = {
   };
   actions: {
     refreshStatus: () => Promise<void>;
+    disconnectOdoo: () => Promise<boolean>;
   };
 };
 
@@ -31,6 +35,26 @@ export const OdooContextWrapper = ({ children }: OdooContextWrapperProps) => {
       console.error("Failed to fetch Odoo status:", error);
     }
   }, []);
+
+  const disconnectOdoo = useCallback(async () => {
+    try {
+      const confirmed = await ConfirmDisconnectOdoo();
+      if (confirmed) {
+        setStatus({
+          connected: false,
+          dbUrl: "",
+          websocketStatus: "disconnected",
+          serial: "",
+        });
+        await refreshStatus();
+        return true;
+      }
+      return false;
+    } catch (error) {
+      console.error("Failed to disconnect Odoo:", error);
+      return false;
+    }
+  }, [refreshStatus]);
 
   useEffect(() => {
     let intervalId: number | null = null;
@@ -79,6 +103,7 @@ export const OdooContextWrapper = ({ children }: OdooContextWrapperProps) => {
 
   const actions = {
     refreshStatus,
+    disconnectOdoo,
   };
 
   return (

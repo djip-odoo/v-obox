@@ -339,3 +339,39 @@ func (a *App) OdooStatus() OdooStatus {
 		Serial:          appID,
 	}
 }
+
+func (a *App) DisconnectOdoo() error {
+	logger.Infof("Disconnect Odoo requested")
+	if a.webserver != nil {
+		a.webserver.DisconnectOdoo()
+	}
+	if a.config != nil {
+		if err := a.config.ClearOdooConfig(); err != nil {
+			logger.Warnf("Failed to clear Odoo config: %v", err)
+			return err
+		}
+	}
+	return nil
+}
+
+func (a *App) ConfirmDisconnectOdoo() (bool, error) {
+	logger.Debugf("Confirm Disconnect Odoo requested")
+	result, err := wailsruntime.MessageDialog(a.ctx, wailsruntime.MessageDialogOptions{
+		Type:          wailsruntime.QuestionDialog,
+		Title:         "Disconnect Odoo",
+		Message:       "Are you sure you want to disconnect and remove the Odoo database connection?",
+		Buttons:       []string{"Cancel", "Disconnect"},
+		DefaultButton: "Cancel",
+		CancelButton:  "Cancel",
+	})
+	if err != nil {
+		return false, fmt.Errorf("failed to show confirmation dialog: %w", err)
+	}
+	if result == "Disconnect" || result == "Confirm" || result == "Yes" {
+		if err := a.DisconnectOdoo(); err != nil {
+			return false, fmt.Errorf("failed to disconnect Odoo: %w", err)
+		}
+		return true, nil
+	}
+	return false, nil
+}

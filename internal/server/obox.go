@@ -105,6 +105,17 @@ func (m *oboxModule) getStatus() OdooStatus {
 	}
 }
 
+func (m *oboxModule) disconnect() {
+	logger.Infof("[mock] Obox disconnect triggered")
+	m.device.Store(nil)
+	m.setLiveStatus("disconnected")
+	if m.server != nil && m.server.cfg != nil {
+		if err := m.server.cfg.ClearOdooConfig(); err != nil {
+			logger.Warnf("[mock] Failed to clear Odoo credentials from storage: %v", err)
+		}
+	}
+}
+
 func (m *oboxModule) appID() string {
 	if m.server != nil {
 		return m.server.AppID()

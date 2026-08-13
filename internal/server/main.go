@@ -101,6 +101,16 @@ func (s *Server) GetOdooStatus() OdooStatus {
 	}
 }
 
+// DisconnectOdoo clears in-memory device credentials and removes stored config.
+func (s *Server) DisconnectOdoo() {
+	if s.obox != nil {
+		s.obox.disconnect()
+	}
+	if s.cfg != nil {
+		_ = s.cfg.ClearOdooConfig()
+	}
+}
+
 // ── Constructor ────────────────────────────────────────────────────────────────
 
 func New(port int, mgr *printer.Manager, cfg ...*config.Manager) *Server {

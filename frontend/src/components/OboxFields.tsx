@@ -102,12 +102,12 @@ export default function OboxFields() {
             </div>
           </div>
 
-          {/* Websocket Status */}
+          {/* Websocket Status & Disconnect Button */}
           <div>
             <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">
               Websocket Status
             </div>
-            <div className="flex items-center h-8">
+            <div className="flex items-center justify-between gap-2 h-8">
               {wsStatus === "connected" ? (
                 <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-emerald-100 text-emerald-800">
                   <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
@@ -124,6 +124,36 @@ export default function OboxFields() {
                   Disconnected
                 </span>
               )}
+
+              <button
+                type="button"
+                onClick={async () => {
+                  const removed = await odooContext.actions.disconnectOdoo();
+                  if (removed) {
+                    toastContext.actions.showToast(
+                      "Odoo connection removed",
+                      "success",
+                    );
+                  }
+                }}
+                className="text-xs text-red-600 hover:text-red-700 hover:bg-red-50 border border-red-200 px-2.5 py-1 rounded-md transition font-medium cursor-pointer flex items-center gap-1 shrink-0"
+                title="Remove Odoo Connection"
+              >
+                <svg
+                  className="w-3.5 h-3.5"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
+                  />
+                </svg>
+                <span>Disconnect</span>
+              </button>
             </div>
           </div>
         </div>
