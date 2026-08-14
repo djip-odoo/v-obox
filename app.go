@@ -47,6 +47,16 @@ type AppVariable struct {
 	ServerRunning bool   `json:"serverRunning"`
 	DefaultIp     string `json:"defaultIp"`
 	Os            string `json:"os"`
+	AppID         string `json:"appId,omitempty"`
+}
+
+type OdooStatus struct {
+	AppId           string `json:"appId"`
+	IpAddress       string `json:"ipAddress"`
+	Connected       bool   `json:"connected"`
+	DbURL           string `json:"dbUrl"`
+	WebsocketStatus string `json:"websocketStatus"`
+	Serial          string `json:"serial"`
 }
 
 type Printers struct {
@@ -80,6 +90,12 @@ func (a *App) startup(ctx context.Context) {
 		logger.Warnf("Config load warning: %v", err)
 	}
 
+	appID, err := cfg.EnsureAppID()
+	if err != nil {
+		logger.Warnf("EnsureAppID warning: %v", err)
+	}
+	logger.Infof("Application ID: %s", appID)
+
 	logger.Debugf("Config loaded from %s", cfg.Path())
 
 	a.config = cfg
@@ -90,7 +106,11 @@ func (a *App) startup(ctx context.Context) {
 		logger.Warn("Unable to resolve port, using default")
 	}
 
-	a.webserver = server.New(port, a.printerManager)
+	a.webserver = server.New(port, a.printerManager, a.config)
+	a.webserver.OnStatusChange(func(st server.OdooStatus) {
+		status := a.OdooStatus()
+		wailsruntime.EventsEmit(a.ctx, "odoo:status_changed", status)
+	})
 }
 
 func (a *App) shutdown(ctx context.Context) {
@@ -102,11 +122,23 @@ func (a *App) shutdown(ctx context.Context) {
 }
 
 func (a *App) AppVariable() AppVariable {
+	var appID string
+	if a.config != nil {
+		appID = a.config.GetAppID()
+	}
 	return AppVariable{
 		Os:            runtime.GOOS,
 		ServerRunning: a.webserver.Running(),
 		DefaultIp:     fmt.Sprintf("127.0.0.1:%d", a.webserver.Port),
+		AppID:         appID,
 	}
+}
+
+func (a *App) GetAppID() string {
+	if a.config == nil {
+		return ""
+	}
+	return a.config.GetAppID()
 }
 
 func (a *App) GetPrinterIp(id string) string {
@@ -279,4 +311,82 @@ func (a *App) DisableAutostart() error {
 	}
 
 	return nil
+}
+
+func (a *App) OdooStatus() OdooStatus {
+	logger.Infof("checking odoo status")
+	appID := ""
+	if a.config != nil {
+		appID = a.config.GetAppID()
+	}
+	ipAddress := ""
+	if a.webserver != nil {
+		ipAddress = fmt.Sprintf("127.0.0.1:%d", a.webserver.Port)
+	}
+
+	if a.webserver != nil {
+		status := a.webserver.GetOdooStatus()
+		return OdooStatus{
+			AppId:           appID,
+			IpAddress:       ipAddress,
+			Connected:       status.Connected,
+			DbURL:           status.DbURL,
+			WebsocketStatus: status.WebsocketStatus,
+			Serial:          status.Serial,
+		}
+	}
+	if a.config != nil && a.config.HasOdooCredentials() {
+		return OdooStatus{
+			AppId:           appID,
+			IpAddress:       ipAddress,
+			Connected:       true,
+			DbURL:           a.config.GetOdooDbURL(),
+			WebsocketStatus: "connected",
+			Serial:          a.config.GetOdooSerial(),
+		}
+	}
+	return OdooStatus{
+		AppId:           appID,
+		IpAddress:       ipAddress,
+		Connected:       false,
+		WebsocketStatus: "disconnected",
+		Serial:          appID,
+	}
+}
+
+func (a *App) DisconnectOdoo() error {
+	logger.Infof("Disconnect Odoo requested")
+	if a.webserver != nil {
+		a.webserver.DisconnectOdoo()
+	}
+	if a.config != nil {
+		if err := a.config.ClearOdooConfig(); err != nil {
+			logger.Warnf("Failed to clear Odoo config: %v", err)
+			return err
+		}
+	}
+	wailsruntime.EventsEmit(a.ctx, "odoo:status_changed", a.OdooStatus())
+	return nil
+}
+
+func (a *App) ConfirmDisconnectOdoo() (bool, error) {
+	logger.Debugf("Confirm Disconnect Odoo requested")
+	result, err := wailsruntime.MessageDialog(a.ctx, wailsruntime.MessageDialogOptions{
+		Type:          wailsruntime.QuestionDialog,
+		Title:         "Disconnect Odoo",
+		Message:       "Are you sure you want to disconnect and remove the Odoo database connection?",
+		Buttons:       []string{"Cancel", "Disconnect"},
+		DefaultButton: "Cancel",
+		CancelButton:  "Cancel",
+	})
+	if err != nil {
+		return false, fmt.Errorf("failed to show confirmation dialog: %w", err)
+	}
+	if result == "Disconnect" || result == "Confirm" || result == "Yes" {
+		if err := a.DisconnectOdoo(); err != nil {
+			return false, fmt.Errorf("failed to disconnect Odoo: %w", err)
+		}
+		return true, nil
+	}
+	return false, nil
 }
