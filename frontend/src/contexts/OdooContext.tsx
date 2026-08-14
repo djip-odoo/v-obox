@@ -45,6 +45,8 @@ export const OdooContextWrapper = ({ children }: OdooContextWrapperProps) => {
           dbUrl: "",
           websocketStatus: "disconnected",
           serial: "",
+          appId: "",
+          ipAddress: "",
         });
         await refreshStatus();
         return true;

@@ -51,6 +51,8 @@ type AppVariable struct {
 }
 
 type OdooStatus struct {
+	AppId           string `json:"appId"`
+	IpAddress       string `json:"ipAddress"`
 	Connected       bool   `json:"connected"`
 	DbURL           string `json:"dbUrl"`
 	WebsocketStatus string `json:"websocketStatus"`
@@ -58,8 +60,6 @@ type OdooStatus struct {
 }
 
 type Printers struct {
-	AppId               string               `json:"appId"`
-	IpAddress           string               `json:"ipAddress"`
 	ErrorMsg            string               `json:"errorMsg"`
 	Printers            []Printer            `json:"printers"`
 	UnavailablePrinters []UnavailablePrinter `json:"unavailablePrinters"`
@@ -194,8 +194,6 @@ func (a *App) Printers() Printers {
 	}
 
 	return Printers{
-		AppId:               a.config.GetAppID(),
-		IpAddress:           fmt.Sprintf("127.0.0.1:%d", a.webserver.Port),
 		Printers:            printers,
 		UnavailablePrinters: unavailablePrinters,
 		ErrorMsg:            errorMsg,
@@ -312,9 +310,20 @@ func (a *App) DisableAutostart() error {
 }
 
 func (a *App) OdooStatus() OdooStatus {
+	appID := ""
+	if a.config != nil {
+		appID = a.config.GetAppID()
+	}
+	ipAddress := ""
+	if a.webserver != nil {
+		ipAddress = fmt.Sprintf("127.0.0.1:%d", a.webserver.Port)
+	}
+
 	if a.webserver != nil {
 		status := a.webserver.GetOdooStatus()
 		return OdooStatus{
+			AppId:           appID,
+			IpAddress:       ipAddress,
 			Connected:       status.Connected,
 			DbURL:           status.DbURL,
 			WebsocketStatus: status.WebsocketStatus,
@@ -323,17 +332,17 @@ func (a *App) OdooStatus() OdooStatus {
 	}
 	if a.config != nil && a.config.HasOdooCredentials() {
 		return OdooStatus{
+			AppId:           appID,
+			IpAddress:       ipAddress,
 			Connected:       true,
 			DbURL:           a.config.GetOdooDbURL(),
 			WebsocketStatus: "connected",
 			Serial:          a.config.GetOdooSerial(),
 		}
 	}
-	appID := ""
-	if a.config != nil {
-		appID = a.config.GetAppID()
-	}
 	return OdooStatus{
+		AppId:           appID,
+		IpAddress:       ipAddress,
 		Connected:       false,
 		WebsocketStatus: "disconnected",
 		Serial:          appID,

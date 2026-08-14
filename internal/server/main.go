@@ -30,6 +30,8 @@ type Server struct {
 
 // OdooStatus represents the connection and websocket status between proxy and Odoo.
 type OdooStatus struct {
+	AppId           string `json:"appId"`
+	IpAddress       string `json:"ipAddress"`
 	Connected       bool   `json:"connected"`
 	DbURL           string `json:"dbUrl"`
 	WebsocketStatus string `json:"websocketStatus"`
@@ -88,6 +90,8 @@ func (s *Server) GetOdooStatus() OdooStatus {
 	}
 	if s.cfg != nil && s.cfg.HasOdooCredentials() {
 		return OdooStatus{
+			AppId:           s.AppID(),
+			IpAddress:       s.LocalAddr(),
 			Connected:       true,
 			DbURL:           s.cfg.GetOdooDbURL(),
 			WebsocketStatus: "connected",
@@ -95,6 +99,8 @@ func (s *Server) GetOdooStatus() OdooStatus {
 		}
 	}
 	return OdooStatus{
+		AppId:           s.AppID(),
+		IpAddress:       s.LocalAddr(),
 		Connected:       false,
 		WebsocketStatus: "disconnected",
 		Serial:          s.AppID(),

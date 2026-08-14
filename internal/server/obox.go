@@ -77,6 +77,12 @@ func init() {
 }
 
 func (m *oboxModule) getStatus() OdooStatus {
+	appID := m.appID()
+	ipAddr := ""
+	if m.server != nil {
+		ipAddr = m.server.LocalAddr()
+	}
+
 	dev := m.device.Load()
 	if dev != nil && dev.dbURL != "" {
 		st := "connecting"
@@ -84,6 +90,8 @@ func (m *oboxModule) getStatus() OdooStatus {
 			st = *ptr
 		}
 		return OdooStatus{
+			AppId:           appID,
+			IpAddress:       ipAddr,
 			Connected:       true,
 			DbURL:           dev.dbURL,
 			WebsocketStatus: st,
@@ -92,6 +100,8 @@ func (m *oboxModule) getStatus() OdooStatus {
 	}
 	if m.server != nil && m.server.cfg != nil && m.server.cfg.HasOdooCredentials() {
 		return OdooStatus{
+			AppId:           appID,
+			IpAddress:       ipAddr,
 			Connected:       true,
 			DbURL:           m.server.cfg.GetOdooDbURL(),
 			WebsocketStatus: "connecting",
@@ -99,9 +109,11 @@ func (m *oboxModule) getStatus() OdooStatus {
 		}
 	}
 	return OdooStatus{
+		AppId:           appID,
+		IpAddress:       ipAddr,
 		Connected:       false,
 		WebsocketStatus: "disconnected",
-		Serial:          m.appID(),
+		Serial:          appID,
 	}
 }
 
