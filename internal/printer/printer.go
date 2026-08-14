@@ -170,7 +170,7 @@ func (p *Printer) ensureOpenLANLocked() error {
 		return nil // already connected
 	}
 
-	addr := fmt.Sprintf("%s:%d", p.lanIP, LANPort)
+	addr := net.JoinHostPort(p.lanIP, fmt.Sprintf("%d", LANPort))
 	logger.Debugf("Attempting to connect to LAN printer %s at %s", p.idToString(), addr)
 	conn, err := net.DialTimeout("tcp", addr, LANConnectTimeout)
 	if err != nil {

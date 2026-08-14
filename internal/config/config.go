@@ -2,6 +2,7 @@ package config
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net"
@@ -9,6 +10,8 @@ import (
 	"path/filepath"
 	"sync"
 )
+
+var ErrNoAvailablePort = errors.New("no available port in range")
 
 const AppName = "EposProxy"
 
@@ -104,14 +107,7 @@ func findAvailablePort(start, end int) (int, error) {
 		}
 	}
 
-	listener, err := net.Listen("tcp", ":0")
-	if err == nil {
-		port := listener.Addr().(*net.TCPAddr).Port
-		_ = listener.Close()
-		return port, nil
-	}
-
-	return 0, err
+	return 0, fmt.Errorf("no available port found in range %d-%d: %w", start, end, ErrNoAvailablePort)
 }
 
 func (cm *Manager) ResolvePort() (int, error) {

@@ -134,6 +134,7 @@ func printLabel(mgr *printer.Manager, ctx fiber.Ctx, printerID string) error {
 
 func (s *Server) Stop() error {
 	logger.Infof("Stopping HTTP server")
+	s.running.Store(false)
 	return s.app.Shutdown()
 }
 
