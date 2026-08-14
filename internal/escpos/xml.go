@@ -43,7 +43,7 @@ func ParseXML(body []byte) ([]byte, error) {
 
 		case "feed":
 			lines := clamp(parseInt(attrs["line"], 1), 1, 255)
-			for i := 0; i < lines; i++ {
+			for range lines {
 				job = append(job, LF)
 			}
 

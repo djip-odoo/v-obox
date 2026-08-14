@@ -145,10 +145,7 @@ func BuildImage(b64data string, a ImageAttrs) ([]byte, error) {
 	xH := byte((bytesPerRow >> 8) & 0xFF)
 
 	for top := 0; top < a.Height; top += maxImgSliceHeight {
-		h := a.Height - top
-		if h > maxImgSliceHeight {
-			h = maxImgSliceHeight
-		}
+		h := min(a.Height-top, maxImgSliceHeight)
 		yL := byte(h & 0xFF)
 		yH := byte((h >> 8) & 0xFF)
 		start := top * bytesPerRow

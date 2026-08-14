@@ -63,6 +63,7 @@ func NewApp() *App {
 		DisplayName: "ePOS Proxy",
 		Exec:        []string{os.Args[0]},
 	}
+	a.printerManager = printer.NewManager()
 
 	return a
 }
@@ -83,7 +84,6 @@ func (a *App) startup(ctx context.Context) {
 	logger.Debugf("Config loaded from %s", cfg.Path())
 
 	a.config = cfg
-	a.printerManager = printer.NewManager()
 
 	port, err := cfg.ResolvePort()
 	if err != nil {

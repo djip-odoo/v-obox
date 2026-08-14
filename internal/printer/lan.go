@@ -21,7 +21,7 @@ type LANPrinterInfo struct {
 }
 
 func CheckLANPrinter(ip string) error {
-	addr := fmt.Sprintf("%s:%d", ip, LANPort)
+	addr := net.JoinHostPort(ip, fmt.Sprintf("%d", LANPort))
 	conn, err := net.DialTimeout("tcp", addr, LANConnectTimeout)
 	if err != nil {
 		logger.Debugf("LAN printer %s is offline or unreachable: %v", ip, err)
