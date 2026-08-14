@@ -26,7 +26,13 @@ type Server struct {
 	cfg *config.Manager
 
 	obox *oboxModule
+
+	statusListenersMu sync.RWMutex
+	statusListeners   []StatusListener
 }
+
+// StatusListener represents a callback function for OdooStatus changes.
+type StatusListener func(status OdooStatus)
 
 // OdooStatus represents the connection and websocket status between proxy and Odoo.
 type OdooStatus struct {
@@ -114,6 +120,26 @@ func (s *Server) DisconnectOdoo() {
 	}
 	if s.cfg != nil {
 		_ = s.cfg.ClearOdooConfig()
+	}
+}
+
+// OnStatusChange registers a callback to be called whenever OdooStatus changes.
+func (s *Server) OnStatusChange(listener StatusListener) {
+	s.statusListenersMu.Lock()
+	defer s.statusListenersMu.Unlock()
+	s.statusListeners = append(s.statusListeners, listener)
+}
+
+// NotifyStatusChange invokes all registered StatusListeners with the latest OdooStatus.
+func (s *Server) NotifyStatusChange() {
+	s.statusListenersMu.RLock()
+	listeners := make([]StatusListener, len(s.statusListeners))
+	copy(listeners, s.statusListeners)
+	s.statusListenersMu.RUnlock()
+
+	status := s.GetOdooStatus()
+	for _, l := range listeners {
+		l(status)
 	}
 }
 

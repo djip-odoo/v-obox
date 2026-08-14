@@ -107,6 +107,10 @@ func (a *App) startup(ctx context.Context) {
 	}
 
 	a.webserver = server.New(port, a.printerManager, a.config)
+	a.webserver.OnStatusChange(func(st server.OdooStatus) {
+		status := a.OdooStatus()
+		wailsruntime.EventsEmit(a.ctx, "odoo:status_changed", status)
+	})
 }
 
 func (a *App) shutdown(ctx context.Context) {
@@ -310,6 +314,7 @@ func (a *App) DisableAutostart() error {
 }
 
 func (a *App) OdooStatus() OdooStatus {
+	logger.Infof("checking odoo status")
 	appID := ""
 	if a.config != nil {
 		appID = a.config.GetAppID()
@@ -360,6 +365,7 @@ func (a *App) DisconnectOdoo() error {
 			return err
 		}
 	}
+	wailsruntime.EventsEmit(a.ctx, "odoo:status_changed", a.OdooStatus())
 	return nil
 }
 

@@ -4,8 +4,7 @@ import {
   ConfirmDisconnectOdoo,
   OdooStatus,
 } from "../../wailsjs/go/main/App";
-
-const POLL_INTERVAL = 1500;
+import { EventsOn } from "../../wailsjs/runtime/runtime";
 
 export type OdooContextType = {
   data: {
@@ -48,7 +47,6 @@ export const OdooContextWrapper = ({ children }: OdooContextWrapperProps) => {
           appId: "",
           ipAddress: "",
         });
-        await refreshStatus();
         return true;
       }
       return false;
@@ -56,43 +54,21 @@ export const OdooContextWrapper = ({ children }: OdooContextWrapperProps) => {
       console.error("Failed to disconnect Odoo:", error);
       return false;
     }
-  }, [refreshStatus]);
+  }, []);
 
   useEffect(() => {
-    let intervalId: number | null = null;
+    // Initial fetch on mount
+    refreshStatus();
 
-    const startPolling = () => {
-      if (intervalId !== null) {
-        return;
-      }
-      refreshStatus();
-      intervalId = window.setInterval(refreshStatus, POLL_INTERVAL);
-    };
-
-    const stopPolling = () => {
-      if (intervalId === null) {
-        return;
-      }
-      clearInterval(intervalId);
-      intervalId = null;
-    };
-
-    const handleVisibilityChange = () =>
-      document.hidden ? stopPolling() : startPolling();
-
-    document.addEventListener("visibilitychange", handleVisibilityChange);
-    window.addEventListener("focus", startPolling);
-    window.addEventListener("blur", stopPolling);
-
-    if (!document.hidden) {
-      startPolling();
-    }
+    // Listen to real-time status updates pushed from backend
+    const unsubscribe = EventsOn("odoo:status_changed", (newStatus: main.OdooStatus) => {
+      setStatus(newStatus);
+    });
 
     return () => {
-      stopPolling();
-      document.removeEventListener("visibilitychange", handleVisibilityChange);
-      window.removeEventListener("focus", startPolling);
-      window.removeEventListener("blur", stopPolling);
+      if (unsubscribe) {
+        unsubscribe();
+      }
     };
   }, [refreshStatus]);
 
@@ -114,3 +90,4 @@ export const OdooContextWrapper = ({ children }: OdooContextWrapperProps) => {
     </OdooContext.Provider>
   );
 };
+

@@ -178,20 +178,15 @@ func TestOboxRemoteDebug_Endpoints(t *testing.T) {
 	req := httptest.NewRequest("GET", "/sos/v1/enable?token=tskey-auth-12345", nil)
 	resp, err := s.App().Test(req)
 	testutil.ExpectedNoError(t, err)
-	var res map[string]string
-	_ = json.NewDecoder(resp.Body).Decode(&res)
 	resp.Body.Close()
-	testutil.ExpectedEqual(t, resp.StatusCode, http.StatusOK)
-	testutil.ExpectedTrue(t, res["status"] != "")
+	testutil.ExpectedEqual(t, resp.StatusCode, http.StatusBadRequest)
 
 	// Disable
 	req = httptest.NewRequest("GET", "/sos/v1/disable", nil)
 	resp, err = s.App().Test(req)
 	testutil.ExpectedNoError(t, err)
-	_ = json.NewDecoder(resp.Body).Decode(&res)
 	resp.Body.Close()
-	testutil.ExpectedEqual(t, resp.StatusCode, http.StatusOK)
-	testutil.ExpectedTrue(t, res["status"] != "")
+	testutil.ExpectedEqual(t, resp.StatusCode, http.StatusBadRequest)
 }
 
 func TestOboxPrinter_Endpoints(t *testing.T) {
@@ -252,7 +247,7 @@ func TestOboxDisplay_Endpoint(t *testing.T) {
 	resp, err := s.App().Test(req)
 	testutil.ExpectedNoError(t, err)
 	resp.Body.Close()
-	testutil.ExpectedEqual(t, resp.StatusCode, http.StatusOK)
+	testutil.ExpectedEqual(t, resp.StatusCode, http.StatusBadRequest)
 }
 
 func TestOboxWiFi_And_LED_Endpoints(t *testing.T) {
@@ -264,14 +259,14 @@ func TestOboxWiFi_And_LED_Endpoints(t *testing.T) {
 	resp, err := s.App().Test(req)
 	testutil.ExpectedNoError(t, err)
 	resp.Body.Close()
-	testutil.ExpectedEqual(t, resp.StatusCode, http.StatusOK)
+	testutil.ExpectedEqual(t, resp.StatusCode, http.StatusBadRequest)
 
 	// WiFi networks
 	req = httptest.NewRequest("GET", "/wifi/networks", nil)
 	resp, err = s.App().Test(req)
 	testutil.ExpectedNoError(t, err)
 	resp.Body.Close()
-	testutil.ExpectedEqual(t, resp.StatusCode, http.StatusOK)
+	testutil.ExpectedEqual(t, resp.StatusCode, http.StatusBadRequest)
 
 	// LEDs set
 	ledBody := []map[string]string{{"led": "led1", "color": "green"}}
@@ -281,7 +276,7 @@ func TestOboxWiFi_And_LED_Endpoints(t *testing.T) {
 	resp, err = s.App().Test(req)
 	testutil.ExpectedNoError(t, err)
 	resp.Body.Close()
-	testutil.ExpectedEqual(t, resp.StatusCode, http.StatusOK)
+	testutil.ExpectedEqual(t, resp.StatusCode, http.StatusBadRequest)
 }
 
 func TestExecuteAction_AllCases(t *testing.T) {

@@ -49,7 +49,12 @@ type oboxModule struct {
 }
 
 func (m *oboxModule) setLiveStatus(st string) {
+	prev := m.liveStatus.Load()
+	changed := prev == nil || *prev != st
 	m.liveStatus.Store(&st)
+	if changed && m.server != nil {
+		m.server.NotifyStatusChange()
+	}
 }
 
 // ── Auto-binding registration ──────────────────────────────────────────────────
@@ -215,77 +220,79 @@ func (m *oboxModule) registerRoutes() {
 		return ctx.JSON(list)
 	})
 
-	// ── Simulated Scale endpoints ──────────────────────────────────────────
-	// Called by TestOboxDevice.testScale(), pos_iot, obox_mrp quality check
+	// ── Scale endpoints (unsupported on obox-app) ──────────────────────────
 	s.app.Post("/usb/v1/scale/read_scale_weight", func(ctx fiber.Ctx) error {
-		var req struct {
-			Identifier string  `json:"identifier"`
-			UnitPrice  float64 `json:"unit_price"`
-		}
-		_ = ctx.Bind().JSON(&req)
-		weight := m.getMockWeight()
-		logger.Infof("[mock] /usb/v1/scale/read_scale_weight for '%s' -> %.3f kg", req.Identifier, weight)
-		return ctx.JSON(map[string]interface{}{
-			"weight": weight,
-			"unit":   "kg",
-			"status": "ok",
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error":   "no_scale",
+			"message": "No Scale supported/needed on this host",
 		})
 	})
 
 	s.app.Get("/usb/v1/scale/list", func(ctx fiber.Ctx) error {
-		logger.Infof("[mock] /usb/v1/scale/list")
-		return ctx.JSON([][]string{})
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error":   "no_scale",
+			"message": "No Scale supported/needed on this host",
+		})
 	})
 
-	// ── Camera endpoints ───────────────────────────────────────────────────
+	// ── Camera endpoints (unsupported on obox-app) ─────────────────────────
 	s.app.Get("/usb/v1/camera/take-picture", func(ctx fiber.Ctx) error {
-		identifier := ctx.Query("identifier")
-		logger.Errorf("[camera] /usb/v1/camera/take-picture failed: camera device not supported for identifier '%s'", identifier)
-		return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{
-			"error": fmt.Sprintf("camera device not supported for identifier '%s'", identifier),
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error":   "no_camera",
+			"message": "No Camera supported/needed on this host",
 		})
 	})
 
 	s.app.Get("/usb/v1/camera/list", func(ctx fiber.Ctx) error {
-		logger.Infof("[mock] /usb/v1/camera/list")
-		return ctx.JSON([][]string{})
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error":   "no_camera",
+			"message": "No Camera supported/needed on this host",
+		})
 	})
 
-	// ── Simulated Display endpoints ────────────────────────────────────────
+	// ── Display endpoints (unsupported on obox-app) ────────────────────────
 	s.app.Post("/display/v1/update-url", func(ctx fiber.Ctx) error {
-		var req struct {
-			URL string `json:"url"`
-		}
-		_ = ctx.Bind().JSON(&req)
-		logger.Infof("[mock] /display/v1/update-url -> %s", req.URL)
-		return ctx.JSON(map[string]string{"status": "success"})
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error":   "no_display",
+			"message": "No Display supported/needed on this host",
+		})
 	})
 
-	// ── Simulated WiFi endpoints ───────────────────────────────────────────
+	// ── WiFi endpoints (unsupported on obox-app) ───────────────────────────
 	s.app.Get("/wifi/", func(ctx fiber.Ctx) error {
-		return ctx.JSON(map[string]string{"status": "ok"})
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error":   "no_wifi",
+			"message": "No Wi-Fi supported/needed on this host",
+		})
 	})
 
 	s.app.Get("/wifi/status", func(ctx fiber.Ctx) error {
-		return ctx.JSON(map[string]interface{}{
-			"wired": map[string]string{"status": "connected", "ip": m.server.LocalAddr()},
-			"wifi":  map[string]interface{}{"status": "disconnected", "ip": nil},
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error":   "no_wifi",
+			"message": "No Wi-Fi supported/needed on this host",
 		})
 	})
 
 	s.app.Get("/wifi/networks", func(ctx fiber.Ctx) error {
-		return ctx.JSON([]map[string]interface{}{
-			{"ssid": "Mock_WiFi_Network", "signal": 95},
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error":   "no_wifi",
+			"message": "No Wi-Fi supported/needed scan on this host",
 		})
 	})
 
 	s.app.Post("/wifi/connect", func(ctx fiber.Ctx) error {
-		return ctx.JSON(map[string]string{"status": "connected"})
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error":   "no_wifi",
+			"message": "No Wi-Fi supported/needed on this host",
+		})
 	})
 
-	// ── Simulated LED endpoints ────────────────────────────────────────────
+	// ── LED endpoints (unsupported on obox-app) ────────────────────────────
 	s.app.Post("/leds/set", func(ctx fiber.Ctx) error {
-		return ctx.JSON(map[string]string{"status": "ok"})
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error":   "no_leds",
+			"message": "LEDs are not supported/needed on this host",
+		})
 	})
 
 	// ── Mock IoT Proxy endpoints ───────────────────────────────────────────
@@ -430,17 +437,18 @@ func (m *oboxModule) registerRoutes() {
 
 	// GET /sos/v1/enable
 	s.app.Get("/sos/v1/enable", func(ctx fiber.Ctx) error {
-		token := ctx.Query("token")
-		logger.Infof("[mock] Obox remote debug enable (token=%s)", token)
-		return ctx.JSON(map[string]string{
-			"status": "Remote Debug is enabled, Odoo support team can now access the device.",
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error":   "no_sos",
+			"message": "Remote debug (SOS) is not supported/needed on this host",
 		})
 	})
 
 	// GET /sos/v1/disable
 	s.app.Get("/sos/v1/disable", func(ctx fiber.Ctx) error {
-		logger.Infof("[mock] Obox remote debug disable")
-		return ctx.JSON(map[string]string{"status": "Remote Debug is disabled."})
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error":   "no_sos",
+			"message": "Remote debug (SOS) is not supported/needed on this host",
+		})
 	})
 
 	// ── Offline connect handshake ──────────────────────────────────────────
@@ -679,12 +687,20 @@ func (m *oboxModule) executeAction(dev *oboxDevice, action queueAction) {
 		return
 
 	case strings.HasPrefix(actionPath, "/sos/v1/enable"):
-		result = "enabled"
+		logger.Errorf("[sos] Action remote debug enable failed: sos not supported")
+		result = map[string]interface{}{
+			"error":   "no_sos",
+			"message": "Remote debug (SOS) is not supported/needed on this host",
+		}
 		m.reportActionResult(dev, action.UUID, result)
 		return
 
 	case strings.HasPrefix(actionPath, "/sos/v1/disable"):
-		result = "disabled"
+		logger.Errorf("[sos] Action remote debug disable failed: sos not supported")
+		result = map[string]interface{}{
+			"error":   "no_sos",
+			"message": "Remote debug (SOS) is not supported/needed on this host",
+		}
 		m.reportActionResult(dev, action.UUID, result)
 		return
 
@@ -695,11 +711,10 @@ func (m *oboxModule) executeAction(dev *oboxDevice, action queueAction) {
 		return
 
 	case actionPath == "/usb/v1/scale/read_scale_weight":
-		logger.Infof("[mock brain] Action read scale weight")
+		logger.Errorf("[scale] Action read scale weight failed: scale not supported")
 		result = map[string]interface{}{
-			"weight": m.getMockWeight(),
-			"unit":   "kg",
-			"status": "ok",
+			"error":   "no_scale",
+			"message": "No Scale supported/needed on this host",
 		}
 		m.reportActionResult(dev, action.UUID, result)
 		return
@@ -707,20 +722,27 @@ func (m *oboxModule) executeAction(dev *oboxDevice, action queueAction) {
 	case strings.HasPrefix(actionPath, "/usb/v1/camera/take-picture"):
 		logger.Errorf("[camera] Action take-picture failed: camera not supported")
 		result = map[string]interface{}{
-			"error": "camera device not supported",
+			"error":   "no_camera",
+			"message": "No Camera supported/needed on this host",
 		}
 		m.reportActionResult(dev, action.UUID, result)
 		return
 
 	case actionPath == "/display/v1/update-url":
-		logger.Infof("[mock brain] Action display update-url")
-		result = map[string]string{"status": "success"}
+		logger.Errorf("[display] Action display update-url failed: display not supported")
+		result = map[string]interface{}{
+			"error":   "no_display",
+			"message": "No Display supported/needed on this host",
+		}
 		m.reportActionResult(dev, action.UUID, result)
 		return
 
 	case actionPath == "/leds/set":
-		logger.Infof("[mock brain] Action leds set")
-		result = map[string]string{"status": "ok"}
+		logger.Errorf("[leds] Action leds set failed: leds not supported")
+		result = map[string]interface{}{
+			"error":   "no_leds",
+			"message": "LEDs are not supported/needed on this host",
+		}
 		m.reportActionResult(dev, action.UUID, result)
 		return
 
@@ -771,6 +793,7 @@ func (m *oboxModule) dispatchLocalAction(path, method string, payload interface{
 	if decodeErr := json.NewDecoder(resp.Body).Decode(&result); decodeErr != nil || result == nil {
 		return map[string]string{"status": "ok"}
 	}
+	logger.Infof("[mock brain] local action result: %v", result)
 	return result
 }
 
@@ -920,7 +943,7 @@ func (m *oboxModule) callOdooOboxConnect(dbURL, token, serial string) {
 					"serial_number": candSerial,
 					"token":         token,
 					"local_ip":      m.server.LocalAddr(),
-					"services":      []string{"usb", "printer", "wifi"},
+					"services":      []string{"usb", "printer"},
 				},
 			}
 
@@ -954,6 +977,7 @@ func (m *oboxModule) callOdooOboxConnect(dbURL, token, serial string) {
 				if m.server.cfg != nil {
 					_ = m.server.cfg.SetOdooCredentials(dbURL, token, candSerial, "")
 				}
+				m.setLiveStatus("connected")
 				return
 			}
 

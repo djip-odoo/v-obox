@@ -38,15 +38,15 @@ export default function OboxFields() {
       onClick={() => copyToClipboard(value, label)}
       title={copied === label ? "Copied!" : `Copy ${label}`}
       aria-label={`Copy ${label}`}
-      className={`shrink-0 p-1.5 rounded-lg transition-colors cursor-pointer flex items-center justify-center ${
+      className={`shrink-0 p-1.5 rounded-lg transition-all duration-150 cursor-pointer flex items-center justify-center ${
         copied === label
-          ? "text-success bg-green-50"
-          : "text-gray-400 hover:text-odoo hover:bg-gray-100"
+          ? "text-emerald-600 bg-emerald-100/80 ring-1 ring-emerald-300"
+          : "text-gray-400 hover:text-odoo hover:bg-purple-50 active:scale-95"
       }`}
     >
       {copied === label ? (
         <svg
-          className="w-4 h-4"
+          className="w-3.5 h-3.5"
           fill="none"
           viewBox="0 0 24 24"
           stroke="currentColor"
@@ -60,7 +60,7 @@ export default function OboxFields() {
         </svg>
       ) : (
         <svg
-          className="w-4 h-4"
+          className="w-3.5 h-3.5"
           fill="none"
           viewBox="0 0 24 24"
           stroke="currentColor"
@@ -76,108 +76,203 @@ export default function OboxFields() {
     </button>
   );
 
-  const renderField = ( label: string, value: string,tooltip: string = "") => (
-    <div
-      className="flex items-center gap-2 min-w-0"
-      title={tooltip}
-    >
-      <span className="flex-grow min-w-0 text-sm font-mono text-gray-800 truncate">
-        {label} {value}
-      </span>
-
-      {renderCopyButton(value, label)}
-    </div>
-  );
-
-  // Odoo connected
+  // Odoo Connected State
   if (isOdooConnected && odooStatus?.dbUrl) {
     const wsStatus = odooStatus.websocketStatus || "connected";
 
     return (
-      <div className="px-4 sm:px-6 py-3 border-b border-gray-200">
-        <div className="flex items-center gap-4">
-          {/* Database URL */}
-          <div className="flex-grow min-w-0">
-           {renderField("Connected to ", odooStatus.dbUrl, "Odoo Database URL")}
+      <div className="pb-3 border-b border-gray-100">
+        <div className="rounded-xl border border-purple-100 bg-gradient-to-br from-purple-50/70 via-white to-purple-50/40 p-3 shadow-xs">
+          {/* Header row: Database status & live WS */}
+          <div className="flex items-center justify-between gap-3 mb-2">
+            <div className="flex items-center gap-1.5">
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-semibold uppercase tracking-wider bg-odoo text-white shadow-xs">
+                <svg
+                  className="w-3 h-3"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                  strokeWidth="2.5"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M5 13l4 4L19 7"
+                  />
+                </svg>
+                Odoo Connected
+              </span>
+            </div>
+
+            <div className="flex items-center gap-2">
+              {/* WebSocket Status Pill */}
+              <div
+                className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-medium border ${
+                  wsStatus === "connected"
+                    ? "bg-emerald-50 text-emerald-700 border-emerald-200/70"
+                    : wsStatus === "connecting" || wsStatus === "polling"
+                    ? "bg-amber-50 text-amber-700 border-amber-200/70"
+                    : "bg-rose-50 text-rose-700 border-rose-200/70"
+                }`}
+                title={`WebSocket Status: ${wsStatus}`}
+              >
+                <span className="relative flex h-2 w-2">
+                  {wsStatus === "connected" ? (
+                    <>
+                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-60" />
+                      <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" />
+                    </>
+                  ) : wsStatus === "connecting" || wsStatus === "polling" ? (
+                    <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500 animate-pulse" />
+                  ) : (
+                    <span className="relative inline-flex rounded-full h-2 w-2 bg-rose-500" />
+                  )}
+                </span>
+                <span className="capitalize">{wsStatus === "connected" ? "Live" : wsStatus}</span>
+              </div>
+
+              {/* Disconnect Button */}
+              <button
+                type="button"
+                onClick={async () => {
+                  const removed = await odooContext.actions.disconnectOdoo();
+                  if (removed) {
+                    toastContext.actions.showToast(
+                      "Odoo connection removed",
+                      "success",
+                    );
+                  }
+                }}
+                className="p-1 rounded-lg text-gray-400 hover:text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer"
+                title="Disconnect from Odoo"
+                aria-label="Disconnect from Odoo"
+              >
+                <svg
+                  className="w-4 h-4"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"
+                  />
+                </svg>
+              </button>
+            </div>
           </div>
 
-          {/* Websocket status */}
+          {/* Database URL pill */}
           <div
-            className="shrink-0 flex items-center gap-2"
-            title="Websocket Status"
+            className="flex items-center justify-between gap-2 bg-white/90 border border-purple-100/80 rounded-lg px-2.5 py-1.5"
+            title="Odoo Database URL"
           >
-            {wsStatus === "connected" ? (
-              <>
-                <span className="w-2 h-2 rounded-full bg-emerald-500" />
-              </>
-            ) : wsStatus === "connecting" || wsStatus === "polling" ? (
-              <>
-                <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" />
-              </>
-            ) : (
-              <>
-                <span className="w-2 h-2 rounded-full bg-rose-500" />
-              </>
-            )}
-            <span className="text-xs text-gray-600">WebSocket</span>
+            <div className="flex items-center gap-2 min-w-0">
+              <svg
+                className="w-3.5 h-3.5 text-odoo shrink-0"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+                strokeWidth="2"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"
+                />
+              </svg>
+              <span className="font-mono text-xs text-gray-800 font-medium truncate">
+                {odooStatus.dbUrl}
+              </span>
+            </div>
+            {renderCopyButton(odooStatus.dbUrl, "Database URL")}
           </div>
-
-          {/* Disconnect */}
-          <button
-            type="button"
-            onClick={async () => {
-              const removed = await odooContext.actions.disconnectOdoo();
-
-              if (removed) {
-                toastContext.actions.showToast(
-                  "Odoo connection removed",
-                  "success",
-                );
-              }
-            }}
-            className="shrink-0 p-1.5 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50 transition cursor-pointer"
-            title="Disconnect Odoo"
-            aria-label="Disconnect Odoo"
-          >
-            <svg
-              className="w-4 h-4"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-              strokeWidth="2"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
-              />
-            </svg>
-          </button>
         </div>
       </div>
     );
   }
 
-  // Not connected
+  // Disconnected / Standalone State
   if (!appId && !ipAddress) {
     return null;
   }
 
   return (
-    <div className="px-4 sm:px-6 py-3 border-b border-gray-200">
-      <div className="flex flex-col sm:flex-row gap-3">
+    <div className="pb-3 border-b border-gray-100">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+        {/* Device / App ID Card */}
         {appId && (
-          <div className="flex-grow min-w-0">
-            {renderField("ID:", appId, "App ID")}
+          <div
+            className="flex items-center justify-between gap-2 bg-gray-50/80 hover:bg-gray-50 border border-gray-200/70 rounded-xl px-3 py-2 transition-all shadow-2xs"
+            title="App ID (Hardware Serial)"
+          >
+            <div className="flex items-center gap-2.5 min-w-0">
+              <div className="w-7 h-7 rounded-lg bg-purple-50 text-odoo flex items-center justify-center shrink-0 border border-purple-100/60">
+                <svg
+                  className="w-3.5 h-3.5"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2zM9 9h6v6H9V9z"
+                  />
+                </svg>
+              </div>
+              <div className="min-w-0">
+                <div className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">
+                  App ID
+                </div>
+                <div className="font-mono text-xs text-gray-800 font-medium truncate">
+                  {appId}
+                </div>
+              </div>
+            </div>
+            {renderCopyButton(appId, "App ID")}
           </div>
         )}
 
+        {/* Local IP Card */}
         {ipAddress && (
-          <div className="flex-grow min-w-0">
-            {renderField("IP:", ipAddress, "IP Address")}
+          <div
+            className="flex items-center justify-between gap-2 bg-gray-50/80 hover:bg-gray-50 border border-gray-200/70 rounded-xl px-3 py-2 transition-all shadow-2xs"
+            title="Local Network IP"
+          >
+            <div className="flex items-center gap-2.5 min-w-0">
+              <div className="w-7 h-7 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center shrink-0 border border-blue-100/60">
+                <svg
+                  className="w-3.5 h-3.5"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9"
+                  />
+                </svg>
+              </div>
+              <div className="min-w-0">
+                <div className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">
+                  Local IP
+                </div>
+                <div className="font-mono text-xs text-gray-800 font-medium truncate">
+                  {ipAddress}
+                </div>
+              </div>
+            </div>
+            {renderCopyButton(ipAddress, "IP Address")}
           </div>
         )}
       </div>
     </div>
   );
 }
+
