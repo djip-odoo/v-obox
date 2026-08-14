@@ -6,7 +6,6 @@ const AppName = "EposProxy"
 type OdooConfig struct {
 	DbURL        string `json:"db_url,omitempty"`
 	Token        string `json:"token,omitempty"`
-	SerialNumber string `json:"serial_number,omitempty"`
 	DbUUID       string `json:"db_uuid,omitempty"`
 }
 

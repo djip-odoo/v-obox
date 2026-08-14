@@ -36,7 +36,7 @@ type EPOSResponse struct {
 type oboxDevice struct {
 	dbURL  string
 	token  string
-	serial string
+	dbUuid string
 }
 
 // oboxModule encapsulates the state and behavior of the Obox mock service.
@@ -70,10 +70,10 @@ func init() {
 			m.device.Store(&oboxDevice{
 				dbURL:  odooCfg.DbURL,
 				token:  odooCfg.Token,
-				serial: odooCfg.SerialNumber,
+				dbUuid: odooCfg.DbUUID,
 			})
 			initialStatus = "connecting"
-			logger.Infof("[mock] Restored Odoo credentials from storage: db=%s serial=%s", odooCfg.DbURL, odooCfg.SerialNumber)
+			logger.Infof("[mock] Restored Odoo credentials from storage: db=%s dbuuid=%s", odooCfg.DbURL, odooCfg.DbUUID)
 		}
 		m.setLiveStatus(initialStatus)
 		m.registerRoutes()
@@ -100,7 +100,7 @@ func (m *oboxModule) getStatus() OdooStatus {
 			Connected:       true,
 			DbURL:           dev.dbURL,
 			WebsocketStatus: st,
-			Serial:          dev.serial,
+			Serial:          appID,
 		}
 	}
 	if m.server != nil && m.server.cfg != nil && m.server.cfg.HasOdooCredentials() {
@@ -110,7 +110,7 @@ func (m *oboxModule) getStatus() OdooStatus {
 			Connected:       true,
 			DbURL:           m.server.cfg.GetOdooDbURL(),
 			WebsocketStatus: "connecting",
-			Serial:          m.server.cfg.GetOdooSerial(),
+			Serial:          appID,
 		}
 	}
 	return OdooStatus{
@@ -295,85 +295,6 @@ func (m *oboxModule) registerRoutes() {
 		})
 	})
 
-	// ── Mock IoT Proxy endpoints ───────────────────────────────────────────
-
-	// GET /odoo-enterprise/iot/discover-boxes
-	// Called by discover_obox.js → rpc(ODOO_PROXY_DISCOVER_BOXES_ENDPOINT)
-	s.app.Get("/odoo-enterprise/iot/discover-boxes", func(ctx fiber.Ctx) error {
-		logger.Infof("[mock] IoT discover-boxes")
-		appID := m.appID()
-
-		reqSerial := ctx.Query("serial")
-		if reqSerial == "" {
-			reqSerial = ctx.Query("serial_number")
-		}
-
-		if reqSerial != "" && !matchSerial(reqSerial, appID) {
-			logger.Warnf("[mock] discover-boxes: requested serial '%s' does not match app ID '%s'", reqSerial, appID)
-			return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-				"error": fmt.Sprintf("serial number '%s' does not match application ID '%s'", reqSerial, appID),
-			})
-		}
-
-		boxes := []map[string]string{
-			{"serial_number": appID, "pairing_code": "MOCKPAIR01"},
-		}
-		return ctx.JSON(boxes)
-	})
-
-	// POST /odoo-enterprise/iot/connect-db
-	// Called by obox_obox.py → pair_obox()
-	s.app.Post("/odoo-enterprise/iot/connect-db", func(ctx fiber.Ctx) error {
-		logger.Infof("[mock] IoT connect-db")
-
-		var body struct {
-			Params struct {
-				DatabaseURL  string `json:"database_url"`
-				Token        string `json:"token"`
-				SerialNumber string `json:"serial_number"`
-				Serial       string `json:"serial"`
-			} `json:"params"`
-		}
-
-		if err := json.Unmarshal(ctx.Body(), &body); err != nil ||
-			body.Params.DatabaseURL == "" || body.Params.Token == "" {
-			return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-				"error": "database_url and token are required",
-			})
-		}
-
-		appID := m.appID()
-		reqSerial := body.Params.SerialNumber
-		if reqSerial == "" {
-			reqSerial = body.Params.Serial
-		}
-
-		if reqSerial != "" && !matchSerial(reqSerial, appID) {
-			logger.Warnf("[mock] connect-db: requested serial '%s' does not match app ID '%s'", reqSerial, appID)
-			return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-				"error": fmt.Sprintf("serial number '%s' does not match application ID '%s'", reqSerial, appID),
-			})
-		}
-
-		serial := appID
-		dbURL := body.Params.DatabaseURL
-		token := body.Params.Token
-
-		if m.server.cfg != nil {
-			if err := m.server.cfg.SetOdooCredentials(dbURL, token, serial, ""); err != nil {
-				logger.Warnf("[mock] Failed to save Odoo credentials to storage: %v", err)
-			}
-		}
-
-		logger.Infof("[mock] connect-db: got credentials db=%s serial=%s — seeding brain + calling back /obox/connect", dbURL, serial)
-		go m.callOdooOboxConnect(dbURL, token, serial)
-
-		return ctx.JSON(map[string]interface{}{
-			"result": []map[string]string{
-				{"serial_number": serial},
-			},
-		})
-	})
 
 	// ── Mock Obox local device endpoints ──────────────────────────────────
 	// These are hit by obox OWL widgets when connecting to the server.
@@ -387,7 +308,7 @@ func (m *oboxModule) registerRoutes() {
 			return ctx.JSON(map[string]interface{}{
 				"status": "configured",
 				"data": map[string]string{
-					"serial": dev.serial,
+					"serial": s.cfg.GetAppID(),
 					"db_url": dev.dbURL,
 				},
 			})
@@ -451,115 +372,25 @@ func (m *oboxModule) registerRoutes() {
 		})
 	})
 
-	// ── Offline connect handshake ──────────────────────────────────────────
-	// GET /odoo/connect?db_url=...&db_uuid=...&token=...&serial=...
+	// ── Offline connect handshake ──
+	// GET /odoo/connect?db_url=...&db_uuid=...&token=...
 	s.app.Get("/odoo/connect", func(ctx fiber.Ctx) error {
 		dbURL := ctx.Query("db_url")
 		token := ctx.Query("token")
 		dbUUID := ctx.Query("db_uuid")
-		reqSerial := ctx.Query("serial_number")
-		if reqSerial == "" {
-			reqSerial = ctx.Query("serial")
-		}
-
-		appID := m.appID()
-		if reqSerial != "" && !matchSerial(reqSerial, appID) {
-			logger.Warnf("[mock] /odoo/connect: requested serial '%s' does not match app ID '%s'", reqSerial, appID)
-			return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-				"error": fmt.Sprintf("serial number '%s' does not match application ID '%s'", reqSerial, appID),
-			})
-		}
-
-		serial := appID
-		if reqSerial != "" {
-			serial = reqSerial
-		}
-
-		logger.Infof("[mock] Obox offline connect received: db_url=%s, token=%s, serial=%s, db_uuid=%s", dbURL, token, serial, dbUUID)
+	
+		logger.Infof("[mock] Obox offline connect received: db_url=%s, token=%s, db_uuid=%s", dbURL, token, dbUUID)
 		if dbURL != "" && token != "" {
-			m.device.Store(&oboxDevice{dbURL: dbURL, token: token, serial: serial})
+			m.device.Store(&oboxDevice{dbURL: dbURL, token: token, dbUuid: dbUUID})
 			m.setLiveStatus("connecting")
 			if m.server.cfg != nil {
-				if err := m.server.cfg.SetOdooCredentials(dbURL, token, serial, dbUUID); err != nil {
+				if err := m.server.cfg.SetOdooCredentials(dbURL, token, dbUUID); err != nil {
 					logger.Warnf("[mock] Failed to save Odoo credentials to storage: %v", err)
 				}
 			}
-			go m.callOdooOboxConnect(dbURL, token, serial)
+			go m.callOdooOboxConnect(dbURL, token, dbUUID)
 		}
 		return ctx.SendStatus(fiber.StatusOK)
-	})
-
-	// ── /mock/* management endpoints ─────────────────────────────────────
-	s.app.Post("/mock/connect", func(ctx fiber.Ctx) error {
-		var body struct {
-			DbURL        string `json:"db_url"`
-			Token        string `json:"token"`
-			Serial       string `json:"serial"`
-			SerialNumber string `json:"serial_number"`
-		}
-		if err := ctx.Bind().JSON(&body); err != nil || body.DbURL == "" || body.Token == "" {
-			return ctx.Status(fiber.StatusBadRequest).JSON(map[string]string{"error": "db_url and token are required"})
-		}
-
-		reqSerial := body.Serial
-		if reqSerial == "" {
-			reqSerial = body.SerialNumber
-		}
-
-		appID := m.appID()
-		if reqSerial != "" && !matchSerial(reqSerial, appID) {
-			logger.Warnf("[mock] /mock/connect: requested serial '%s' does not match app ID '%s'", reqSerial, appID)
-			return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-				"error": fmt.Sprintf("serial number '%s' does not match application ID '%s'", reqSerial, appID),
-			})
-		}
-
-		serial := appID
-		if reqSerial != "" {
-			serial = reqSerial
-		}
-
-		m.device.Store(&oboxDevice{dbURL: body.DbURL, token: body.Token, serial: serial})
-		m.setLiveStatus("connecting")
-		if m.server.cfg != nil {
-			if err := m.server.cfg.SetOdooCredentials(body.DbURL, body.Token, serial, ""); err != nil {
-				logger.Warnf("[mock] Failed to save Odoo credentials to storage: %v", err)
-			}
-		}
-		logger.Infof("[mock] Credentials registered via /mock/connect: db=%s serial=%s", body.DbURL, serial)
-		go m.callOdooOboxConnect(body.DbURL, body.Token, serial)
-		return ctx.JSON(map[string]string{"status": "ok", "serial": serial})
-	})
-
-	s.app.Get("/mock/status", func(ctx fiber.Ctx) error {
-		dev := m.device.Load()
-		if dev == nil {
-			return ctx.JSON(map[string]interface{}{
-				"brain":    "waiting",
-				"device":   nil,
-				"local_ip": m.server.LocalAddr(),
-				"devices":  m.buildDeviceList(),
-			})
-		}
-		return ctx.JSON(map[string]interface{}{
-			"brain":    "polling",
-			"db_url":   dev.dbURL,
-			"serial":   dev.serial,
-			"local_ip": m.server.LocalAddr(),
-			"devices":  m.buildDeviceList(),
-		})
-	})
-
-	s.app.Post("/mock/scale", func(ctx fiber.Ctx) error {
-		var body struct {
-			Weight float64 `json:"weight"`
-		}
-		if err := ctx.Bind().JSON(&body); err != nil {
-			return ctx.Status(fiber.StatusBadRequest).JSON(map[string]string{"error": "invalid json"})
-		}
-		m.setMockWeight(body.Weight)
-		logger.Infof("[mock] Mock scale weight set to %.3f kg", body.Weight)
-		return ctx.JSON(map[string]interface{}{"status": "ok", "weight": body.Weight})
 	})
 }
 
@@ -615,7 +446,7 @@ func (m *oboxModule) fetchNextActions(dev *oboxDevice) ([]queueAction, error) {
 		Method:  "call",
 		ID:      1,
 		Params: map[string]string{
-			"serial_number": dev.serial,
+			"serial_number": m.appID(),
 			"token":         dev.token,
 		},
 	})
@@ -810,7 +641,7 @@ func (m *oboxModule) reportActionResult(dev *oboxDevice, uuid string, result int
 		Method:  "call",
 		ID:      1,
 		Params: map[string]interface{}{
-			"serial_number": dev.serial,
+			"serial_number": m.appID(),
 			"token":         dev.token,
 			"action_uuid":   uuid,
 			"result":        result,
@@ -841,7 +672,7 @@ func (m *oboxModule) callOdooPing(dev *oboxDevice) {
 		Method:  "call",
 		ID:      1,
 		Params: map[string]string{
-			"serial_number": dev.serial,
+			"serial_number": m.appID(),
 			"token":         dev.token,
 		},
 	})
@@ -898,28 +729,8 @@ func (m *oboxModule) buildDeviceList() []oboxDeviceEntry {
 
 // ── Odoo handshake callback ────────────────────────────────────────────────────
 
-func (m *oboxModule) callOdooOboxConnect(dbURL, token, serial string) {
-	if serial == "" {
-		serial = m.appID()
-	}
+func (m *oboxModule) callOdooOboxConnect(dbURL, token, dbUuid string) {
 
-	cleanSerial := strings.TrimPrefix(strings.TrimPrefix(serial, "ODO-"), "ODO")
-
-	// Generate all candidate serial variations for Odoo pairing
-	candidateMap := make(map[string]bool)
-	var candidateSerials []string
-
-	addCandidate := func(s string) {
-		if s != "" && !candidateMap[s] {
-			candidateMap[s] = true
-			candidateSerials = append(candidateSerials, s)
-		}
-	}
-
-	addCandidate(serial)
-	addCandidate(cleanSerial)
-	addCandidate("ODO-" + cleanSerial)
-	addCandidate("ODO" + cleanSerial)
 
 	endpoint := dbURL + "/obox/connect"
 	client := &http.Client{Timeout: 5 * time.Second}
@@ -934,13 +745,12 @@ func (m *oboxModule) callOdooOboxConnect(dbURL, token, serial string) {
 	for attempt := 1; attempt <= 10; attempt++ {
 		time.Sleep(time.Duration(attempt*300) * time.Millisecond)
 
-		for _, candSerial := range candidateSerials {
 			payload := rpcPayload{
 				JSONRPC: "2.0",
 				Method:  "call",
 				ID:      1,
 				Params: map[string]interface{}{
-					"serial_number": candSerial,
+					"serial_number": m.appID(),
 					"token":         token,
 					"local_ip":      m.server.LocalAddr(),
 					"services":      []string{"usb", "printer"},
@@ -953,7 +763,6 @@ func (m *oboxModule) callOdooOboxConnect(dbURL, token, serial string) {
 				return
 			}
 
-			logger.Infof("[mock] Calling back Odoo at %s (serial=%s, attempt %d/10)", endpoint, candSerial, attempt)
 			resp, err := client.Post(endpoint, "application/json", bytes.NewReader(body))
 			if err != nil {
 				logger.Warnf("[mock] /obox/connect attempt %d connection error: %v", attempt, err)
@@ -968,25 +777,25 @@ func (m *oboxModule) callOdooOboxConnect(dbURL, token, serial string) {
 			resp.Body.Close()
 
 			if resp.StatusCode == 200 && rpcResp.Error == nil {
-				logger.Infof("[mock] Odoo /obox/connect SUCCESS on attempt %d (paired as %s)", attempt, candSerial)
+				logger.Infof("[mock] Odoo /obox/connect SUCCESS on attempt %d (paired as %s)", attempt, m.appID())
 				m.device.Store(&oboxDevice{
 					dbURL:  dbURL,
 					token:  token,
-					serial: candSerial,
+					dbUuid: dbUuid,
 				})
 				if m.server.cfg != nil {
-					_ = m.server.cfg.SetOdooCredentials(dbURL, token, candSerial, "")
+					_ = m.server.cfg.SetOdooCredentials(dbURL, token, dbUuid)
 				}
 				m.setLiveStatus("connected")
 				return
 			}
 
 			if rpcResp.Error != nil {
-				logger.Warnf("[mock] /obox/connect (serial=%s) error from Odoo: %s", candSerial, string(*rpcResp.Error))
+				logger.Warnf("[mock] /obox/connect (serial=%s) error from Odoo: %s", m.appID(), string(*rpcResp.Error))
 			} else {
-				logger.Warnf("[mock] /obox/connect (serial=%s) HTTP %d", candSerial, resp.StatusCode)
+				logger.Warnf("[mock] /obox/connect (serial=%s) HTTP %d", m.appID(), resp.StatusCode)
 			}
-		}
+		
 	}
 
 	logger.Errorf("[mock] Failed to complete /obox/connect after 10 attempts")

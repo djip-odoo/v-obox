@@ -308,7 +308,7 @@ func TestExecuteAction_AllCases(t *testing.T) {
 	dev := &oboxDevice{
 		dbURL:  mockOdoo.URL,
 		token:  "test-token",
-		serial: s.AppID(),
+		dbUuid: "mock-uuid",
 	}
 	m.device.Store(dev)
 
@@ -379,7 +379,7 @@ func TestOboxStoragePersistence(t *testing.T) {
 	testutil.ExpectedTrue(t, cfg.HasOdooCredentials())
 	testutil.ExpectedEqual(t, cfg.GetOdooDbURL(), "http://127.0.0.1:8069")
 	testutil.ExpectedEqual(t, cfg.GetOdooToken(), "test-tok-789")
-	testutil.ExpectedEqual(t, cfg.GetOdooSerial(), testAppID)
+	testutil.ExpectedEqual(t, cfg.GetAppID(), testAppID)
 	testutil.ExpectedEqual(t, cfg.GetOdooDbUUID(), "test-uuid-456")
 
 	// 4. Discover boxes returns matching serial
@@ -412,7 +412,7 @@ func TestOboxRestoreCredentialsFromConfig(t *testing.T) {
 	configPath := filepath.Join(tempDir, "config.json")
 	cfg := config.NewManagerWithPath(configPath)
 	testAppID, _ := cfg.EnsureAppID()
-	_ = cfg.SetOdooCredentials("http://192.168.1.100:8069", "restored-token", testAppID, "uuid-1")
+	_ = cfg.SetOdooCredentials("http://192.168.1.100:8069", "restored-token", "uuid-1")
 
 	mgr := printer.NewManager()
 	s := New(4617, mgr, cfg)

@@ -100,7 +100,7 @@ func (s *Server) GetOdooStatus() OdooStatus {
 			Connected:       true,
 			DbURL:           s.cfg.GetOdooDbURL(),
 			WebsocketStatus: "connected",
-			Serial:          s.cfg.GetOdooSerial(),
+			Serial:          s.AppID(),
 		}
 	}
 	return OdooStatus{

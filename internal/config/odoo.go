@@ -17,7 +17,7 @@ func (cm *Manager) SetOdooConfig(cfg OdooConfig) error {
 }
 
 // SetOdooCredentials updates Odoo identifiers and persists them in application storage.
-func (cm *Manager) SetOdooCredentials(dbURL, token, serial, dbUUID string) error {
+func (cm *Manager) SetOdooCredentials(dbURL, token, dbUUID string) error {
 	cm.mu.Lock()
 	defer cm.mu.Unlock()
 
@@ -26,9 +26,6 @@ func (cm *Manager) SetOdooCredentials(dbURL, token, serial, dbUUID string) error
 	}
 	if token != "" {
 		cm.Data.Odoo.Token = token
-	}
-	if serial != "" {
-		cm.Data.Odoo.SerialNumber = serial
 	}
 	if dbUUID != "" {
 		cm.Data.Odoo.DbUUID = dbUUID
@@ -44,13 +41,6 @@ func (cm *Manager) ClearOdooConfig() error {
 
 	cm.Data.Odoo = OdooConfig{}
 	return cm.saveLocked()
-}
-
-// GetOdooSerial returns the stored Odoo serial number.
-func (cm *Manager) GetOdooSerial() string {
-	cm.mu.RLock()
-	defer cm.mu.RUnlock()
-	return cm.Data.Odoo.SerialNumber
 }
 
 // GetOdooDbURL returns the stored Odoo database URL.

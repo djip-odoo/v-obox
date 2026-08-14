@@ -328,8 +328,8 @@ func (a *App) CheckOdooStatus() OdooStatusInterface {
 			Connected:       true,
 			DbURL:           a.config.GetOdooDbURL(),
 			WebsocketStatus: "connected",
-			Serial:          a.config.GetOdooSerial(),
-		}
+			Serial:         a.appID,
+		} 
 	}
 	return OdooStatusInterface{
 		AppId:           a.appID,
