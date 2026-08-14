@@ -8,7 +8,6 @@ import (
 	"epos-proxy/internal/config"
 	"epos-proxy/internal/logger"
 	"epos-proxy/internal/printer"
-	"epos-proxy/internal/util"
 
 	"github.com/gofiber/fiber/v3"
 	"github.com/gofiber/fiber/v3/middleware/cors"
@@ -78,7 +77,7 @@ func (s *Server) Cfg() *config.Manager {
 
 // LocalAddr returns the host:port address of the server matching its current IP and running port.
 func (s *Server) LocalAddr() string {
-	return fmt.Sprintf("%s:%d", util.GetLocalIP(false), s.Port)
+	return fmt.Sprintf("127.0.0.1:%d", s.Port)
 }
 
 // AppID returns the application ID configured or generated on this server.

@@ -24,6 +24,7 @@ type App struct {
 	config         *config.Manager
 	printerManager *printer.Manager
 	autoStart      *autostart.App
+	appID          string
 }
 
 type Printer struct {
@@ -50,7 +51,7 @@ type AppVariable struct {
 	AppID         string `json:"appId,omitempty"`
 }
 
-type OdooStatus struct {
+type OdooStatusInterface struct {
 	AppId           string `json:"appId"`
 	IpAddress       string `json:"ipAddress"`
 	Connected       bool   `json:"connected"`
@@ -90,11 +91,11 @@ func (a *App) startup(ctx context.Context) {
 		logger.Warnf("Config load warning: %v", err)
 	}
 
-	appID, err := cfg.EnsureAppID()
+	a.appID, err = cfg.EnsureAppID()
 	if err != nil {
 		logger.Warnf("EnsureAppID warning: %v", err)
 	}
-	logger.Infof("Application ID: %s", appID)
+	logger.Infof("Application ID: %s", a.appID)
 
 	logger.Debugf("Config loaded from %s", cfg.Path())
 
@@ -108,7 +109,7 @@ func (a *App) startup(ctx context.Context) {
 
 	a.webserver = server.New(port, a.printerManager, a.config)
 	a.webserver.OnStatusChange(func(st server.OdooStatus) {
-		status := a.OdooStatus()
+		status := a.CheckOdooStatus()
 		wailsruntime.EventsEmit(a.ctx, "odoo:status_changed", status)
 	})
 }
@@ -122,23 +123,12 @@ func (a *App) shutdown(ctx context.Context) {
 }
 
 func (a *App) AppVariable() AppVariable {
-	var appID string
-	if a.config != nil {
-		appID = a.config.GetAppID()
-	}
 	return AppVariable{
 		Os:            runtime.GOOS,
 		ServerRunning: a.webserver.Running(),
 		DefaultIp:     fmt.Sprintf("127.0.0.1:%d", a.webserver.Port),
-		AppID:         appID,
+		AppID:         a.appID,
 	}
-}
-
-func (a *App) GetAppID() string {
-	if a.config == nil {
-		return ""
-	}
-	return a.config.GetAppID()
 }
 
 func (a *App) GetPrinterIp(id string) string {
@@ -148,7 +138,6 @@ func (a *App) GetPrinterIp(id string) string {
 }
 
 func (a *App) Printers() Printers {
-
 	logger.Debug("Collecting printer status")
 
 	printers := make([]Printer, 0)
@@ -313,12 +302,9 @@ func (a *App) DisableAutostart() error {
 	return nil
 }
 
-func (a *App) OdooStatus() OdooStatus {
-	logger.Infof("checking odoo status")
-	appID := ""
-	if a.config != nil {
-		appID = a.config.GetAppID()
-	}
+func (a *App) CheckOdooStatus() OdooStatusInterface {
+	logger.Debugf("checking odoo status")
+
 	ipAddress := ""
 	if a.webserver != nil {
 		ipAddress = fmt.Sprintf("127.0.0.1:%d", a.webserver.Port)
@@ -326,8 +312,8 @@ func (a *App) OdooStatus() OdooStatus {
 
 	if a.webserver != nil {
 		status := a.webserver.GetOdooStatus()
-		return OdooStatus{
-			AppId:           appID,
+		return OdooStatusInterface{
+			AppId:           a.appID,
 			IpAddress:       ipAddress,
 			Connected:       status.Connected,
 			DbURL:           status.DbURL,
@@ -336,8 +322,8 @@ func (a *App) OdooStatus() OdooStatus {
 		}
 	}
 	if a.config != nil && a.config.HasOdooCredentials() {
-		return OdooStatus{
-			AppId:           appID,
+		return OdooStatusInterface{
+			AppId:           a.appID,
 			IpAddress:       ipAddress,
 			Connected:       true,
 			DbURL:           a.config.GetOdooDbURL(),
@@ -345,12 +331,12 @@ func (a *App) OdooStatus() OdooStatus {
 			Serial:          a.config.GetOdooSerial(),
 		}
 	}
-	return OdooStatus{
-		AppId:           appID,
+	return OdooStatusInterface{
+		AppId:           a.appID,
 		IpAddress:       ipAddress,
 		Connected:       false,
 		WebsocketStatus: "disconnected",
-		Serial:          appID,
+		Serial:          a.appID,
 	}
 }
 
@@ -365,7 +351,7 @@ func (a *App) DisconnectOdoo() error {
 			return err
 		}
 	}
-	wailsruntime.EventsEmit(a.ctx, "odoo:status_changed", a.OdooStatus())
+	wailsruntime.EventsEmit(a.ctx, "odoo:status_changed", a.CheckOdooStatus())
 	return nil
 }
 

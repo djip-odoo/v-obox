@@ -2,13 +2,13 @@ import { createContext, useCallback, useEffect, useState } from "react";
 import { main } from "../../wailsjs/go/models";
 import {
   ConfirmDisconnectOdoo,
-  OdooStatus,
+  CheckOdooStatus,
 } from "../../wailsjs/go/main/App";
 import { EventsOn } from "../../wailsjs/runtime/runtime";
 
 export type OdooContextType = {
   data: {
-    status: main.OdooStatus | null;
+    status: main.OdooStatusInterface | null;
     isConnected: boolean;
   };
   actions: {
@@ -24,11 +24,11 @@ interface OdooContextWrapperProps {
 }
 
 export const OdooContextWrapper = ({ children }: OdooContextWrapperProps) => {
-  const [status, setStatus] = useState<main.OdooStatus | null>(null);
+  const [status, setStatus] = useState<main.OdooStatusInterface | null>(null);
 
   const refreshStatus = useCallback(async () => {
     try {
-      const odooStatus = await OdooStatus();
+      const odooStatus = await CheckOdooStatus();
       setStatus(odooStatus);
     } catch (error) {
       console.error("Failed to fetch Odoo status:", error);
@@ -61,7 +61,7 @@ export const OdooContextWrapper = ({ children }: OdooContextWrapperProps) => {
     refreshStatus();
 
     // Listen to real-time status updates pushed from backend
-    const unsubscribe = EventsOn("odoo:status_changed", (newStatus: main.OdooStatus) => {
+    const unsubscribe = EventsOn("odoo:status_changed", (newStatus: main.OdooStatusInterface) => {
       setStatus(newStatus);
     });
 

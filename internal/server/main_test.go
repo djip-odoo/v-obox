@@ -3,7 +3,6 @@ package server
 import (
 	"bytes"
 	"encoding/json"
-	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -11,7 +10,6 @@ import (
 	"testing"
 
 	"epos-proxy/internal/printer"
-	"epos-proxy/internal/util"
 
 	"github.com/gofiber/fiber/v3"
 )
@@ -127,26 +125,5 @@ func TestCustomSerialNumberSupport(t *testing.T) {
 	}
 	if respDiscoverBad.StatusCode != http.StatusBadRequest {
 		t.Fatalf("Expected 400 from discover-boxes with mismatched serial, got %d", respDiscoverBad.StatusCode)
-	}
-}
-
-func TestServerLocalIPAndAddr(t *testing.T) {
-	ip := util.GetLocalIP(false)
-	if ip == "" {
-		t.Errorf("Expected non-empty IP from GetLocalIP")
-	}
-
-	mgr := printer.NewManager()
-	port := 4547
-	s := New(port, mgr)
-	defer s.Stop()
-
-	if util.GetLocalIP(false) != ip {
-		t.Errorf("Expected s.LocalIP() == %s, got %s", ip, util.GetLocalIP(false))
-	}
-
-	expectedAddr := fmt.Sprintf("%s:%d", ip, port)
-	if s.LocalAddr() != expectedAddr {
-		t.Errorf("Expected s.LocalAddr() == %s, got %s", expectedAddr, s.LocalAddr())
 	}
 }
