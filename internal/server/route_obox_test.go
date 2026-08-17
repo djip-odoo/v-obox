@@ -307,7 +307,7 @@ func TestExecuteAction_AllCases(t *testing.T) {
 	defer s.Stop()
 
 	// Find the registered obox module
-	m := &oboxModule{server: s}
+	m := obox
 	m.setMockWeight(1.250)
 
 	dev := &oboxDevice{

@@ -92,7 +92,6 @@ type AppVariable struct {
 type OdooStatusInterface struct {
 	AppId           string `json:"appId"`
 	IpAddress       string `json:"ipAddress"`
-	Connected       bool   `json:"connected"`
 	DbURL           string `json:"dbUrl"`
 	WebsocketStatus string `json:"websocketStatus"`
 }
@@ -159,12 +158,6 @@ func (a *App) AppVariable() AppVariable {
 	}
 }
 
-func (a *App) GetPrinterIp(id string) string {
-	ip := fmt.Sprintf("127.0.0.1:%d/p/%s", a.webserver.Port, id)
-	logger.Debugf("Generated printer endpoint: %s", ip)
-	return ip
-}
-
 func (a *App) Printers() Printers {
 	logger.Debug("Collecting printer status")
 
@@ -181,7 +174,7 @@ func (a *App) Printers() Printers {
 		printers = append(printers, Printer{
 			Identifier: p.Identifier,
 			Name:       p.Name,
-			Ip:         a.GetPrinterIp(p.Identifier),
+			Ip:         a.webserver.GetPrinterIp(p.Identifier),
 			IsLAN:      p.IsLAN,
 			LANIp:      p.LANIp,
 			Online:     p.Online,
@@ -330,14 +323,12 @@ func (a *App) CheckOdooStatus() OdooStatusInterface {
 
 	if a.webserver != nil {
 		odooStatus := a.webserver.GetOdooStatus()
-		status.Connected = odooStatus.Connected
 		status.DbURL = odooStatus.DbURL
 		status.WebsocketStatus = odooStatus.WebsocketStatus
 		return status
 	}
 
 	if a.config != nil && a.config.HasOdooCredentials() {
-		status.Connected = true
 		status.DbURL = a.config.GetOdooDbURL()
 		status.WebsocketStatus = "connected"
 	}

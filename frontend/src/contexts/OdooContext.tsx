@@ -40,7 +40,6 @@ export const OdooContextWrapper = ({ children }: OdooContextWrapperProps) => {
       const confirmed = await ConfirmDisconnectOdoo();
       if (confirmed) {
         setStatus({
-          connected: false,
           dbUrl: "",
           websocketStatus: "disconnected",
           appId: "",
@@ -71,7 +70,7 @@ export const OdooContextWrapper = ({ children }: OdooContextWrapperProps) => {
     };
   }, [refreshStatus]);
 
-  const isConnected = Boolean(status?.connected && status?.dbUrl);
+  const isConnected = Boolean(status?.dbUrl);
 
   const data = {
     status,

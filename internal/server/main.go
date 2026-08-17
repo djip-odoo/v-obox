@@ -18,15 +18,7 @@ type Server struct {
 	Port    int
 	mgr     *printer.Manager
 	running atomic.Bool
-
-	obox *oboxModule
-
-	statusListenersMu sync.RWMutex
-	statusListeners   []StatusListener
-}
-
-func (s *Server) LocalAddr() string {
-	return fmt.Sprintf("127.0.0.1:%d", s.Port)
+	cfg     *config.Manager
 }
 
 func New(cfg *config.Manager) *Server {
@@ -47,6 +39,7 @@ func New(cfg *config.Manager) *Server {
 		app:  app,
 		Port: port,
 		mgr:  printer.NewManager(),
+		cfg:  cfg,
 	}
 	s.registerRoutes(cfg)
 
@@ -71,6 +64,20 @@ func (s *Server) Stop() error {
 
 func (s *Server) Running() bool {
 	return s.running.Load()
+}
+
+func (s *Server) AppID() string {
+	return s.cfg.GetAppID()
+}
+
+func (s *Server) LocalAddr() string {
+	return fmt.Sprintf("127.0.0.1:%d", s.Port)
+}
+
+func (s *Server) GetPrinterIp(id string) string {
+	ip := fmt.Sprintf("%s/p/%s", s.LocalAddr(), id)
+	logger.Debugf("Generated printer endpoint: %s", ip)
+	return ip
 }
 
 // RouteBinder registers routes for a Server instance.
