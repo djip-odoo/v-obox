@@ -81,7 +81,7 @@ func TestApp_AppVariableAndPrintersAndGetPrinterIp(t *testing.T) {
 			foundLAN = true
 			testutil.ExpectedEqual(t, p.Type, string(printer.TypeReceipt))
 			testutil.ExpectedEqual(t, p.Name, "Network - 192.168.1.100")
-			testutil.ExpectedEqual(t, p.Ip, fmt.Sprintf("127.0.0.1:%d/p/%s", port, p.Id))
+			testutil.ExpectedEqual(t, p.Ip, fmt.Sprintf("127.0.0.1:%d/p/%s", port, p.Identifier))
 		}
 	}
 	testutil.ExpectedTrue(t, foundLAN, "Expected to find configured LAN printer in printer status")

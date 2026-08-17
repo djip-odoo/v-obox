@@ -16,7 +16,7 @@ import (
 func TestServer_Lifecycle(t *testing.T) {
 	port := testutil.GetFreePort(t)
 	mgr := printer.NewManager()
-	s := New(port, mgr)
+	s := New(port, mgr, nil)
 	defer s.Stop()
 
 	testutil.ExpectedTrue(t, s.Running(), "Expected server to be running after New()")
@@ -37,7 +37,7 @@ func TestPrintData_ValidXML_Success(t *testing.T) {
 
 	port := testutil.GetFreePort(t)
 	mgr := printer.NewManager()
-	s := New(port, mgr)
+	s := New(port, mgr, nil)
 	defer s.Stop()
 
 	printerID := printer.EncodeLANPrinterID("127.0.0.1")
@@ -59,7 +59,7 @@ func TestPrintData_ValidXML_Success(t *testing.T) {
 func TestPrintData_SchemaError(t *testing.T) {
 	port := testutil.GetFreePort(t)
 	mgr := printer.NewManager()
-	s := New(port, mgr)
+	s := New(port, mgr, nil)
 	defer s.Stop()
 
 	invalidPayload := `<invalid>not-an-epos-print</invalid>`
@@ -79,7 +79,7 @@ func TestPrintData_SchemaError(t *testing.T) {
 func TestPrintData_UnreachablePrinter_EX_BADPORT(t *testing.T) {
 	port := testutil.GetFreePort(t)
 	mgr := printer.NewManager()
-	s := New(port, mgr)
+	s := New(port, mgr, nil)
 	defer s.Stop()
 
 	// Use a non-existent USB printer serial that cannot be found
@@ -111,7 +111,7 @@ func TestPrintLabel_Success(t *testing.T) {
 
 	port := testutil.GetFreePort(t)
 	mgr := printer.NewManager()
-	s := New(port, mgr)
+	s := New(port, mgr, nil)
 	defer s.Stop()
 
 	printerID := printer.EncodeLANPrinterID("127.0.0.1")
@@ -128,7 +128,7 @@ func TestPrintLabel_Success(t *testing.T) {
 func TestPrintLabel_EmptyBody_BadRequest(t *testing.T) {
 	port := testutil.GetFreePort(t)
 	mgr := printer.NewManager()
-	s := New(port, mgr)
+	s := New(port, mgr, nil)
 	defer s.Stop()
 
 	req := httptest.NewRequest("POST", "/p/any-printer/pstprnt", bytes.NewReader([]byte{}))
@@ -140,7 +140,7 @@ func TestPrintLabel_EmptyBody_BadRequest(t *testing.T) {
 func TestPrintLabel_UnreachablePrinter_ServerError(t *testing.T) {
 	port := testutil.GetFreePort(t)
 	mgr := printer.NewManager()
-	s := New(port, mgr)
+	s := New(port, mgr, nil)
 	defer s.Stop()
 
 	printerID := "czpOT05fRVhJU1RFTlRfU0VSSUFMCg"
@@ -157,7 +157,7 @@ func TestPrintLabel_UnreachablePrinter_ServerError(t *testing.T) {
 func TestCORSHeaders(t *testing.T) {
 	port := testutil.GetFreePort(t)
 	mgr := printer.NewManager()
-	s := New(port, mgr)
+	s := New(port, mgr, nil)
 	defer s.Stop()
 
 	req := httptest.NewRequest("OPTIONS", "/cgi-bin/epos/service.cgi", nil)
@@ -198,7 +198,7 @@ func TestPrintData_AutoSelectRoute(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			port := testutil.GetFreePort(t)
 			mgr := printer.NewManager()
-			s := New(port, mgr)
+			s := New(port, mgr, nil)
 			defer s.Stop()
 
 			req := httptest.NewRequest("POST", "/cgi-bin/epos/service.cgi", bytes.NewReader([]byte(tc.payload)))

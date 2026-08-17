@@ -44,6 +44,7 @@ type App struct {
 	printerManager *printer.Manager
 	autoStart      *autostart.App
 	dialogs        dialoger
+	appID          string
 }
 
 // dlg returns the dialog backend, defaulting to the Wails runtime so an App
@@ -67,13 +68,13 @@ func (a *App) showError(title, message string) {
 }
 
 type Printer struct {
-	Name   string `json:"name"`
-	Ip     string `json:"ip"`
-	Id     string `json:"id"`
-	IsLAN  bool   `json:"isLAN"`
-	LANIp  string `json:"lanIp,omitempty"`
-	Online bool   `json:"online"`
-	Type   string `json:"type"`
+	Name       string `json:"name"`
+	Ip         string `json:"ip"`
+	Identifier string `json:"identifier"`
+	IsLAN      bool   `json:"isLAN"`
+	LANIp      string `json:"lanIp,omitempty"`
+	Online     bool   `json:"online"`
+	Type       string `json:"type"`
 }
 
 type UnavailablePrinter struct {
@@ -87,6 +88,15 @@ type AppVariable struct {
 	ServerRunning bool   `json:"serverRunning"`
 	DefaultIp     string `json:"defaultIp"`
 	Os            string `json:"os"`
+	AppID         string `json:"appId,omitempty"`
+}
+
+type OdooStatusInterface struct {
+	AppId           string `json:"appId"`
+	IpAddress       string `json:"ipAddress"`
+	Connected       bool   `json:"connected"`
+	DbURL           string `json:"dbUrl"`
+	WebsocketStatus string `json:"websocketStatus"`
 }
 
 type Printers struct {
@@ -122,6 +132,12 @@ func (a *App) startup(ctx context.Context) {
 		logger.Warnf("Config load warning: %v", err)
 	}
 
+	a.appID, err = cfg.EnsureAppID()
+	if err != nil {
+		logger.Warnf("EnsureAppID warning: %v", err)
+	}
+	logger.Infof("Application ID: %s", a.appID)
+
 	logger.Debugf("Config loaded from %s", cfg.Path())
 
 	a.config = cfg
@@ -131,7 +147,11 @@ func (a *App) startup(ctx context.Context) {
 		logger.Warn("Unable to resolve port, using default")
 	}
 
-	a.webserver = server.New(port, a.printerManager)
+	a.webserver = server.New(port, a.printerManager, a.config)
+	a.webserver.OnStatusChange(func(st server.OdooStatus) {
+		status := a.CheckOdooStatus()
+		wailsruntime.EventsEmit(a.ctx, "odoo:status_changed", status)
+	})
 }
 
 func (a *App) shutdown(ctx context.Context) {
@@ -147,6 +167,7 @@ func (a *App) AppVariable() AppVariable {
 		Os:            runtime.GOOS,
 		ServerRunning: a.webserver.Running(),
 		DefaultIp:     fmt.Sprintf("127.0.0.1:%d", a.webserver.Port),
+		AppID:         a.appID,
 	}
 }
 
@@ -157,52 +178,33 @@ func (a *App) GetPrinterIp(id string) string {
 }
 
 func (a *App) Printers() Printers {
-
 	logger.Debug("Collecting printer status")
 
-	printers := make([]Printer, 0)
-	unavailablePrinters := make([]UnavailablePrinter, 0)
-
-	printerInfos, err := printer.ListUSBPrinters()
+	discovered := printer.DiscoverAllPrinters(a.config)
+	printers := make([]Printer, 0, len(discovered.Available))
+	unavailablePrinters := make([]UnavailablePrinter, 0, len(discovered.Unavailable))
 	errorMsg := ""
 
-	if err == nil {
-
-		logger.Debugf("Detected %d available USB printers", len(printerInfos.Available))
-
-		for _, info := range printerInfos.Available {
-			printers = append(printers, Printer{
-				Id:     info.Id,
-				Name:   info.Name,
-				Ip:     a.GetPrinterIp(info.Id),
-				Online: true,
-				Type:   string(info.Type),
-			})
-		}
-
-		for _, info := range printerInfos.Unavailable {
-			unavailablePrinters = append(unavailablePrinters, UnavailablePrinter{
-				Name:     info.Name,
-				ErrorMsg: info.Error,
-			})
-
-			logger.Warnf("USB printer unavailable: %s (%s)", info.Name, info.Error)
-		}
-	} else {
-		errorMsg = err.Error()
-		logger.Errorf("USB printer detection failed: %v", err)
+	if discovered.Error != nil {
+		errorMsg = discovered.Error.Error()
 	}
 
-	lanPrinters := printer.ListLANPrinters(a.config)
-
-	for _, info := range lanPrinters {
+	for _, p := range discovered.Available {
 		printers = append(printers, Printer{
-			Id:    info.Id,
-			Name:  fmt.Sprintf("Network - %s", info.IP),
-			Ip:    a.GetPrinterIp(info.Id),
-			IsLAN: true,
-			LANIp: info.IP,
-			Type:  string(printer.TypeReceipt),
+			Identifier: p.Identifier,
+			Name:       p.Name,
+			Ip:         a.GetPrinterIp(p.Identifier),
+			IsLAN:      p.IsLAN,
+			LANIp:      p.LANIp,
+			Online:     p.Online,
+			Type:       string(p.Type),
+		})
+	}
+
+	for _, u := range discovered.Unavailable {
+		unavailablePrinters = append(unavailablePrinters, UnavailablePrinter{
+			Name:     u.Name,
+			ErrorMsg: u.Error,
 		})
 	}
 
@@ -327,4 +329,74 @@ func (a *App) DisableAutostart() error {
 	}
 
 	return nil
+}
+
+func (a *App) CheckOdooStatus() OdooStatusInterface {
+	logger.Debugf("checking Odoo status")
+
+	status := OdooStatusInterface{
+		AppId:           a.appID,
+		WebsocketStatus: "disconnected",
+		IpAddress:       fmt.Sprintf("127.0.0.1:%d", a.webserver.Port),
+	}
+
+	if a.webserver != nil {
+		odooStatus := a.webserver.GetOdooStatus()
+		status.Connected = odooStatus.Connected
+		status.DbURL = odooStatus.DbURL
+		status.WebsocketStatus = odooStatus.WebsocketStatus
+		return status
+	}
+
+	if a.config != nil && a.config.HasOdooCredentials() {
+		status.Connected = true
+		status.DbURL = a.config.GetOdooDbURL()
+		status.WebsocketStatus = "connected"
+	}
+
+	return status
+}
+
+func (a *App) DisconnectOdoo() error {
+	logger.Infof("Disconnect Odoo requested")
+
+	if a.webserver != nil {
+		a.webserver.DisconnectOdoo()
+	}
+
+	if a.config != nil {
+		if err := a.config.ClearOdooConfig(); err != nil {
+			logger.Warnf("Failed to clear Odoo config: %v", err)
+			return err
+		}
+	}
+
+	wailsruntime.EventsEmit(a.ctx, "odoo:status_changed", a.CheckOdooStatus())
+	return nil
+}
+
+func (a *App) ConfirmDisconnectOdoo() (bool, error) {
+	logger.Debugf("Confirm Disconnect Odoo requested")
+
+	result, err := wailsruntime.MessageDialog(a.ctx, wailsruntime.MessageDialogOptions{
+		Type:          wailsruntime.QuestionDialog,
+		Title:         "Disconnect Odoo",
+		Message:       "Are you sure you want to disconnect and remove the Odoo database connection?",
+		Buttons:       []string{"Cancel", "Disconnect"},
+		DefaultButton: "Cancel",
+		CancelButton:  "Cancel",
+	})
+	if err != nil {
+		return false, fmt.Errorf("failed to show confirmation dialog: %w", err)
+	}
+
+	if result != "Disconnect" && result != "Confirm" && result != "Yes" {
+		return false, nil
+	}
+
+	if err := a.DisconnectOdoo(); err != nil {
+		return false, fmt.Errorf("failed to disconnect Odoo: %w", err)
+	}
+
+	return true, nil
 }
