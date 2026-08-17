@@ -3,9 +3,6 @@ package server
 import (
 	"encoding/xml"
 	"errors"
-	"fmt"
-	"net"
-	"sync/atomic"
 
 	"epos-proxy/internal/config"
 	"epos-proxy/internal/escpos"
@@ -13,8 +10,13 @@ import (
 	"epos-proxy/internal/printer"
 
 	"github.com/gofiber/fiber/v3"
-	"github.com/gofiber/fiber/v3/middleware/cors"
 )
+
+func init() {
+	RegisterRoute(func(s *Server, cfg *config.Manager) {
+		registerEPOSRoutes(s.app, s.mgr)
+	})
+}
 
 type EPOSResponse struct {
 	XMLName xml.Name `xml:"response"`
@@ -23,35 +25,7 @@ type EPOSResponse struct {
 	Status  string   `xml:"status,attr"`
 }
 
-type Server struct {
-	app     *fiber.App
-	ln      net.Listener
-	Port    int
-	running atomic.Bool
-}
-
-func New(cfg *config.Manager, mgr *printer.Manager) (*Server, error) {
-	if cfg == nil {
-		return nil, errors.New("unable to start server: config manager is required")
-	}
-
-	port, err := cfg.ResolvePort()
-	if err != nil {
-		return nil, fmt.Errorf("unable to start server: %w", err)
-	}
-
-	ln, err := net.Listen("tcp", fmt.Sprintf("0.0.0.0:%d", port))
-	if err != nil {
-		return nil, fmt.Errorf("unable to start server: %w", err)
-	}
-	app := fiber.New(fiber.Config{
-		AppName: "ePOS proxy",
-	})
-	app.Use(cors.New(cors.Config{
-		AllowOrigins:        []string{"*"},
-		AllowPrivateNetwork: true,
-	}))
-
+func registerEPOSRoutes(app *fiber.App, mgr *printer.Manager) {
 	app.Post("/p/:printerId/cgi-bin/epos/service.cgi", func(ctx fiber.Ctx) error {
 		printerId := ctx.Params("printerId")
 		logger.Debugf("Print request received for printer: %s", printerId)
@@ -68,19 +42,6 @@ func New(cfg *config.Manager, mgr *printer.Manager) (*Server, error) {
 		logger.Debugf("Label print request received for printer: %s", printerId)
 		return printLabel(mgr, ctx, printerId)
 	})
-
-	server := &Server{app: app, ln: ln, Port: port}
-	server.running.Store(true)
-	go func() {
-		logger.Infof("HTTP server listening on 0.0.0.0:%d", port)
-		if err := app.Listener(ln); err != nil {
-			logger.Error("EPOS Server Error: ", err)
-		}
-		server.running.Store(false)
-		logger.Warn("HTTP server stopped")
-	}()
-
-	return server, nil
 }
 
 func printData(mgr *printer.Manager, ctx fiber.Ctx, printerID string) error {
@@ -146,28 +107,4 @@ func printLabel(mgr *printer.Manager, ctx fiber.Ctx, printerID string) error {
 
 	logger.Debugf("Print job completed successfully for printer: %s", printerID)
 	return ctx.SendStatus(fiber.StatusOK)
-}
-
-func (s *Server) Stop() error {
-	logger.Infof("Stopping HTTP server")
-	s.running.Store(false)
-	var closeErr error
-	if s.ln != nil {
-		closeErr = s.ln.Close()
-	}
-	err := s.app.Shutdown()
-	if err != nil {
-		return err
-	}
-	return closeErr
-}
-
-func (s *Server) Running() bool {
-	return s.running.Load()
-}
-
-func (s *Server) GetPrinterIp(id string) string {
-	ip := fmt.Sprintf("127.0.0.1:%d/p/%s", s.Port, id)
-	logger.Debugf("Generated printer endpoint: %s", ip)
-	return ip
 }
