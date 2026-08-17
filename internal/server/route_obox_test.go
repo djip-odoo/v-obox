@@ -422,16 +422,15 @@ func TestGetOdooStatus(t *testing.T) {
 	tempDir := t.TempDir()
 	configPath := filepath.Join(tempDir, "config.json")
 	cfg := config.NewManagerWithPath(configPath)
-	_, _ = cfg.EnsureAppID()
+	testAppID, _ := cfg.EnsureAppID()
+	_ = testAppID
 
 	mgr := printer.NewManager()
 	s := New(4618, mgr, cfg)
 	defer s.Stop()
 
 	// 1. Initial disconnected status
-	status := s.GetOdooStatus()
-	testutil.ExpectedFalse(t, status.Connected)
-	testutil.ExpectedEqual(t, status.WebsocketStatus, "disconnected")
+	testutil.ExpectedEqual(t, s.GetWebsocketStatus(), "disconnected")
 
 	// 2. Connect via /odoo/connect
 	reqConnect := httptest.NewRequest("GET", "/odoo/connect?db_url=http://127.0.0.1:8069&token=status-token-123&db_uuid=test-uuid", nil)
@@ -441,9 +440,7 @@ func TestGetOdooStatus(t *testing.T) {
 	respConnect.Body.Close()
 
 	// 3. Status should now be connected
-	statusConnected := s.GetOdooStatus()
-	testutil.ExpectedTrue(t, statusConnected.Connected)
-	testutil.ExpectedEqual(t, statusConnected.DbURL, "http://127.0.0.1:8069")
+	testutil.ExpectedEqual(t, s.GetOdooDbURL(), "http://127.0.0.1:8069")
 
 	// 4. Disconnect via /odoo/disconnect
 	reqDisc := httptest.NewRequest("GET", "/odoo/disconnect", nil)
@@ -452,7 +449,5 @@ func TestGetOdooStatus(t *testing.T) {
 	respDisc.Body.Close()
 
 	// 5. Status should be disconnected again
-	statusDisconnected := s.GetOdooStatus()
-	testutil.ExpectedFalse(t, statusDisconnected.Connected)
-	testutil.ExpectedEqual(t, statusDisconnected.WebsocketStatus, "disconnected")
+	testutil.ExpectedEqual(t, s.GetWebsocketStatus(), "disconnected")
 }

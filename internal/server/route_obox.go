@@ -41,25 +41,34 @@ type oboxModule struct {
 	listeners   []StatusListener
 }
 
-// StatusListener represents a callback function for OdooStatus changes.
-type StatusListener func(status OdooStatus)
+// StatusListener represents a callback function for Odoo status changes.
+type StatusListener func()
 
-type OdooStatus struct {
-	AppId           string `json:"appId"`
-	IpAddress       string `json:"ipAddress"`
-	DbURL           string `json:"dbUrl"`
-	WebsocketStatus string `json:"websocketStatus"`
+func (s *Server) GetWebsocketStatus() string {
+	if obox != nil {
+		return obox.getWebsocketStatus()
+	}
+	return "disconnected"
 }
 
-func (s *Server) GetOdooStatus() OdooStatus {
+func (s *Server) GetOdooDbURL() string {
 	if obox != nil {
-		return obox.getStatus()
+		return obox.getDbURL()
 	}
-	return OdooStatus{
-		AppId:           s.AppID(),
-		IpAddress:       s.LocalAddr(),
-		WebsocketStatus: "disconnected",
+	if s.cfg != nil {
+		return s.cfg.GetOdooDbURL()
 	}
+	return ""
+}
+
+func (m *oboxModule) getDbURL() string {
+	if dev := m.device.Load(); dev != nil {
+		return dev.dbURL
+	}
+	if m.cfg != nil {
+		return m.cfg.GetOdooDbURL()
+	}
+	return ""
 }
 
 // DisconnectOdoo clears in-memory device credentials and removes stored config.
@@ -88,9 +97,8 @@ func (m *oboxModule) notifyStatusChange() {
 	copy(listeners, m.listeners)
 	m.listenersMu.RUnlock()
 
-	status := m.getStatus()
 	for _, l := range listeners {
-		l(status)
+		l()
 	}
 }
 
@@ -110,12 +118,9 @@ func init() {
 }
 
 func newOboxModule(app *fiber.App, mgr *printer.Manager, cfg *config.Manager, localAddrFn func() string) *oboxModule {
-	m := &oboxModule{
-		cfg:         cfg,
-		localAddrFn: localAddrFn,
-	}
+	m := &oboxModule{cfg: cfg, localAddrFn: localAddrFn}
 	initialStatus := "disconnected"
-	if cfg != nil && cfg.HasOdooCredentials() {
+	if cfg.HasOdooCredentials() {
 		odooCfg := cfg.GetOdooConfig()
 		m.device.Store(&oboxDevice{
 			dbURL:  odooCfg.DbURL,
@@ -132,38 +137,17 @@ func newOboxModule(app *fiber.App, mgr *printer.Manager, cfg *config.Manager, lo
 	return m
 }
 
-func (m *oboxModule) getStatus() OdooStatus {
-	ipAddr := ""
-	if m.localAddrFn != nil {
-		ipAddr = m.localAddrFn()
-	}
-
-	dev := m.device.Load()
-	if dev != nil && dev.dbURL != "" {
-		st := "connecting"
+func (m *oboxModule) getWebsocketStatus() string {
+	if dev := m.device.Load(); dev != nil && dev.dbURL != "" {
 		if ptr := m.liveStatus.Load(); ptr != nil && *ptr != "" {
-			st = *ptr
+			return *ptr
 		}
-		return OdooStatus{
-			AppId:           m.appId,
-			IpAddress:       ipAddr,
-			DbURL:           dev.dbURL,
-			WebsocketStatus: st,
-		}
+		return "connecting"
 	}
 	if m.cfg != nil && m.cfg.HasOdooCredentials() {
-		return OdooStatus{
-			AppId:           m.appId,
-			IpAddress:       ipAddr,
-			DbURL:           m.cfg.GetOdooDbURL(),
-			WebsocketStatus: "connecting",
-		}
+		return "connecting"
 	}
-	return OdooStatus{
-		AppId:           m.appId,
-		IpAddress:       ipAddr,
-		WebsocketStatus: "disconnected",
-	}
+	return "disconnected"
 }
 
 func (m *oboxModule) disconnect() {

@@ -136,7 +136,7 @@ func (a *App) startup(ctx context.Context) {
 	a.config = cfg
 
 	a.webserver = server.New(a.config)
-	a.webserver.OnStatusChange(func(st server.OdooStatus) {
+	a.webserver.OnStatusChange(func() {
 		status := a.CheckOdooStatus()
 		wailsruntime.EventsEmit(a.ctx, "odoo:status_changed", status)
 	})
@@ -318,21 +318,14 @@ func (a *App) CheckOdooStatus() OdooStatusInterface {
 	status := OdooStatusInterface{
 		AppId:           a.appID,
 		WebsocketStatus: "disconnected",
-		IpAddress:       fmt.Sprintf("127.0.0.1:%d", a.webserver.Port),
 	}
 
 	if a.webserver != nil {
-		odooStatus := a.webserver.GetOdooStatus()
-		status.DbURL = odooStatus.DbURL
-		status.WebsocketStatus = odooStatus.WebsocketStatus
+		status.IpAddress = a.webserver.LocalAddr()
+		status.DbURL = a.webserver.GetOdooDbURL()
+		status.WebsocketStatus = a.webserver.GetWebsocketStatus()
 		return status
 	}
-
-	if a.config != nil && a.config.HasOdooCredentials() {
-		status.DbURL = a.config.GetOdooDbURL()
-		status.WebsocketStatus = "connected"
-	}
-
 	return status
 }
 
