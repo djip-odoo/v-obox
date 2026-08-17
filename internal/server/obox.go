@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"encoding/xml"
+	"errors"
 	"fmt"
 	"math"
 	"net/http"
@@ -83,10 +84,7 @@ func init() {
 
 func (m *oboxModule) getStatus() OdooStatus {
 	appID := m.appID()
-	ipAddr := ""
-	if m.server != nil {
-		ipAddr = m.server.LocalAddr()
-	}
+	ipAddr := m.server.LocalAddr()
 
 	dev := m.device.Load()
 	if dev != nil && dev.dbURL != "" {
@@ -406,7 +404,14 @@ func (m *oboxModule) deviceBrain() {
 
 		actions, err := m.fetchNextActions(dev)
 		if err != nil {
-			logger.Debugf("[mock brain] fetchNextActions: %v", err)
+			if isDeviceNotFound(err) {
+				// Server explicitly rejected this device (404 / no record).
+				// Disconnect immediately and clear stored credentials.
+				logger.Warnf("[mock brain] Device not found on server, disconnecting: %v", err)
+				m.disconnect()
+				continue
+			}
+			logger.Infof("[mock brain] fetchNextActions: %v", err)
 			last := m.lastContactTime.Load()
 			if last == 0 || time.Since(time.UnixMilli(last)) > 8*time.Second {
 				m.setLiveStatus("disconnected")
@@ -455,13 +460,39 @@ func (m *oboxModule) fetchNextActions(dev *oboxDevice) ([]queueAction, error) {
 	}
 	defer resp.Body.Close()
 
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("unexpected HTTP status %d from /obox/get_next_actions", resp.StatusCode)
+	}
+
 	var rpcResp struct {
-		Result []queueAction `json:"result"`
+		Result []queueAction    `json:"result"`
+		Error  *json.RawMessage `json:"error"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&rpcResp); err != nil {
 		return nil, err
 	}
+	if rpcResp.Error != nil {
+		return nil, &rpcError{raw: string(*rpcResp.Error)}
+	}
 	return rpcResp.Result, nil
+}
+
+// rpcError carries the raw JSON-RPC error body returned by the server.
+type rpcError struct{ raw string }
+
+func (e *rpcError) Error() string {
+	return "server RPC error: " + e.raw
+}
+
+// isDeviceNotFound reports whether err is an rpcError containing a 404 code,
+// meaning the server has no record of this device.
+func isDeviceNotFound(err error) bool {
+	var rpcErr *rpcError
+	if !errors.As(err, &rpcErr) {
+		return false
+	}
+	return strings.Contains(rpcErr.raw, `"code": 404`) ||
+		strings.Contains(rpcErr.raw, `"code":404`)
 }
 
 // executeAction processes one queue action and reports the result back to Odoo.
