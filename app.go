@@ -38,13 +38,12 @@ func (runtimeDialogs) SaveFile(ctx context.Context, opts wailsruntime.SaveDialog
 
 // App struct
 type App struct {
-	ctx            context.Context
-	webserver      *server.Server
-	config         *config.Manager
-	printerManager *printer.Manager
-	autoStart      *autostart.App
-	dialogs        dialoger
-	appID          string
+	ctx       context.Context
+	webserver *server.Server
+	config    *config.Manager
+	autoStart *autostart.App
+	dialogs   dialoger
+	appID     string
 }
 
 // dlg returns the dialog backend, defaulting to the Wails runtime so an App
@@ -112,7 +111,6 @@ func NewApp() *App {
 		DisplayName: "ePOS Proxy",
 		Exec:        []string{os.Args[0]},
 	}
-	a.printerManager = printer.NewManager()
 	a.dialogs = runtimeDialogs{}
 
 	return a
@@ -138,12 +136,7 @@ func (a *App) startup(ctx context.Context) {
 
 	a.config = cfg
 
-	port, err := cfg.ResolvePort()
-	if err != nil {
-		logger.Warn("Unable to resolve port, using default")
-	}
-
-	a.webserver = server.New(port, a.printerManager, a.config)
+	a.webserver = server.New(a.config)
 	a.webserver.OnStatusChange(func(st server.OdooStatus) {
 		status := a.CheckOdooStatus()
 		wailsruntime.EventsEmit(a.ctx, "odoo:status_changed", status)

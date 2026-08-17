@@ -43,7 +43,6 @@ func TestNewApp(t *testing.T) {
 	app := NewApp()
 	testutil.ExpectedNotNil(t, app)
 	testutil.ExpectedNotNil(t, app.autoStart)
-	testutil.ExpectedNotNil(t, app.printerManager)
 }
 
 func TestApp_AppVariableAndPrintersAndGetPrinterIp(t *testing.T) {
@@ -57,14 +56,12 @@ func TestApp_AppVariableAndPrintersAndGetPrinterIp(t *testing.T) {
 	testutil.ExpectedNoError(t, err)
 
 	port := testutil.GetFreePort(t)
-	mgr := printer.NewManager()
-	srv := server.New(port, mgr)
+	srv := server.New(port, cfg)
 	defer srv.Stop()
 
 	app := &App{
-		webserver:      srv,
-		config:         cfg,
-		printerManager: mgr,
+		webserver: srv,
+		config:    cfg,
 	}
 
 	appVariable := app.AppVariable()

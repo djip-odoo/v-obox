@@ -7,19 +7,42 @@ import (
 	"strings"
 	"testing"
 
+	"epos-proxy/internal/config"
 	"epos-proxy/internal/printer"
+
+	"github.com/gofiber/fiber/v3"
 )
 
 func TestServerRoutes(t *testing.T) {
-	mgr := printer.NewManager()
-	s := New(4545, mgr, nil)
+	customRouteHit := false
+	RegisterRoute(func(s *Server, cfg *config.Manager) {
+		s.app.Get("/test-custom-route", func(ctx fiber.Ctx) error {
+			customRouteHit = true
+			return ctx.SendString("ok")
+		})
+	})
+
+	s := New(4545, nil)
 	defer s.Stop()
 
 	if !s.Running() {
 		t.Errorf("Expected server to be running")
 	}
 
-	// Test Obox route registered via obox.go
+	// Test custom route registered via RegisterRoute
+	reqCustom := httptest.NewRequest("GET", "/test-custom-route", nil)
+	respCustom, err := s.App().Test(reqCustom)
+	if err != nil {
+		t.Fatalf("Failed to test /test-custom-route: %v", err)
+	}
+	if respCustom.StatusCode != http.StatusOK {
+		t.Errorf("Expected status 200 for /test-custom-route, got %d", respCustom.StatusCode)
+	}
+	if !customRouteHit {
+		t.Errorf("Expected customRouteHit to be true")
+	}
+
+	// Test Obox route registered via route_obox.go
 	req := httptest.NewRequest("GET", "/odoo/health", nil)
 	resp, err := s.App().Test(req)
 	if err != nil {
@@ -29,7 +52,7 @@ func TestServerRoutes(t *testing.T) {
 		t.Errorf("Expected status 200 for /odoo/health, got %d", resp.StatusCode)
 	}
 
-	// Test ePOS route registered via epos.go
+	// Test ePOS route registered via route_epos.go
 	reqEPOS := httptest.NewRequest("POST", "/cgi-bin/epos/service.cgi", strings.NewReader("<invalid></invalid>"))
 	reqEPOS.Header.Set("Content-Type", "text/xml")
 	respEPOS, err := s.App().Test(reqEPOS)
@@ -42,8 +65,7 @@ func TestServerRoutes(t *testing.T) {
 }
 
 func TestCustomSerialNumberSupport(t *testing.T) {
-	mgr := printer.NewManager()
-	s := New(4546, mgr, nil)
+	s := New(4546, nil)
 	defer s.Stop()
 
 	serverSerial := s.AppID()

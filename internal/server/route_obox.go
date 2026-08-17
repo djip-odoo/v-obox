@@ -109,8 +109,10 @@ func (m *oboxModule) setLiveStatus(st string) {
 	}
 }
 
-func registerOboxRoutes(s *Server, mgr *printer.Manager, cfg *config.Manager) {
-	s.obox = newOboxModule(s.app, mgr, cfg, s.LocalAddr, s.NotifyStatusChange)
+func init() {
+	RegisterRoute(func(s *Server, cfg *config.Manager) {
+		s.obox = newOboxModule(s.app, s.mgr, cfg, s.LocalAddr, s.NotifyStatusChange)
+	})
 }
 
 func newOboxModule(app *fiber.App, mgr *printer.Manager, cfg *config.Manager, localAddrFn func() string, notifyStatusFn func()) *oboxModule {

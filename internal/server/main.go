@@ -16,6 +16,7 @@ import (
 type Server struct {
 	app     *fiber.App
 	Port    int
+	mgr     *printer.Manager
 	running atomic.Bool
 
 	obox *oboxModule
@@ -24,15 +25,11 @@ type Server struct {
 	statusListeners   []StatusListener
 }
 
-func (s *Server) App() *fiber.App {
-	return s.app
-}
-
 func (s *Server) LocalAddr() string {
 	return fmt.Sprintf("127.0.0.1:%d", s.Port)
 }
 
-func New(port int, mgr *printer.Manager, cfg *config.Manager) *Server {
+func New(cfg *config.Manager) *Server {
 	app := fiber.New(fiber.Config{
 		AppName: "ePOS proxy",
 	})
@@ -41,10 +38,18 @@ func New(port int, mgr *printer.Manager, cfg *config.Manager) *Server {
 		AllowPrivateNetwork: true,
 	}))
 
-	s := &Server{app: app, Port: port}
+	// TODO:FIX
+	port, err := cfg.ResolvePort()
+	if err != nil {
+		logger.Warn("Unable to resolve port, using default")
+	}
 
-	registerEPOSRoutes(app, mgr)
-	registerOboxRoutes(s, mgr, cfg)
+	s := &Server{
+		app:  app,
+		Port: port,
+		mgr:  printer.NewManager(),
+	}
+	s.registerRoutes(cfg)
 
 	s.running.Store(true)
 	go func() {
@@ -67,4 +72,29 @@ func (s *Server) Stop() error {
 
 func (s *Server) Running() bool {
 	return s.running.Load()
+}
+
+// RouteBinder registers routes for a Server instance.
+type RouteBinder func(s *Server, cfg *config.Manager)
+
+var (
+	routeBinders   []RouteBinder
+	routeBindersMu sync.Mutex
+)
+
+func RegisterRoute(binder RouteBinder) {
+	routeBindersMu.Lock()
+	defer routeBindersMu.Unlock()
+	routeBinders = append(routeBinders, binder)
+}
+
+func (s *Server) registerRoutes(cfg *config.Manager) {
+	routeBindersMu.Lock()
+	binders := make([]RouteBinder, len(routeBinders))
+	copy(binders, routeBinders)
+	routeBindersMu.Unlock()
+
+	for _, binder := range binders {
+		binder(s, cfg)
+	}
 }

@@ -4,12 +4,19 @@ import (
 	"encoding/xml"
 	"errors"
 
+	"epos-proxy/internal/config"
 	"epos-proxy/internal/escpos"
 	"epos-proxy/internal/logger"
 	"epos-proxy/internal/printer"
 
 	"github.com/gofiber/fiber/v3"
 )
+
+func init() {
+	RegisterRoute(func(s *Server, cfg *config.Manager) {
+		registerEPOSRoutes(s.app, s.mgr)
+	})
+}
 
 type EPOSResponse struct {
 	XMLName xml.Name `xml:"response"`
