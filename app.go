@@ -57,7 +57,6 @@ type OdooStatusInterface struct {
 	Connected       bool   `json:"connected"`
 	DbURL           string `json:"dbUrl"`
 	WebsocketStatus string `json:"websocketStatus"`
-	Serial          string `json:"serial"`
 }
 
 type Printers struct {
@@ -318,7 +317,6 @@ func (a *App) CheckOdooStatus() OdooStatusInterface {
 			Connected:       status.Connected,
 			DbURL:           status.DbURL,
 			WebsocketStatus: status.WebsocketStatus,
-			Serial:          status.Serial,
 		}
 	}
 	if a.config != nil && a.config.HasOdooCredentials() {
@@ -328,7 +326,6 @@ func (a *App) CheckOdooStatus() OdooStatusInterface {
 			Connected:       true,
 			DbURL:           a.config.GetOdooDbURL(),
 			WebsocketStatus: "connected",
-			Serial:         a.appID,
 		} 
 	}
 	return OdooStatusInterface{
@@ -336,7 +333,6 @@ func (a *App) CheckOdooStatus() OdooStatusInterface {
 		IpAddress:       ipAddress,
 		Connected:       false,
 		WebsocketStatus: "disconnected",
-		Serial:          a.appID,
 	}
 }
 

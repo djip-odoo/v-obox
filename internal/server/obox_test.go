@@ -450,7 +450,6 @@ func TestGetOdooStatus(t *testing.T) {
 	status := s.GetOdooStatus()
 	testutil.ExpectedFalse(t, status.Connected)
 	testutil.ExpectedEqual(t, status.WebsocketStatus, "disconnected")
-	testutil.ExpectedEqual(t, status.Serial, testAppID)
 
 	// 2. Connect via /mock/connect
 	bodyPayload, _ := json.Marshal(map[string]string{
@@ -470,7 +469,6 @@ func TestGetOdooStatus(t *testing.T) {
 	testutil.ExpectedTrue(t, statusConnected.Connected)
 	testutil.ExpectedEqual(t, statusConnected.DbURL, "http://127.0.0.1:8069")
 	testutil.ExpectedEqual(t, statusConnected.WebsocketStatus, "connected")
-	testutil.ExpectedEqual(t, statusConnected.Serial, testAppID)
 
 	// 4. Disconnect via /odoo/disconnect
 	reqDisc := httptest.NewRequest("GET", "/odoo/disconnect", nil)

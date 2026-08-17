@@ -43,7 +43,6 @@ export const OdooContextWrapper = ({ children }: OdooContextWrapperProps) => {
           connected: false,
           dbUrl: "",
           websocketStatus: "disconnected",
-          serial: "",
           appId: "",
           ipAddress: "",
         });

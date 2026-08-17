@@ -40,7 +40,6 @@ type OdooStatus struct {
 	Connected       bool   `json:"connected"`
 	DbURL           string `json:"dbUrl"`
 	WebsocketStatus string `json:"websocketStatus"`
-	Serial          string `json:"serial"`
 }
 
 // Binder is a function that configures routes, middlewares, or background workers on a Server instance.
@@ -100,7 +99,6 @@ func (s *Server) GetOdooStatus() OdooStatus {
 			Connected:       true,
 			DbURL:           s.cfg.GetOdooDbURL(),
 			WebsocketStatus: "connected",
-			Serial:          s.AppID(),
 		}
 	}
 	return OdooStatus{
@@ -108,7 +106,6 @@ func (s *Server) GetOdooStatus() OdooStatus {
 		IpAddress:       s.LocalAddr(),
 		Connected:       false,
 		WebsocketStatus: "disconnected",
-		Serial:          s.AppID(),
 	}
 }
 

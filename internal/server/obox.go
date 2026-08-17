@@ -100,7 +100,6 @@ func (m *oboxModule) getStatus() OdooStatus {
 			Connected:       true,
 			DbURL:           dev.dbURL,
 			WebsocketStatus: st,
-			Serial:          appID,
 		}
 	}
 	if m.server != nil && m.server.cfg != nil && m.server.cfg.HasOdooCredentials() {
@@ -110,7 +109,6 @@ func (m *oboxModule) getStatus() OdooStatus {
 			Connected:       true,
 			DbURL:           m.server.cfg.GetOdooDbURL(),
 			WebsocketStatus: "connecting",
-			Serial:          appID,
 		}
 	}
 	return OdooStatus{
@@ -118,7 +116,6 @@ func (m *oboxModule) getStatus() OdooStatus {
 		IpAddress:       ipAddr,
 		Connected:       false,
 		WebsocketStatus: "disconnected",
-		Serial:          appID,
 	}
 }
 
