@@ -22,7 +22,11 @@ func TestServerRoutes(t *testing.T) {
 		})
 	})
 
-	s := New(4545, nil)
+	cfg := &config.Manager{Data: config.AppConfig{Port: 4545}}
+	s, err := New(cfg)
+	if err != nil {
+		t.Fatalf("Failed to create server: %v", err)
+	}
 	defer s.Stop()
 
 	if !s.Running() {
@@ -65,7 +69,11 @@ func TestServerRoutes(t *testing.T) {
 }
 
 func TestCustomSerialNumberSupport(t *testing.T) {
-	s := New(4546, nil)
+	cfg := &config.Manager{Data: config.AppConfig{Port: 4546, AppID: "CUSTOM_SERIAL_123"}}
+	s, err := New(cfg)
+	if err != nil {
+		t.Fatalf("Failed to create server: %v", err)
+	}
 	defer s.Stop()
 
 	serverSerial := s.AppID()

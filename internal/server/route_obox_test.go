@@ -18,15 +18,21 @@ import (
 )
 
 func createTestOboxServer(port int) *Server {
-	mgr := printer.NewManager()
-	return New(port, mgr, nil)
+	cfg := &config.Manager{Data: config.AppConfig{Port: port}}
+	s, err := New(cfg)
+	if err != nil {
+		panic(err)
+	}
+	return s
 }
 
 func createTestOboxServerWithConfig(t *testing.T, port int) (*Server, *config.Manager) {
 	tempDir := t.TempDir()
 	cfg := config.NewManagerWithPath(filepath.Join(tempDir, "config.json"))
-	mgr := printer.NewManager()
-	return New(port, mgr, cfg), cfg
+	cfg.Data.Port = port
+	s, err := New(cfg)
+	testutil.ExpectedNoError(t, err)
+	return s, cfg
 }
 
 func TestOboxDiscovery_Endpoint(t *testing.T) {
@@ -396,8 +402,9 @@ func TestOboxRestoreCredentialsFromConfig(t *testing.T) {
 	testAppID, _ := cfg.EnsureAppID()
 	_ = cfg.SetOdooCredentials("http://192.168.1.100:8069", "restored-token", "uuid-1")
 
-	mgr := printer.NewManager()
-	s := New(4617, mgr, cfg)
+	cfg.Data.Port = 4617
+	s, err := New(cfg)
+	testutil.ExpectedNoError(t, err)
 	defer s.Stop()
 
 	// Hit /odoo/ to verify credentials were automatically restored into module
@@ -425,8 +432,9 @@ func TestGetOdooStatus(t *testing.T) {
 	testAppID, _ := cfg.EnsureAppID()
 	_ = testAppID
 
-	mgr := printer.NewManager()
-	s := New(4618, mgr, cfg)
+	cfg.Data.Port = 4618
+	s, err := New(cfg)
+	testutil.ExpectedNoError(t, err)
 	defer s.Stop()
 
 	// 1. Initial disconnected status

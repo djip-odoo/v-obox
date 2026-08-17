@@ -1,7 +1,9 @@
 package server
 
 import (
+	"errors"
 	"fmt"
+	"net"
 	"sync"
 	"sync/atomic"
 
@@ -21,7 +23,21 @@ type Server struct {
 	cfg     *config.Manager
 }
 
-func New(cfg *config.Manager) *Server {
+func New(cfg *config.Manager) (*Server, error) {
+	if cfg == nil {
+		return nil, errors.New("unable to start server: config manager is required")
+	}
+
+	port, err := cfg.ResolvePort()
+	if err != nil {
+		return nil, fmt.Errorf("unable to start server: %w", err)
+	}
+
+	ln, err := net.Listen("tcp", fmt.Sprintf("0.0.0.0:%d", port))
+	if err != nil {
+		return nil, fmt.Errorf("unable to start server: %w", err)
+	}
+
 	app := fiber.New(fiber.Config{
 		AppName: "ePOS proxy",
 	})
@@ -29,11 +45,6 @@ func New(cfg *config.Manager) *Server {
 		AllowOrigins:        []string{"*"},
 		AllowPrivateNetwork: true,
 	}))
-
-	port, err := cfg.ResolvePort()
-	if err != nil {
-		logger.Warn("Unable to resolve port, using default")
-	}
 
 	s := &Server{
 		app:  app,
@@ -46,15 +57,14 @@ func New(cfg *config.Manager) *Server {
 	s.running.Store(true)
 	go func() {
 		logger.Infof("HTTP server listening on 0.0.0.0:%d", port)
-		err := app.Listen(fmt.Sprintf("0.0.0.0:%d", port))
-		if err != nil {
+		if err := app.Listener(ln); err != nil {
 			logger.Error("EPOS Server Error: ", err)
 		}
 		s.running.Store(false)
 		logger.Warn("HTTP server stopped")
 	}()
 
-	return s
+	return s, nil
 }
 
 func (s *Server) Stop() error {
@@ -66,8 +76,15 @@ func (s *Server) Running() bool {
 	return s.running.Load()
 }
 
+func (s *Server) App() *fiber.App {
+	return s.app
+}
+
 func (s *Server) AppID() string {
-	return s.cfg.GetAppID()
+	if s.cfg != nil {
+		return s.cfg.GetAppID()
+	}
+	return ""
 }
 
 func (s *Server) LocalAddr() string {

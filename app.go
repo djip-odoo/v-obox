@@ -135,7 +135,15 @@ func (a *App) startup(ctx context.Context) {
 
 	a.config = cfg
 
-	a.webserver = server.New(a.config)
+	srv, err := server.New(a.config)
+	if err != nil {
+		logger.Errorf("Failed to start required webserver: %v", err)
+		a.showError("Startup Error", fmt.Sprintf("Application could not start because the webserver failed to start:\n%v", err))
+		wailsruntime.Quit(a.ctx)
+		return
+	}
+
+	a.webserver = srv
 	a.webserver.OnStatusChange(func() {
 		status := a.CheckOdooStatus()
 		wailsruntime.EventsEmit(a.ctx, "odoo:status_changed", status)
@@ -315,26 +323,18 @@ func (a *App) DisableAutostart() error {
 func (a *App) CheckOdooStatus() OdooStatusInterface {
 	logger.Debugf("checking Odoo status")
 
-	status := OdooStatusInterface{
+	return OdooStatusInterface{
 		AppId:           a.appID,
-		WebsocketStatus: "disconnected",
+		IpAddress:       a.webserver.LocalAddr(),
+		DbURL:           a.webserver.GetOdooDbURL(),
+		WebsocketStatus: a.webserver.GetWebsocketStatus(),
 	}
-
-	if a.webserver != nil {
-		status.IpAddress = a.webserver.LocalAddr()
-		status.DbURL = a.webserver.GetOdooDbURL()
-		status.WebsocketStatus = a.webserver.GetWebsocketStatus()
-		return status
-	}
-	return status
 }
 
 func (a *App) DisconnectOdoo() error {
 	logger.Infof("Disconnect Odoo requested")
 
-	if a.webserver != nil {
-		a.webserver.DisconnectOdoo()
-	}
+	a.webserver.DisconnectOdoo()
 
 	if a.config != nil {
 		if err := a.config.ClearOdooConfig(); err != nil {

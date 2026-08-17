@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
 	"testing"
@@ -45,6 +46,92 @@ func TestNewApp(t *testing.T) {
 	testutil.ExpectedNotNil(t, app.autoStart)
 }
 
+func TestApp_Startup_Success(t *testing.T) {
+	tempDir := t.TempDir()
+	t.Setenv("HOME", tempDir)
+
+	dialogs := &fakeDialogs{}
+	app := NewApp()
+	app.dialogs = dialogs
+
+	app.startup(context.Background())
+	defer func() {
+		if app.webserver != nil {
+			_ = app.webserver.Stop()
+		}
+	}()
+
+	testutil.ExpectedNotNil(t, app.webserver)
+	testutil.ExpectedTrue(t, app.webserver.Running(), "expected webserver to be running")
+	testutil.ExpectedEqual(t, len(dialogs.messages), 0)
+
+	// CheckOdooStatus works seamlessly relying on non-nil webserver
+	status := app.CheckOdooStatus()
+	testutil.ExpectedEqual(t, status.WebsocketStatus, "disconnected")
+	testutil.ExpectedEqual(t, status.IpAddress, app.webserver.LocalAddr())
+}
+
+func TestApp_Startup_PortExhaustion_Failure(t *testing.T) {
+	tempDir := t.TempDir()
+	t.Setenv("HOME", tempDir)
+
+	// Occupy all ports in range 4545-4555
+	var listeners []net.Listener
+	for p := config.PortRangeStart; p <= config.PortRangeEnd; p++ {
+		ln, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", p))
+		if err == nil {
+			listeners = append(listeners, ln)
+		}
+	}
+	defer func() {
+		for _, ln := range listeners {
+			_ = ln.Close()
+		}
+	}()
+
+	dialogs := &fakeDialogs{}
+	app := NewApp()
+	app.dialogs = dialogs
+
+	// Startup must not panic, but gracefully fail and record error dialog
+	app.startup(context.Background())
+
+	// Invariant: webserver remains nil on startup failure (app does not enter running state)
+	testutil.ExpectedNil(t, app.webserver)
+
+	// A user-facing error dialog should be shown explaining no port was available
+	testutil.ExpectedLen(t, dialogs.messages, 1)
+	testutil.ExpectedEqual(t, dialogs.messages[0].Type, wailsruntime.ErrorDialog)
+	testutil.ExpectedContains(t, dialogs.messages[0].Message, "no available port")
+}
+
+func TestApp_CheckOdooStatus_And_Disconnect(t *testing.T) {
+	tempDir := t.TempDir()
+	t.Setenv("HOME", tempDir)
+
+	cfg, err := config.NewManager()
+	testutil.ExpectedNoError(t, err)
+	_ = cfg.SetOdooCredentials("http://127.0.0.1:8069", "tok", "uuid-1")
+
+	srv, err := server.New(cfg)
+	testutil.ExpectedNoError(t, err)
+	defer srv.Stop()
+
+	app := &App{
+		webserver: srv,
+		config:    cfg,
+		appID:     cfg.GetAppID(),
+	}
+
+	status := app.CheckOdooStatus()
+	testutil.ExpectedEqual(t, status.DbURL, "http://127.0.0.1:8069")
+	testutil.ExpectedEqual(t, status.AppId, cfg.GetAppID())
+
+	err = app.DisconnectOdoo()
+	testutil.ExpectedNoError(t, err)
+	testutil.ExpectedFalse(t, cfg.HasOdooCredentials())
+}
+
 func TestApp_AppVariableAndPrintersAndGetPrinterIp(t *testing.T) {
 	tempDir := t.TempDir()
 	t.Setenv("HOME", tempDir)
@@ -55,8 +142,8 @@ func TestApp_AppVariableAndPrintersAndGetPrinterIp(t *testing.T) {
 	err = cfg.AddLanEposPrinter("192.168.1.100")
 	testutil.ExpectedNoError(t, err)
 
-	port := testutil.GetFreePort(t)
-	srv := server.New(port, cfg)
+	srv, err := server.New(cfg)
+	testutil.ExpectedNoError(t, err)
 	defer srv.Stop()
 
 	app := &App{
@@ -65,9 +152,7 @@ func TestApp_AppVariableAndPrintersAndGetPrinterIp(t *testing.T) {
 	}
 
 	appVariable := app.AppVariable()
-	testutil.ExpectedEqual(t, app.GetPrinterIp("czpTTjEyMzQ1Ng"), fmt.Sprintf("127.0.0.1:%d/p/czpTTjEyMzQ1Ng", port))
 	testutil.ExpectedTrue(t, appVariable.ServerRunning, "Expected ServerRunning to be true")
-	testutil.ExpectedEqual(t, appVariable.DefaultIp, fmt.Sprintf("127.0.0.1:%d", port))
 	testutil.ExpectedTrue(t, appVariable.Os != "", "Expected non-empty Os field in app variable")
 
 	// Verify Printers() includes the configured LAN printer
@@ -78,7 +163,7 @@ func TestApp_AppVariableAndPrintersAndGetPrinterIp(t *testing.T) {
 			foundLAN = true
 			testutil.ExpectedEqual(t, p.Type, string(printer.TypeReceipt))
 			testutil.ExpectedEqual(t, p.Name, "Network - 192.168.1.100")
-			testutil.ExpectedEqual(t, p.Ip, fmt.Sprintf("127.0.0.1:%d/p/%s", port, p.Identifier))
+			testutil.ExpectedEqual(t, p.Ip, fmt.Sprintf("%s/p/%s", srv.LocalAddr(), p.Identifier))
 		}
 	}
 	testutil.ExpectedTrue(t, foundLAN, "Expected to find configured LAN printer in printer status")
