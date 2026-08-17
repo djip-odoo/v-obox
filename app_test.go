@@ -43,7 +43,6 @@ func TestNewApp(t *testing.T) {
 	app := NewApp()
 	testutil.ExpectedNotNil(t, app)
 	testutil.ExpectedNotNil(t, app.autoStart)
-	testutil.ExpectedNotNil(t, app.printerManager)
 }
 
 func TestApp_AppVariableAndPrintersAndGetPrinterIp(t *testing.T) {
@@ -57,14 +56,12 @@ func TestApp_AppVariableAndPrintersAndGetPrinterIp(t *testing.T) {
 	testutil.ExpectedNoError(t, err)
 
 	port := testutil.GetFreePort(t)
-	mgr := printer.NewManager()
-	srv := server.New(port, mgr)
+	srv := server.New(port, cfg)
 	defer srv.Stop()
 
 	app := &App{
-		webserver:      srv,
-		config:         cfg,
-		printerManager: mgr,
+		webserver: srv,
+		config:    cfg,
 	}
 
 	appVariable := app.AppVariable()
@@ -81,7 +78,7 @@ func TestApp_AppVariableAndPrintersAndGetPrinterIp(t *testing.T) {
 			foundLAN = true
 			testutil.ExpectedEqual(t, p.Type, string(printer.TypeReceipt))
 			testutil.ExpectedEqual(t, p.Name, "Network - 192.168.1.100")
-			testutil.ExpectedEqual(t, p.Ip, fmt.Sprintf("127.0.0.1:%d/p/%s", port, p.Id))
+			testutil.ExpectedEqual(t, p.Ip, fmt.Sprintf("127.0.0.1:%d/p/%s", port, p.Identifier))
 		}
 	}
 	testutil.ExpectedTrue(t, foundLAN, "Expected to find configured LAN printer in printer status")

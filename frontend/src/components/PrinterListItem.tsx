@@ -48,7 +48,7 @@ export default function PrinterListItem({
     <>
       {isOnline ? (
         <li
-          key={printer.id}
+          key={printer.identifier}
           className="text-left first:pt-0 py-6 last:pb-0 relative"
         >
           <div className="flex items-center justify-between gap-2">
