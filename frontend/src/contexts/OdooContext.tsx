@@ -39,12 +39,13 @@ export const OdooContextWrapper = ({ children }: OdooContextWrapperProps) => {
     try {
       const confirmed = await ConfirmDisconnectOdoo();
       if (confirmed) {
-        setStatus({
+        setStatus((prev) => ({
           dbUrl: "",
           websocketStatus: "disconnected",
-          appId: "",
-          ipAddress: "",
-        });
+          appId: prev?.appId || "",
+          ipAddress: prev?.ipAddress || "",
+        }));
+        await refreshStatus();
         return true;
       }
       return false;
@@ -52,7 +53,7 @@ export const OdooContextWrapper = ({ children }: OdooContextWrapperProps) => {
       console.error("Failed to disconnect Odoo:", error);
       return false;
     }
-  }, []);
+  }, [refreshStatus]);
 
   useEffect(() => {
     // Initial fetch on mount

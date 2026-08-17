@@ -155,10 +155,7 @@ func TestApp_AppVariableAndPrintersAndGetPrinterIp(t *testing.T) {
 	}
 
 	appVariable := app.AppVariable()
-<<<<<<< HEAD
 	testutil.ExpectedEqual(t, srv.GetPrinterIp("czpTTjEyMzQ1Ng"), fmt.Sprintf("127.0.0.1:%d/p/czpTTjEyMzQ1Ng", port))
-=======
->>>>>>> 2235b95 (obox)
 	testutil.ExpectedTrue(t, appVariable.ServerRunning, "Expected ServerRunning to be true")
 	testutil.ExpectedTrue(t, appVariable.Os != "", "Expected non-empty Os field in app variable")
 
@@ -430,4 +427,3 @@ func TestApp_NilWebserver(t *testing.T) {
 	// shutdown handles nil webserver without panic
 	app.shutdown(context.Background())
 }
-

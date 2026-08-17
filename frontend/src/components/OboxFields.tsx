@@ -75,6 +75,7 @@ function FieldCard({ label, value, title, iconBg, icon, isCopied, onCopy }: Fiel
 }
 
 export default function OboxFields() {
+  const appContext = useContext(AppContext);
   const odooContext = useContext(OdooContext);
   const toastContext = useContext(ToastContext);
   const { copy, isCopied } = useClipboard();
@@ -82,8 +83,8 @@ export default function OboxFields() {
   const odooStatus = odooContext.data.status;
   const isOdooConnected = odooContext.data.isConnected;
 
-  const appId = odooStatus?.appId || "";
-  const ipAddress = odooStatus?.ipAddress ||  "";
+  const appId = odooStatus?.appId || appContext.data.app?.appId || "";
+  const ipAddress = odooStatus?.ipAddress || "";
 
   // Odoo Connected State
   if (isOdooConnected && odooStatus?.dbUrl) {

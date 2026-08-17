@@ -49,7 +49,7 @@ func New(cfg *config.Manager) (*Server, error) {
 
 	s := &Server{
 		app:  app,
-		 ln: ln, 
+		ln:   ln,
 		Port: port,
 		mgr:  printer.NewManager(),
 		cfg:  cfg,

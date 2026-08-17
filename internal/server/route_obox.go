@@ -52,23 +52,14 @@ func (s *Server) GetWebsocketStatus() string {
 }
 
 func (s *Server) GetOdooDbURL() string {
-	if obox != nil {
-		return obox.getDbURL()
-	}
-	if s.cfg != nil {
-		return s.cfg.GetOdooDbURL()
-	}
-	return ""
+	return obox.getDbURL()
 }
 
 func (m *oboxModule) getDbURL() string {
 	if dev := m.device.Load(); dev != nil {
 		return dev.dbURL
 	}
-	if m.cfg != nil {
-		return m.cfg.GetOdooDbURL()
-	}
-	return ""
+	return m.cfg.GetOdooDbURL()
 }
 
 // DisconnectOdoo clears in-memory device credentials and removes stored config.
@@ -162,141 +153,6 @@ func (m *oboxModule) disconnect() {
 }
 
 func (m *oboxModule) registerRoutes(app *fiber.App, mgr *printer.Manager) {
-	// ── Obox USB/LAN device alias ──────────────────────────────────────────
-	//   http://{local_ip}/usb/v1/printer/{identifier}/cgi-bin/epos/service.cgi
-	app.Post("/usb/v1/printer/:printerId/cgi-bin/epos/service.cgi", func(ctx fiber.Ctx) error {
-		id := ctx.Params("printerId")
-		logger.Infof("[mock] Obox USB ePOS print for printer: %s (clean: %s)", id, id)
-
-		if mgr != nil {
-			return printData(mgr, ctx, id)
-		}
-		return ctx.XML(EPOSResponse{Success: true, Code: "", Status: ""})
-	})
-
-	// ── Obox USB printer generic print endpoint ────────────────────────────
-	// Called by printer.obox_print() and TestOboxDevice.testPrinter()
-	app.Post("/usb/v1/printer/print", func(ctx fiber.Ctx) error {
-		var req struct {
-			Identifier string `json:"identifier"`
-			Document   string `json:"document"`
-			Receipt    string `json:"receipt"`
-			Duplex     bool   `json:"duplex"`
-		}
-		if err := ctx.Bind().JSON(&req); err != nil {
-			logger.Warnf("[mock] /usb/v1/printer/print JSON parse error: %v", err)
-		}
-		logger.Infof("[mock] /usb/v1/printer/print job for printer '%s' (docLen=%d, receiptLen=%d)",
-			req.Identifier, len(req.Document), len(req.Receipt))
-
-		if req.Identifier != "" && mgr != nil {
-			if req.Document != "" {
-				_ = printLabel(mgr, ctx, req.Identifier)
-			}
-		}
-
-		return ctx.JSON(map[string]string{"status": "ok", "success": "Sent print job"})
-	})
-
-	// ── Obox USB printer cashbox drawer ────────────────────────────────────
-	app.Get("/usb/v1/printer/open-cashbox", func(ctx fiber.Ctx) error {
-		identifier := ctx.Query("identifier")
-		logger.Infof("[mock] /usb/v1/printer/open-cashbox for printer '%s'", identifier)
-		return ctx.JSON(map[string]string{"success": "Opened cashbox"})
-	})
-
-	// ── Obox USB printer list ──────────────────────────────────────────────
-	app.Get("/usb/v1/printer/list", func(ctx fiber.Ctx) error {
-		logger.Infof("[mock] /usb/v1/printer/list")
-		var list [][]string
-		for _, dev := range m.buildDeviceList() {
-			if dev.Type == "printer" {
-				list = append(list, []string{dev.Identifier, dev.Name})
-			}
-		}
-		return ctx.JSON(list)
-	})
-
-	// ── Scale endpoints (unsupported on obox-app) ──────────────────────────
-	app.Post("/usb/v1/scale/read_scale_weight", func(ctx fiber.Ctx) error {
-		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-			"error":   "no_scale",
-			"message": "No Scale supported/needed on this host",
-		})
-	})
-
-	app.Get("/usb/v1/scale/list", func(ctx fiber.Ctx) error {
-		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-			"error":   "no_scale",
-			"message": "No Scale supported/needed on this host",
-		})
-	})
-
-	// ── Camera endpoints (unsupported on obox-app) ─────────────────────────
-	app.Get("/usb/v1/camera/take-picture", func(ctx fiber.Ctx) error {
-		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-			"error":   "no_camera",
-			"message": "No Camera supported/needed on this host",
-		})
-	})
-
-	app.Get("/usb/v1/camera/list", func(ctx fiber.Ctx) error {
-		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-			"error":   "no_camera",
-			"message": "No Camera supported/needed on this host",
-		})
-	})
-
-	// ── Display endpoints (unsupported on obox-app) ────────────────────────
-	app.Post("/display/v1/update-url", func(ctx fiber.Ctx) error {
-		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-			"error":   "no_display",
-			"message": "No Display supported/needed on this host",
-		})
-	})
-
-	// ── WiFi endpoints (unsupported on obox-app) ───────────────────────────
-	app.Get("/wifi/", func(ctx fiber.Ctx) error {
-		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-			"error":   "no_wifi",
-			"message": "No Wi-Fi supported/needed on this host",
-		})
-	})
-
-	app.Get("/wifi/status", func(ctx fiber.Ctx) error {
-		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-			"error":   "no_wifi",
-			"message": "No Wi-Fi supported/needed on this host",
-		})
-	})
-
-	app.Get("/wifi/networks", func(ctx fiber.Ctx) error {
-		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-			"error":   "no_wifi",
-			"message": "No Wi-Fi supported/needed scan on this host",
-		})
-	})
-
-	app.Post("/wifi/connect", func(ctx fiber.Ctx) error {
-		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-			"error":   "no_wifi",
-			"message": "No Wi-Fi supported/needed on this host",
-		})
-	})
-
-	// ── LED endpoints (unsupported on obox-app) ────────────────────────────
-	app.Post("/leds/set", func(ctx fiber.Ctx) error {
-		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-			"error":   "no_leds",
-			"message": "LEDs are not supported/needed on this host",
-		})
-	})
-
-	// ── Mock Obox local device endpoints ──────────────────────────────────
-	// These are hit by obox OWL widgets when connecting to the server.
-
-	// GET /odoo/
-	// OboxStatus widget LAN health check
 	app.Get("/odoo/", func(ctx fiber.Ctx) error {
 		logger.Debug("[mock] Obox LAN health check /odoo/")
 		dev := m.device.Load()
@@ -319,7 +175,6 @@ func (m *oboxModule) registerRoutes(app *fiber.App, mgr *printer.Manager) {
 		})
 	})
 
-	// GET /odoo/health (ping)
 	app.Get("/odoo/health", func(ctx fiber.Ctx) error {
 		logger.Infof("[mock] Obox /odoo/health ping")
 		dev := m.device.Load()
@@ -329,14 +184,12 @@ func (m *oboxModule) registerRoutes(app *fiber.App, mgr *printer.Manager) {
 		return ctx.JSON(map[string]string{"status": "ok"})
 	})
 
-	// GET /odoo/restart
 	// Ignore restart obox call, return success, do NOT attempt to restart eposproxy
 	app.Get("/odoo/restart", func(ctx fiber.Ctx) error {
 		logger.Infof("[mock] Obox restart — ignored, returning success")
 		return ctx.JSON(map[string]string{"status": "restarted"})
 	})
 
-	// GET /odoo/disconnect
 	app.Get("/odoo/disconnect", func(ctx fiber.Ctx) error {
 		logger.Infof("[mock] Obox disconnect — clearing device credentials")
 		m.device.Store(nil)
@@ -349,31 +202,12 @@ func (m *oboxModule) registerRoutes(app *fiber.App, mgr *printer.Manager) {
 		return ctx.JSON(map[string]string{"status": "disconnected"})
 	})
 
-	// GET /odoo/discover_devices
 	app.Get("/odoo/discover_devices", func(ctx fiber.Ctx) error {
 		logger.Infof("[mock] Obox discover_devices")
 		devices := m.buildDeviceList()
 		return ctx.JSON(devices)
 	})
 
-	// GET /sos/v1/enable
-	app.Get("/sos/v1/enable", func(ctx fiber.Ctx) error {
-		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-			"error":   "no_sos",
-			"message": "Remote debug (SOS) is not supported/needed on this host",
-		})
-	})
-
-	// GET /sos/v1/disable
-	app.Get("/sos/v1/disable", func(ctx fiber.Ctx) error {
-		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-			"error":   "no_sos",
-			"message": "Remote debug (SOS) is not supported/needed on this host",
-		})
-	})
-
-	// ── Offline connect handshake ──
-	// GET /odoo/connect?db_url=...&db_uuid=...&token=...
 	app.Get("/odoo/connect", func(ctx fiber.Ctx) error {
 		dbURL := ctx.Query("db_url")
 		token := ctx.Query("token")
@@ -393,8 +227,6 @@ func (m *oboxModule) registerRoutes(app *fiber.App, mgr *printer.Manager) {
 		return ctx.SendStatus(fiber.StatusOK)
 	})
 }
-
-// ── Mock device brain ──────────────────────────────────────────────────────────
 
 func (m *oboxModule) deviceBrain() {
 	logger.Infof("[mock brain] Background polling worker started")
