@@ -18,7 +18,7 @@ export default function PrinterList() {
             <ul className="divide-y divide-gray-300">
               {printers.printers.map((printer) => (
                 <PrinterListItem
-                  key={printer.id}
+                  key={printer.identifier}
                   printer={printer}
                   isOnline={true}
                 />

@@ -86,7 +86,6 @@ type UnavailablePrinter struct {
 
 type AppVariable struct {
 	ServerRunning bool   `json:"serverRunning"`
-	DefaultIp     string `json:"defaultIp"`
 	Os            string `json:"os"`
 	AppID         string `json:"appId,omitempty"`
 }
@@ -132,10 +131,7 @@ func (a *App) startup(ctx context.Context) {
 		logger.Warnf("Config load warning: %v", err)
 	}
 
-	a.appID, err = cfg.EnsureAppID()
-	if err != nil {
-		logger.Warnf("EnsureAppID warning: %v", err)
-	}
+	a.appID = cfg.GetAppID()
 	logger.Infof("Application ID: %s", a.appID)
 
 	logger.Debugf("Config loaded from %s", cfg.Path())
@@ -166,7 +162,6 @@ func (a *App) AppVariable() AppVariable {
 	return AppVariable{
 		Os:            runtime.GOOS,
 		ServerRunning: a.webserver.Running(),
-		DefaultIp:     fmt.Sprintf("127.0.0.1:%d", a.webserver.Port),
 		AppID:         a.appID,
 	}
 }

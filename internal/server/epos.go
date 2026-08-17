@@ -18,25 +18,22 @@ type EPOSResponse struct {
 	Status  string   `xml:"status,attr"`
 }
 
-func init() {
-	Register(func(s *Server) {
-		// ── ePOS print routes ────────────────────────────────────────────────
-		s.app.Post("/p/:printerId/cgi-bin/epos/service.cgi", func(ctx fiber.Ctx) error {
-			id := ctx.Params("printerId")
-			logger.Debugf("Print request received for printer: %s", id)
-			return printData(s.mgr, ctx, id)
-		})
+func registerEPOSRoutes(app *fiber.App, mgr *printer.Manager) {
+	app.Post("/p/:printerId/cgi-bin/epos/service.cgi", func(ctx fiber.Ctx) error {
+		id := ctx.Params("printerId")
+		logger.Debugf("Print request received for printer: %s", id)
+		return printData(mgr, ctx, id)
+	})
 
-		s.app.Post("/cgi-bin/epos/service.cgi", func(ctx fiber.Ctx) error {
-			logger.Debugf("Print request received (auto printer selection)")
-			return printData(s.mgr, ctx, "")
-		})
+	app.Post("/cgi-bin/epos/service.cgi", func(ctx fiber.Ctx) error {
+		logger.Debugf("Print request received (auto printer selection)")
+		return printData(mgr, ctx, "")
+	})
 
-		s.app.Post("/p/:printerId/pstprnt", func(ctx fiber.Ctx) error {
-			id := ctx.Params("printerId")
-			logger.Debugf("Label print request received for printer: %s", id)
-			return printLabel(s.mgr, ctx, id)
-		})
+	app.Post("/p/:printerId/pstprnt", func(ctx fiber.Ctx) error {
+		id := ctx.Params("printerId")
+		logger.Debugf("Label print request received for printer: %s", id)
+		return printLabel(mgr, ctx, id)
 	})
 }
 

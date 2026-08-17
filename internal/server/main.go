@@ -13,16 +13,10 @@ import (
 	"github.com/gofiber/fiber/v3/middleware/cors"
 )
 
-// Server represents the HTTP proxy server.
 type Server struct {
 	app     *fiber.App
 	Port    int
 	running atomic.Bool
-
-	// mgr is kept so device modules / printers can list real printers
-	mgr *printer.Manager
-	// cfg is kept for LAN printer listing
-	cfg *config.Manager
 
 	obox *oboxModule
 
@@ -30,116 +24,13 @@ type Server struct {
 	statusListeners   []StatusListener
 }
 
-// StatusListener represents a callback function for OdooStatus changes.
-type StatusListener func(status OdooStatus)
-
-// OdooStatus represents the connection and websocket status between proxy and Odoo.
-type OdooStatus struct {
-	AppId           string `json:"appId"`
-	IpAddress       string `json:"ipAddress"`
-	Connected       bool   `json:"connected"`
-	DbURL           string `json:"dbUrl"`
-	WebsocketStatus string `json:"websocketStatus"`
-}
-
-// Binder is a function that configures routes, middlewares, or background workers on a Server instance.
-type Binder func(s *Server)
-
-var (
-	bindersMu sync.Mutex
-	binders   []Binder
-)
-
-// Register registers a binder function to be invoked automatically whenever a Server is initialized.
-// Any file in package server (e.g. obox.go, epos.go, scale.go) can call Register in its init() function
-// to automatically bind its routes and services without modifying main.go.
-func Register(b Binder) {
-	bindersMu.Lock()
-	defer bindersMu.Unlock()
-	binders = append(binders, b)
-}
-
-// App returns the underlying Fiber app instance.
 func (s *Server) App() *fiber.App {
 	return s.app
 }
 
-// Mgr returns the printer manager instance.
-func (s *Server) Mgr() *printer.Manager {
-	return s.mgr
-}
-
-// Cfg returns the configuration manager instance.
-func (s *Server) Cfg() *config.Manager {
-	return s.cfg
-}
-
-// LocalAddr returns the host:port address of the server matching its current IP and running port.
 func (s *Server) LocalAddr() string {
 	return fmt.Sprintf("127.0.0.1:%d", s.Port)
 }
-
-// AppID returns the application ID configured or generated on this server.
-func (s *Server) AppID() string {
-	if s.cfg != nil {
-		return s.cfg.GetAppID()
-	}
-	return ""
-}
-
-// GetOdooStatus returns the current connection and websocket status with Odoo.
-func (s *Server) GetOdooStatus() OdooStatus {
-	if s.obox != nil {
-		return s.obox.getStatus()
-	}
-	if s.cfg != nil && s.cfg.HasOdooCredentials() {
-		return OdooStatus{
-			AppId:           s.AppID(),
-			IpAddress:       s.LocalAddr(),
-			Connected:       true,
-			DbURL:           s.cfg.GetOdooDbURL(),
-			WebsocketStatus: "connected",
-		}
-	}
-	return OdooStatus{
-		AppId:           s.AppID(),
-		IpAddress:       s.LocalAddr(),
-		Connected:       false,
-		WebsocketStatus: "disconnected",
-	}
-}
-
-// DisconnectOdoo clears in-memory device credentials and removes stored config.
-func (s *Server) DisconnectOdoo() {
-	if s.obox != nil {
-		s.obox.disconnect()
-	}
-	if s.cfg != nil {
-		_ = s.cfg.ClearOdooConfig()
-	}
-}
-
-// OnStatusChange registers a callback to be called whenever OdooStatus changes.
-func (s *Server) OnStatusChange(listener StatusListener) {
-	s.statusListenersMu.Lock()
-	defer s.statusListenersMu.Unlock()
-	s.statusListeners = append(s.statusListeners, listener)
-}
-
-// NotifyStatusChange invokes all registered StatusListeners with the latest OdooStatus.
-func (s *Server) NotifyStatusChange() {
-	s.statusListenersMu.RLock()
-	listeners := make([]StatusListener, len(s.statusListeners))
-	copy(listeners, s.statusListeners)
-	s.statusListenersMu.RUnlock()
-
-	status := s.GetOdooStatus()
-	for _, l := range listeners {
-		l(status)
-	}
-}
-
-// ── Constructor ────────────────────────────────────────────────────────────────
 
 func New(port int, mgr *printer.Manager, cfg *config.Manager) *Server {
 	app := fiber.New(fiber.Config{
@@ -150,26 +41,10 @@ func New(port int, mgr *printer.Manager, cfg *config.Manager) *Server {
 		AllowPrivateNetwork: true,
 	}))
 
-	if cfg != nil {
-		_, _ = cfg.EnsureAppID()
-	}
+	s := &Server{app: app, Port: port}
 
-	s := &Server{
-		app:  app,
-		Port: port,
-		mgr:  mgr,
-		cfg:  cfg,
-	}
-
-	// Automatically run all registered module binders
-	bindersMu.Lock()
-	registered := make([]Binder, len(binders))
-	copy(registered, binders)
-	bindersMu.Unlock()
-
-	for _, b := range registered {
-		b(s)
-	}
+	registerEPOSRoutes(app, mgr)
+	registerOboxRoutes(s, mgr, cfg)
 
 	s.running.Store(true)
 	go func() {

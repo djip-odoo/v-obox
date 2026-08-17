@@ -2,51 +2,34 @@ package config
 
 import (
 	"crypto/rand"
-	"fmt"
 	"math/big"
 )
 
-const charsetAlphanumericUpper = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ"
-const defaultAppIDLength = 10
+const (
+	charsetAlphanumeric = "0123456789"
+	defaultAppIDLength  = 10
+	appIDPrefix         = "ODOOAPP"
+)
 
-func GenerateDefaultAppID() (string, error) {
+func GenerateDefaultAppID() string {
 	result := make([]byte, defaultAppIDLength)
-	max := big.NewInt(int64(len(charsetAlphanumericUpper)))
+	max := big.NewInt(int64(len(charsetAlphanumeric)))
 
 	for i := range result {
 		n, err := rand.Int(rand.Reader, max)
 		if err != nil {
-			return "", fmt.Errorf("generate random app ID: %w", err)
+			// Fallback if crypto/rand fails.
+			result[i] = charsetAlphanumeric[i%len(charsetAlphanumeric)]
+			continue
 		}
-		result[i] = charsetAlphanumericUpper[n.Int64()]
+		result[i] = charsetAlphanumeric[n.Int64()]
 	}
 
-	return string(result), nil
+	return appIDPrefix + string(result)
 }
 
 func (cm *Manager) GetAppID() string {
 	cm.mu.RLock()
 	defer cm.mu.RUnlock()
 	return cm.Data.AppID
-}
-
-func (cm *Manager) EnsureAppID() (string, error) {
-	cm.mu.Lock()
-	defer cm.mu.Unlock()
-
-	if cm.Data.AppID != "" {
-		return cm.Data.AppID, nil
-	}
-
-	appID, err := GenerateDefaultAppID()
-	if err != nil {
-		return "", err
-	}
-
-	cm.Data.AppID = appID
-	if err := cm.saveLocked(); err != nil {
-		return "", err
-	}
-
-	return appID, nil
 }

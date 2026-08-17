@@ -8,20 +8,9 @@ import (
 	"testing"
 
 	"epos-proxy/internal/printer"
-
-	"github.com/gofiber/fiber/v3"
 )
 
-func TestAutoBindingAndRoutes(t *testing.T) {
-	// Register a dynamic test module to prove auto-binding works for new modules
-	customRouteHit := false
-	Register(func(s *Server) {
-		s.app.Get("/test-auto-bind", func(ctx fiber.Ctx) error {
-			customRouteHit = true
-			return ctx.SendString("auto-bind-success")
-		})
-	})
-
+func TestServerRoutes(t *testing.T) {
 	mgr := printer.NewManager()
 	s := New(4545, mgr, nil)
 	defer s.Stop()
@@ -40,17 +29,15 @@ func TestAutoBindingAndRoutes(t *testing.T) {
 		t.Errorf("Expected status 200 for /odoo/health, got %d", resp.StatusCode)
 	}
 
-	// Test custom auto-bound route
-	reqCustom := httptest.NewRequest("GET", "/test-auto-bind", nil)
-	respCustom, err := s.App().Test(reqCustom)
+	// Test ePOS route registered via epos.go
+	reqEPOS := httptest.NewRequest("POST", "/cgi-bin/epos/service.cgi", strings.NewReader("<invalid></invalid>"))
+	reqEPOS.Header.Set("Content-Type", "text/xml")
+	respEPOS, err := s.App().Test(reqEPOS)
 	if err != nil {
-		t.Fatalf("Failed to test /test-auto-bind: %v", err)
+		t.Fatalf("Failed to test ePOS endpoint: %v", err)
 	}
-	if respCustom.StatusCode != http.StatusOK {
-		t.Errorf("Expected status 200 for /test-auto-bind, got %d", respCustom.StatusCode)
-	}
-	if !customRouteHit {
-		t.Errorf("Expected customRouteHit to be true")
+	if respEPOS.StatusCode != http.StatusOK {
+		t.Errorf("Expected status 200 for ePOS route, got %d", respEPOS.StatusCode)
 	}
 }
 

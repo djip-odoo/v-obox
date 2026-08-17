@@ -12,15 +12,12 @@ import (
 	"sync/atomic"
 	"time"
 
+	"epos-proxy/internal/config"
 	"epos-proxy/internal/logger"
 	"epos-proxy/internal/printer"
 
 	"github.com/gofiber/fiber/v3"
 )
-
-func matchSerial(s1, s2 string) bool {
-	return s1 != "" && s2 != "" && s1 == s2
-}
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -34,49 +31,120 @@ type oboxDevice struct {
 
 // oboxModule encapsulates the state and behavior of the Obox mock service.
 type oboxModule struct {
-	server          *Server
+	app             *fiber.App
+	mgr             *printer.Manager
+	cfg             *config.Manager
+	localAddrFn     func() string
+	notifyStatusFn  func()
 	device          atomic.Pointer[oboxDevice]
 	mockWeight      atomic.Uint64
 	liveStatus      atomic.Pointer[string]
 	lastContactTime atomic.Int64
 }
 
+// StatusListener represents a callback function for OdooStatus changes.
+type StatusListener func(status OdooStatus)
+
+// OdooStatus represents the connection and websocket status between proxy and Odoo.
+type OdooStatus struct {
+	AppId           string `json:"appId"`
+	IpAddress       string `json:"ipAddress"`
+	Connected       bool   `json:"connected"`
+	DbURL           string `json:"dbUrl"`
+	WebsocketStatus string `json:"websocketStatus"`
+}
+
+// AppID returns the application ID configured or generated on this server.
+func (s *Server) AppID() string {
+	if s.obox != nil {
+		return s.obox.appID()
+	}
+	return ""
+}
+
+func (s *Server) GetOdooStatus() OdooStatus {
+	if s.obox != nil {
+		return s.obox.getStatus()
+	}
+	return OdooStatus{
+		AppId:           s.AppID(),
+		IpAddress:       s.LocalAddr(),
+		Connected:       false,
+		WebsocketStatus: "disconnected",
+	}
+}
+
+// DisconnectOdoo clears in-memory device credentials and removes stored config.
+func (s *Server) DisconnectOdoo() {
+	if s.obox != nil {
+		s.obox.disconnect()
+	}
+}
+
+// OnStatusChange registers a callback to be called whenever OdooStatus changes.
+func (s *Server) OnStatusChange(listener StatusListener) {
+	s.statusListenersMu.Lock()
+	defer s.statusListenersMu.Unlock()
+	s.statusListeners = append(s.statusListeners, listener)
+}
+
+// NotifyStatusChange invokes all registered StatusListeners with the latest OdooStatus.
+func (s *Server) NotifyStatusChange() {
+	s.statusListenersMu.RLock()
+	listeners := make([]StatusListener, len(s.statusListeners))
+	copy(listeners, s.statusListeners)
+	s.statusListenersMu.RUnlock()
+
+	status := s.GetOdooStatus()
+	for _, l := range listeners {
+		l(status)
+	}
+}
 func (m *oboxModule) setLiveStatus(st string) {
 	prev := m.liveStatus.Load()
 	changed := prev == nil || *prev != st
 	m.liveStatus.Store(&st)
-	if changed && m.server != nil {
-		m.server.NotifyStatusChange()
+	if changed && m.notifyStatusFn != nil {
+		m.notifyStatusFn()
 	}
 }
 
-// ── Auto-binding registration ──────────────────────────────────────────────────
+func registerOboxRoutes(s *Server, mgr *printer.Manager, cfg *config.Manager) {
+	s.obox = newOboxModule(s.app, mgr, cfg, s.LocalAddr, s.NotifyStatusChange)
+}
 
-func init() {
-	Register(func(s *Server) {
-		m := &oboxModule{server: s}
-		s.obox = m
-		m.setMockWeight(1.250) // Default mock scale weight in kg
-		initialStatus := "disconnected"
-		if s.cfg != nil && s.cfg.HasOdooCredentials() {
-			odooCfg := s.cfg.GetOdooConfig()
-			m.device.Store(&oboxDevice{
-				dbURL:  odooCfg.DbURL,
-				token:  odooCfg.Token,
-				dbUuid: odooCfg.DbUUID,
-			})
-			initialStatus = "connecting"
-			logger.Infof("[mock] Restored Odoo credentials from storage: db=%s dbuuid=%s", odooCfg.DbURL, odooCfg.DbUUID)
-		}
-		m.setLiveStatus(initialStatus)
-		m.registerRoutes()
-		go m.deviceBrain()
-	})
+func newOboxModule(app *fiber.App, mgr *printer.Manager, cfg *config.Manager, localAddrFn func() string, notifyStatusFn func()) *oboxModule {
+	m := &oboxModule{
+		app:            app,
+		mgr:            mgr,
+		cfg:            cfg,
+		localAddrFn:    localAddrFn,
+		notifyStatusFn: notifyStatusFn,
+	}
+	m.setMockWeight(1.250) // Default mock scale weight in kg
+	initialStatus := "disconnected"
+	if cfg != nil && cfg.HasOdooCredentials() {
+		odooCfg := cfg.GetOdooConfig()
+		m.device.Store(&oboxDevice{
+			dbURL:  odooCfg.DbURL,
+			token:  odooCfg.Token,
+			dbUuid: odooCfg.DbUUID,
+		})
+		initialStatus = "connecting"
+		logger.Infof("[mock] Restored Odoo credentials from storage: db=%s dbuuid=%s", odooCfg.DbURL, odooCfg.DbUUID)
+	}
+	m.setLiveStatus(initialStatus)
+	m.registerRoutes()
+	go m.deviceBrain()
+	return m
 }
 
 func (m *oboxModule) getStatus() OdooStatus {
 	appID := m.appID()
-	ipAddr := m.server.LocalAddr()
+	ipAddr := ""
+	if m.localAddrFn != nil {
+		ipAddr = m.localAddrFn()
+	}
 
 	dev := m.device.Load()
 	if dev != nil && dev.dbURL != "" {
@@ -92,12 +160,12 @@ func (m *oboxModule) getStatus() OdooStatus {
 			WebsocketStatus: st,
 		}
 	}
-	if m.server != nil && m.server.cfg != nil && m.server.cfg.HasOdooCredentials() {
+	if m.cfg != nil && m.cfg.HasOdooCredentials() {
 		return OdooStatus{
 			AppId:           appID,
 			IpAddress:       ipAddr,
 			Connected:       true,
-			DbURL:           m.server.cfg.GetOdooDbURL(),
+			DbURL:           m.cfg.GetOdooDbURL(),
 			WebsocketStatus: "connecting",
 		}
 	}
@@ -113,16 +181,16 @@ func (m *oboxModule) disconnect() {
 	logger.Infof("[mock] Obox disconnect triggered")
 	m.device.Store(nil)
 	m.setLiveStatus("disconnected")
-	if m.server != nil && m.server.cfg != nil {
-		if err := m.server.cfg.ClearOdooConfig(); err != nil {
+	if m.cfg != nil {
+		if err := m.cfg.ClearOdooConfig(); err != nil {
 			logger.Warnf("[mock] Failed to clear Odoo credentials from storage: %v", err)
 		}
 	}
 }
 
 func (m *oboxModule) appID() string {
-	if m.server != nil {
-		return m.server.AppID()
+	if m.cfg != nil {
+		return m.cfg.GetAppID()
 	}
 	return ""
 }
@@ -140,23 +208,21 @@ func (m *oboxModule) setMockWeight(w float64) {
 }
 
 func (m *oboxModule) registerRoutes() {
-	s := m.server
-
 	// ── Obox USB/LAN device alias ──────────────────────────────────────────
 	//   http://{local_ip}/usb/v1/printer/{identifier}/cgi-bin/epos/service.cgi
-	s.app.Post("/usb/v1/printer/:printerId/cgi-bin/epos/service.cgi", func(ctx fiber.Ctx) error {
+	m.app.Post("/usb/v1/printer/:printerId/cgi-bin/epos/service.cgi", func(ctx fiber.Ctx) error {
 		id := ctx.Params("printerId")
 		logger.Infof("[mock] Obox USB ePOS print for printer: %s (clean: %s)", id, id)
 
-		if s.mgr != nil {
-			return printData(s.mgr, ctx, id)
+		if m.mgr != nil {
+			return printData(m.mgr, ctx, id)
 		}
 		return ctx.XML(EPOSResponse{Success: true, Code: "", Status: ""})
 	})
 
 	// ── Obox USB printer generic print endpoint ────────────────────────────
 	// Called by printer.obox_print() and TestOboxDevice.testPrinter()
-	s.app.Post("/usb/v1/printer/print", func(ctx fiber.Ctx) error {
+	m.app.Post("/usb/v1/printer/print", func(ctx fiber.Ctx) error {
 		var req struct {
 			Identifier string `json:"identifier"`
 			Document   string `json:"document"`
@@ -169,9 +235,9 @@ func (m *oboxModule) registerRoutes() {
 		logger.Infof("[mock] /usb/v1/printer/print job for printer '%s' (docLen=%d, receiptLen=%d)",
 			req.Identifier, len(req.Document), len(req.Receipt))
 
-		if req.Identifier != "" && s.mgr != nil {
+		if req.Identifier != "" && m.mgr != nil {
 			if req.Document != "" {
-				_ = printLabel(s.mgr, ctx, req.Identifier)
+				_ = printLabel(m.mgr, ctx, req.Identifier)
 			}
 		}
 
@@ -179,14 +245,14 @@ func (m *oboxModule) registerRoutes() {
 	})
 
 	// ── Obox USB printer cashbox drawer ────────────────────────────────────
-	s.app.Get("/usb/v1/printer/open-cashbox", func(ctx fiber.Ctx) error {
+	m.app.Get("/usb/v1/printer/open-cashbox", func(ctx fiber.Ctx) error {
 		identifier := ctx.Query("identifier")
 		logger.Infof("[mock] /usb/v1/printer/open-cashbox for printer '%s'", identifier)
 		return ctx.JSON(map[string]string{"success": "Opened cashbox"})
 	})
 
 	// ── Obox USB printer list ──────────────────────────────────────────────
-	s.app.Get("/usb/v1/printer/list", func(ctx fiber.Ctx) error {
+	m.app.Get("/usb/v1/printer/list", func(ctx fiber.Ctx) error {
 		logger.Infof("[mock] /usb/v1/printer/list")
 		var list [][]string
 		for _, dev := range m.buildDeviceList() {
@@ -198,14 +264,14 @@ func (m *oboxModule) registerRoutes() {
 	})
 
 	// ── Scale endpoints (unsupported on obox-app) ──────────────────────────
-	s.app.Post("/usb/v1/scale/read_scale_weight", func(ctx fiber.Ctx) error {
+	m.app.Post("/usb/v1/scale/read_scale_weight", func(ctx fiber.Ctx) error {
 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
 			"error":   "no_scale",
 			"message": "No Scale supported/needed on this host",
 		})
 	})
 
-	s.app.Get("/usb/v1/scale/list", func(ctx fiber.Ctx) error {
+	m.app.Get("/usb/v1/scale/list", func(ctx fiber.Ctx) error {
 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
 			"error":   "no_scale",
 			"message": "No Scale supported/needed on this host",
@@ -213,14 +279,14 @@ func (m *oboxModule) registerRoutes() {
 	})
 
 	// ── Camera endpoints (unsupported on obox-app) ─────────────────────────
-	s.app.Get("/usb/v1/camera/take-picture", func(ctx fiber.Ctx) error {
+	m.app.Get("/usb/v1/camera/take-picture", func(ctx fiber.Ctx) error {
 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
 			"error":   "no_camera",
 			"message": "No Camera supported/needed on this host",
 		})
 	})
 
-	s.app.Get("/usb/v1/camera/list", func(ctx fiber.Ctx) error {
+	m.app.Get("/usb/v1/camera/list", func(ctx fiber.Ctx) error {
 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
 			"error":   "no_camera",
 			"message": "No Camera supported/needed on this host",
@@ -228,7 +294,7 @@ func (m *oboxModule) registerRoutes() {
 	})
 
 	// ── Display endpoints (unsupported on obox-app) ────────────────────────
-	s.app.Post("/display/v1/update-url", func(ctx fiber.Ctx) error {
+	m.app.Post("/display/v1/update-url", func(ctx fiber.Ctx) error {
 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
 			"error":   "no_display",
 			"message": "No Display supported/needed on this host",
@@ -236,28 +302,28 @@ func (m *oboxModule) registerRoutes() {
 	})
 
 	// ── WiFi endpoints (unsupported on obox-app) ───────────────────────────
-	s.app.Get("/wifi/", func(ctx fiber.Ctx) error {
+	m.app.Get("/wifi/", func(ctx fiber.Ctx) error {
 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
 			"error":   "no_wifi",
 			"message": "No Wi-Fi supported/needed on this host",
 		})
 	})
 
-	s.app.Get("/wifi/status", func(ctx fiber.Ctx) error {
+	m.app.Get("/wifi/status", func(ctx fiber.Ctx) error {
 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
 			"error":   "no_wifi",
 			"message": "No Wi-Fi supported/needed on this host",
 		})
 	})
 
-	s.app.Get("/wifi/networks", func(ctx fiber.Ctx) error {
+	m.app.Get("/wifi/networks", func(ctx fiber.Ctx) error {
 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
 			"error":   "no_wifi",
 			"message": "No Wi-Fi supported/needed scan on this host",
 		})
 	})
 
-	s.app.Post("/wifi/connect", func(ctx fiber.Ctx) error {
+	m.app.Post("/wifi/connect", func(ctx fiber.Ctx) error {
 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
 			"error":   "no_wifi",
 			"message": "No Wi-Fi supported/needed on this host",
@@ -265,7 +331,7 @@ func (m *oboxModule) registerRoutes() {
 	})
 
 	// ── LED endpoints (unsupported on obox-app) ────────────────────────────
-	s.app.Post("/leds/set", func(ctx fiber.Ctx) error {
+	m.app.Post("/leds/set", func(ctx fiber.Ctx) error {
 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
 			"error":   "no_leds",
 			"message": "LEDs are not supported/needed on this host",
@@ -277,14 +343,18 @@ func (m *oboxModule) registerRoutes() {
 
 	// GET /odoo/
 	// OboxStatus widget LAN health check
-	s.app.Get("/odoo/", func(ctx fiber.Ctx) error {
+	m.app.Get("/odoo/", func(ctx fiber.Ctx) error {
 		logger.Debug("[mock] Obox LAN health check /odoo/")
 		dev := m.device.Load()
 		if dev != nil {
+			serial := ""
+			if m.cfg != nil {
+				serial = m.cfg.GetAppID()
+			}
 			return ctx.JSON(map[string]interface{}{
 				"status": "configured",
 				"data": map[string]string{
-					"serial": s.cfg.GetAppID(),
+					"serial": serial,
 					"db_url": dev.dbURL,
 				},
 			})
@@ -296,7 +366,7 @@ func (m *oboxModule) registerRoutes() {
 	})
 
 	// GET /odoo/health (ping)
-	s.app.Get("/odoo/health", func(ctx fiber.Ctx) error {
+	m.app.Get("/odoo/health", func(ctx fiber.Ctx) error {
 		logger.Infof("[mock] Obox /odoo/health ping")
 		dev := m.device.Load()
 		if dev != nil {
@@ -307,18 +377,18 @@ func (m *oboxModule) registerRoutes() {
 
 	// GET /odoo/restart
 	// Ignore restart obox call, return success, do NOT attempt to restart eposproxy
-	s.app.Get("/odoo/restart", func(ctx fiber.Ctx) error {
+	m.app.Get("/odoo/restart", func(ctx fiber.Ctx) error {
 		logger.Infof("[mock] Obox restart — ignored, returning success")
 		return ctx.JSON(map[string]string{"status": "restarted"})
 	})
 
 	// GET /odoo/disconnect
-	s.app.Get("/odoo/disconnect", func(ctx fiber.Ctx) error {
+	m.app.Get("/odoo/disconnect", func(ctx fiber.Ctx) error {
 		logger.Infof("[mock] Obox disconnect — clearing device credentials")
 		m.device.Store(nil)
 		m.setLiveStatus("disconnected")
-		if m.server.cfg != nil {
-			if err := m.server.cfg.ClearOdooConfig(); err != nil {
+		if m.cfg != nil {
+			if err := m.cfg.ClearOdooConfig(); err != nil {
 				logger.Warnf("[mock] Failed to clear Odoo credentials from storage: %v", err)
 			}
 		}
@@ -326,14 +396,14 @@ func (m *oboxModule) registerRoutes() {
 	})
 
 	// GET /odoo/discover_devices
-	s.app.Get("/odoo/discover_devices", func(ctx fiber.Ctx) error {
+	m.app.Get("/odoo/discover_devices", func(ctx fiber.Ctx) error {
 		logger.Infof("[mock] Obox discover_devices")
 		devices := m.buildDeviceList()
 		return ctx.JSON(devices)
 	})
 
 	// GET /sos/v1/enable
-	s.app.Get("/sos/v1/enable", func(ctx fiber.Ctx) error {
+	m.app.Get("/sos/v1/enable", func(ctx fiber.Ctx) error {
 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
 			"error":   "no_sos",
 			"message": "Remote debug (SOS) is not supported/needed on this host",
@@ -341,7 +411,7 @@ func (m *oboxModule) registerRoutes() {
 	})
 
 	// GET /sos/v1/disable
-	s.app.Get("/sos/v1/disable", func(ctx fiber.Ctx) error {
+	m.app.Get("/sos/v1/disable", func(ctx fiber.Ctx) error {
 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
 			"error":   "no_sos",
 			"message": "Remote debug (SOS) is not supported/needed on this host",
@@ -350,7 +420,7 @@ func (m *oboxModule) registerRoutes() {
 
 	// ── Offline connect handshake ──
 	// GET /odoo/connect?db_url=...&db_uuid=...&token=...
-	s.app.Get("/odoo/connect", func(ctx fiber.Ctx) error {
+	m.app.Get("/odoo/connect", func(ctx fiber.Ctx) error {
 		dbURL := ctx.Query("db_url")
 		token := ctx.Query("token")
 		dbUUID := ctx.Query("db_uuid")
@@ -359,8 +429,8 @@ func (m *oboxModule) registerRoutes() {
 		if dbURL != "" && token != "" {
 			m.device.Store(&oboxDevice{dbURL: dbURL, token: token, dbUuid: dbUUID})
 			m.setLiveStatus("connecting")
-			if m.server.cfg != nil {
-				if err := m.server.cfg.SetOdooCredentials(dbURL, token, dbUUID); err != nil {
+			if m.cfg != nil {
+				if err := m.cfg.SetOdooCredentials(dbURL, token, dbUUID); err != nil {
 					logger.Warnf("[mock] Failed to save Odoo credentials to storage: %v", err)
 				}
 			}
@@ -592,9 +662,9 @@ func (m *oboxModule) executeAction(dev *oboxDevice, action queueAction) {
 	}
 }
 
-// dispatchLocalAction calls the mock device endpoint and returns the result.
 func (m *oboxModule) dispatchLocalAction(path, method string, payload interface{}) interface{} {
-	base := fmt.Sprintf("http://127.0.0.1:%d", m.server.Port)
+	localAddr := m.localAddrFn()
+	base := fmt.Sprintf("http://%s", localAddr)
 	fullURL := base + path
 
 	var req *http.Request
@@ -705,7 +775,11 @@ type oboxDeviceEntry struct {
 }
 
 func (m *oboxModule) buildDeviceList() []oboxDeviceEntry {
-	discovered := printer.DiscoverAllPrinters(m.server.cfg)
+	var cfg *config.Manager
+	if m.cfg != nil {
+		cfg = m.cfg
+	}
+	discovered := printer.DiscoverAllPrinters(cfg)
 	devices := make([]oboxDeviceEntry, 0, len(discovered.Available))
 
 	for _, p := range discovered.Available {
@@ -737,6 +811,11 @@ func (m *oboxModule) callOdooOboxConnect(dbURL, token, dbUuid string) {
 	for attempt := 1; attempt <= 10; attempt++ {
 		time.Sleep(time.Duration(attempt*300) * time.Millisecond)
 
+		localIP := ""
+		if m.localAddrFn != nil {
+			localIP = m.localAddrFn()
+		}
+
 		payload := rpcPayload{
 			JSONRPC: "2.0",
 			Method:  "call",
@@ -744,7 +823,7 @@ func (m *oboxModule) callOdooOboxConnect(dbURL, token, dbUuid string) {
 			Params: map[string]interface{}{
 				"serial_number": m.appID(),
 				"token":         token,
-				"local_ip":      m.server.LocalAddr(),
+				"local_ip":      localIP,
 				"services":      []string{"usb", "printer"},
 			},
 		}
@@ -775,8 +854,8 @@ func (m *oboxModule) callOdooOboxConnect(dbURL, token, dbUuid string) {
 				token:  token,
 				dbUuid: dbUuid,
 			})
-			if m.server.cfg != nil {
-				_ = m.server.cfg.SetOdooCredentials(dbURL, token, dbUuid)
+			if m.cfg != nil {
+				_ = m.cfg.SetOdooCredentials(dbURL, token, dbUuid)
 			}
 			m.setLiveStatus("connected")
 			return
@@ -787,7 +866,6 @@ func (m *oboxModule) callOdooOboxConnect(dbURL, token, dbUuid string) {
 		} else {
 			logger.Warnf("[mock] /obox/connect (serial=%s) HTTP %d", m.appID(), resp.StatusCode)
 		}
-
 	}
 
 	logger.Errorf("[mock] Failed to complete /obox/connect after 10 attempts")

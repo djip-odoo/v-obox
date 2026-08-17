@@ -29,6 +29,7 @@ type AppConfig struct {
 
 func defaults() AppConfig {
 	return AppConfig{
+		AppID:       GenerateDefaultAppID(),
 		Port:        0,
 		LANPrinters: []string{},
 	}
