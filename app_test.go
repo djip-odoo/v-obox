@@ -133,6 +133,55 @@ func TestApp_CheckOdooStatus_And_Disconnect(t *testing.T) {
 	testutil.ExpectedFalse(t, cfg.HasOdooCredentials())
 }
 
+func TestApp_ConfirmDisconnectOdoo(t *testing.T) {
+	tests := []struct {
+		name             string
+		dialogResult     string
+		dialogErr        error
+		expectDisconnect bool
+		expectErr        bool
+	}{
+		{name: "confirm disconnect", dialogResult: "Disconnect", expectDisconnect: true},
+		{name: "cancel disconnect", dialogResult: "Cancel", expectDisconnect: false},
+		{name: "dialog error", dialogErr: errors.New("dialog failed"), expectErr: true},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("HOME", t.TempDir())
+			cfg, err := config.NewManager()
+			testutil.ExpectedNoError(t, err)
+			_ = cfg.SetOdooCredentials("http://127.0.0.1:8069", "tok", "uuid-1")
+
+			srv, err := server.New(cfg)
+			testutil.ExpectedNoError(t, err)
+			defer srv.Stop()
+
+			dialogs := &fakeDialogs{messageResult: tc.dialogResult, messageErr: tc.dialogErr}
+			app := &App{
+				webserver: srv,
+				config:    cfg,
+				appID:     cfg.GetAppID(),
+				dialogs:   dialogs,
+			}
+
+			disconnected, err := app.ConfirmDisconnectOdoo()
+			if tc.expectErr {
+				testutil.ExpectedError(t, err)
+			} else {
+				testutil.ExpectedNoError(t, err)
+			}
+			testutil.ExpectedEqual(t, disconnected, tc.expectDisconnect)
+
+			if tc.expectDisconnect {
+				testutil.ExpectedFalse(t, cfg.HasOdooCredentials())
+			} else {
+				testutil.ExpectedTrue(t, cfg.HasOdooCredentials())
+			}
+		})
+	}
+}
+
 func TestApp_AppVariableAndPrintersAndGetPrinterIp(t *testing.T) {
 	tempDir := t.TempDir()
 	t.Setenv("HOME", tempDir)
@@ -420,9 +469,14 @@ func TestApp_NilWebserver(t *testing.T) {
 	appVar := app.AppVariable()
 	testutil.ExpectedFalse(t, appVar.ServerRunning)
 
-	// GetPrinterIp handles nil webserver with default port 4545
-	printerIP := app.webserver.GetPrinterIp("printer123")
-	testutil.ExpectedEqual(t, printerIP, "127.0.0.1:4545/p/printer123")
+	// CheckOdooStatus handles nil webserver safely
+	odooStatus := app.CheckOdooStatus()
+	testutil.ExpectedEqual(t, odooStatus.WebsocketStatus, "disconnected")
+	testutil.ExpectedEqual(t, odooStatus.IpAddress, "")
+
+	// Printers handles nil webserver safely
+	printers := app.Printers()
+	testutil.ExpectedLen(t, printers.Printers, 0)
 
 	// shutdown handles nil webserver without panic
 	app.shutdown(context.Background())

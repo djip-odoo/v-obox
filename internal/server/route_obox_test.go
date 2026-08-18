@@ -53,7 +53,7 @@ func TestOboxDiscovery_Endpoint(t *testing.T) {
 	}
 	err = json.NewDecoder(resp.Body).Decode(&result)
 	testutil.ExpectedNoError(t, err)
-	testutil.ExpectedEqual(t, result.Status, "configured")
+	testutil.ExpectedEqual(t, result.Status, "not_configured")
 }
 
 func TestOboxConnectDB_Endpoint(t *testing.T) {

@@ -22,6 +22,7 @@ import (
 type oboxModule struct {
 	appId string
 
+	cfg         *config.Manager
 	localAddrFn func() string
 
 	credMu sync.RWMutex
@@ -68,24 +69,42 @@ func (m *oboxModule) isConnected() bool {
 type StatusListener func()
 
 func (s *Server) GetWebsocketStatus() string {
-	return s.obox.getWebsocketStatus()
+	if s.obox != nil {
+		return s.obox.getWebsocketStatus()
+	}
+	return "disconnected"
 }
 
 func (s *Server) GetOdooDbURL() string {
-	if url := s.obox.dbURL; url != "" {
-		return url
+	if s.obox != nil {
+		if url := s.obox.getDbURL(); url != "" {
+			return url
+		}
 	}
-	return s.cfg.GetOdooDbURL()
+	if s.cfg != nil {
+		return s.cfg.GetOdooDbURL()
+	}
+	return ""
+}
+
+func (m *oboxModule) getDbURL() string {
+	m.credMu.RLock()
+	defer m.credMu.RUnlock()
+	return m.dbURL
 }
 
 // DisconnectOdoo clears in-memory device credentials and removes stored config.
 func (s *Server) DisconnectOdoo() {
-	s.obox.disconnect()
+	if s.obox != nil {
+		s.obox.disconnect()
+	}
 }
 
 // OnStatusChange registers a callback to be called whenever OdooStatus changes.
 func (s *Server) OnStatusChange(listener StatusListener) {
-	s.obox.onStatusChange(listener)
+	if s.obox != nil {
+		s.obox.onStatusChange(listener)
+	}
 }
 
 func (m *oboxModule) onStatusChange(listener StatusListener) {
@@ -120,8 +139,9 @@ func init() {
 	})
 }
 
-func newOboxModule(app *fiber.App, mgr *printer.Manager, cfg *config.Manager, localAddrFn func() string) oboxModule {
-	m := oboxModule{
+func newOboxModule(app *fiber.App, mgr *printer.Manager, cfg *config.Manager, localAddrFn func() string) *oboxModule {
+	m := &oboxModule{
+		cfg:         cfg,
 		localAddrFn: localAddrFn,
 	}
 	if cfg != nil {

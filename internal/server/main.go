@@ -22,7 +22,7 @@ type Server struct {
 	mgr     *printer.Manager
 	running atomic.Bool
 	cfg     *config.Manager
-	obox    oboxModule
+	obox    *oboxModule
 }
 
 func New(cfg *config.Manager) (*Server, error) {

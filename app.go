@@ -11,7 +11,6 @@ import (
 	"epos-proxy/internal/logger"
 	"epos-proxy/internal/printer"
 	"epos-proxy/internal/server"
-	"epos-proxy/internal/util"
 
 	autostart "github.com/emersion/go-autostart"
 	wailsruntime "github.com/wailsapp/wails/v2/pkg/runtime"
@@ -160,9 +159,13 @@ func (a *App) shutdown(ctx context.Context) {
 }
 
 func (a *App) AppVariable() AppVariable {
+	running := false
+	if a.webserver != nil {
+		running = a.webserver.Running()
+	}
 	return AppVariable{
 		Os:            runtime.GOOS,
-		ServerRunning: a.webserver.Running(),
+		ServerRunning: running,
 		AppID:         a.appID,
 	}
 }
@@ -180,10 +183,14 @@ func (a *App) Printers() Printers {
 	}
 
 	for _, p := range discovered.Available {
+		printerIp := ""
+		if a.webserver != nil {
+			printerIp = a.webserver.GetPrinterIp(p.Identifier)
+		}
 		printers = append(printers, Printer{
 			Identifier: p.Identifier,
 			Name:       p.Name,
-			Ip:         a.webserver.GetPrinterIp(p.Identifier),
+			Ip:         printerIp,
 			IsLAN:      p.IsLAN,
 			LANIp:      p.LANIp,
 			Online:     p.Online,
@@ -324,18 +331,29 @@ func (a *App) DisableAutostart() error {
 func (a *App) CheckOdooStatus() OdooStatusInterface {
 	logger.Debugf("checking Odoo status")
 
+	ip := ""
+	dbURL := ""
+	wsStatus := "disconnected"
+	if a.webserver != nil {
+		ip = a.webserver.LocalAddr()
+		dbURL = a.webserver.GetOdooDbURL()
+		wsStatus = a.webserver.GetWebsocketStatus()
+	}
+
 	return OdooStatusInterface{
 		AppId:           a.appID,
-		IpAddress:       a.webserver.LocalAddr(),
-		DbURL:           a.webserver.GetOdooDbURL(),
-		WebsocketStatus: a.webserver.GetWebsocketStatus(),
+		IpAddress:       ip,
+		DbURL:           dbURL,
+		WebsocketStatus: wsStatus,
 	}
 }
 
 func (a *App) DisconnectOdoo() error {
 	logger.Infof("Disconnect Odoo requested")
 
-	a.webserver.DisconnectOdoo()
+	if a.webserver != nil {
+		a.webserver.DisconnectOdoo()
+	}
 
 	if a.config != nil {
 		if err := a.config.ClearOdooConfig(); err != nil {
@@ -344,14 +362,16 @@ func (a *App) DisconnectOdoo() error {
 		}
 	}
 
-	wailsruntime.EventsEmit(a.ctx, "odoo:status_changed", a.CheckOdooStatus())
+	if a.ctx != nil {
+		wailsruntime.EventsEmit(a.ctx, "odoo:status_changed", a.CheckOdooStatus())
+	}
 	return nil
 }
 
 func (a *App) ConfirmDisconnectOdoo() (bool, error) {
 	logger.Debugf("Confirm Disconnect Odoo requested")
 
-	result, err := wailsruntime.MessageDialog(a.ctx, wailsruntime.MessageDialogOptions{
+	result, err := a.dlg().Message(a.ctx, wailsruntime.MessageDialogOptions{
 		Type:          wailsruntime.QuestionDialog,
 		Title:         "Disconnect Odoo",
 		Message:       "Are you sure you want to disconnect and remove the Odoo database connection?",
