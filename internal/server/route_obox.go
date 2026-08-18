@@ -387,60 +387,6 @@ func (m *oboxModule) executeAction(dev *oboxDevice, action queueAction) {
 		m.reportActionResult(dev, action.UUID, result)
 		return
 
-	case strings.HasPrefix(actionPath, "/sos/v1/enable"):
-		logger.Errorf("[sos] Action remote debug enable failed: sos not supported")
-		result = map[string]interface{}{
-			"error":   "no_sos",
-			"message": "Remote debug (SOS) is not supported/needed on this host",
-		}
-		m.reportActionResult(dev, action.UUID, result)
-		return
-
-	case strings.HasPrefix(actionPath, "/sos/v1/disable"):
-		logger.Errorf("[sos] Action remote debug disable failed: sos not supported")
-		result = map[string]interface{}{
-			"error":   "no_sos",
-			"message": "Remote debug (SOS) is not supported/needed on this host",
-		}
-		m.reportActionResult(dev, action.UUID, result)
-		return
-
-	case actionPath == "/usb/v1/scale/read_scale_weight":
-		logger.Errorf("[scale] Action read scale weight failed: scale not supported")
-		result = map[string]interface{}{
-			"error":   "no_scale",
-			"message": "No Scale supported/needed on this host",
-		}
-		m.reportActionResult(dev, action.UUID, result)
-		return
-
-	case strings.HasPrefix(actionPath, "/usb/v1/camera/take-picture"):
-		logger.Errorf("[camera] Action take-picture failed: camera not supported")
-		result = map[string]interface{}{
-			"error":   "no_camera",
-			"message": "No Camera supported/needed on this host",
-		}
-		m.reportActionResult(dev, action.UUID, result)
-		return
-
-	case actionPath == "/display/v1/update-url":
-		logger.Errorf("[display] Action display update-url failed: display not supported")
-		result = map[string]interface{}{
-			"error":   "no_display",
-			"message": "No Display supported/needed on this host",
-		}
-		m.reportActionResult(dev, action.UUID, result)
-		return
-
-	case actionPath == "/leds/set":
-		logger.Errorf("[leds] Action leds set failed: leds not supported")
-		result = map[string]interface{}{
-			"error":   "no_leds",
-			"message": "LEDs are not supported/needed on this host",
-		}
-		m.reportActionResult(dev, action.UUID, result)
-		return
-
 	default:
 		result = m.dispatchLocalAction(rawURL, method, payload)
 		m.reportActionResult(dev, action.UUID, result)
@@ -522,7 +468,6 @@ func (m *oboxModule) reportActionResult(dev *oboxDevice, uuid string, result int
 	logger.Infof("[mock brain] action_result response status: %d for uuid %s", resp.StatusCode, uuid)
 }
 
-// callOdooPing calls /obox/ping on Odoo after processing a test action.
 func (m *oboxModule) callOdooPing(dev *oboxDevice) {
 	type rpcPayload struct {
 		JSONRPC string      `json:"jsonrpc"`
@@ -551,7 +496,6 @@ func (m *oboxModule) callOdooPing(dev *oboxDevice) {
 	logger.Infof("[mock brain] /obox/ping response status: %d", resp.StatusCode)
 }
 
-// ── Device list helpers ────────────────────────────────────────────────────────
 
 type oboxDeviceEntry struct {
 	Name       string `json:"name"`
