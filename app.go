@@ -11,6 +11,7 @@ import (
 	"epos-proxy/internal/logger"
 	"epos-proxy/internal/printer"
 	"epos-proxy/internal/server"
+	"epos-proxy/internal/util"
 
 	autostart "github.com/emersion/go-autostart"
 	wailsruntime "github.com/wailsapp/wails/v2/pkg/runtime"

@@ -8,7 +8,6 @@ import (
 	"testing"
 
 	"epos-proxy/internal/config"
-	"epos-proxy/internal/printer"
 
 	"github.com/gofiber/fiber/v3"
 )

@@ -22,15 +22,13 @@ func createTestServer(t *testing.T) (*Server, *printer.Manager) {
 	testutil.ExpectedNoError(t, err)
 	cfg.Data.Port = testutil.GetFreePort(t)
 
-	mgr := printer.NewManager()
-	s, err := New(cfg, mgr)
+	s, err := New(cfg)
 	testutil.ExpectedNoError(t, err)
-	return s, mgr
+	return s, s.mgr
 }
 
 func TestNew_NilConfig(t *testing.T) {
-	mgr := printer.NewManager()
-	s, err := New(nil, mgr)
+	s, err := New(nil)
 	testutil.ExpectedError(t, err)
 	testutil.ExpectedContains(t, err.Error(), "config manager is required")
 	testutil.ExpectedNil(t, s)
@@ -61,8 +59,7 @@ func TestNew_PortResolutionError(t *testing.T) {
 		}
 	}()
 
-	mgr := printer.NewManager()
-	s, err := New(cfg, mgr)
+	s, err := New(cfg)
 	testutil.ExpectedError(t, err)
 	testutil.ExpectedContains(t, err.Error(), "unable to start server")
 	testutil.ExpectedNil(t, s)
@@ -75,8 +72,7 @@ func TestServer_Lifecycle(t *testing.T) {
 	port := testutil.GetFreePort(t)
 	cfg.Data.Port = port
 
-	mgr := printer.NewManager()
-	s, err := New(cfg, mgr)
+	s, err := New(cfg)
 	testutil.ExpectedNoError(t, err)
 	defer s.Stop()
 

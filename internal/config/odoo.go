@@ -46,6 +46,12 @@ func (cm *Manager) GetOdooToken() string {
 	return cm.Data.Odoo.Token
 }
 
+func (cm *Manager) GetOdooDbUUID() string {
+	cm.mu.RLock()
+	defer cm.mu.RUnlock()
+	return cm.Data.Odoo.DbUUID
+}
+
 func (cm *Manager) HasOdooCredentials() bool {
 	cm.mu.RLock()
 	defer cm.mu.RUnlock()

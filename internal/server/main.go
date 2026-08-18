@@ -9,6 +9,7 @@ import (
 
 	"epos-proxy/internal/config"
 	"epos-proxy/internal/logger"
+	"epos-proxy/internal/obox"
 	"epos-proxy/internal/printer"
 
 	"github.com/gofiber/fiber/v3"
@@ -22,7 +23,7 @@ type Server struct {
 	mgr     *printer.Manager
 	running atomic.Bool
 	cfg     *config.Manager
-	obox    *oboxModule
+	obox    *obox.Module
 }
 
 func New(cfg *config.Manager) (*Server, error) {
@@ -55,6 +56,10 @@ func New(cfg *config.Manager) (*Server, error) {
 		mgr:  printer.NewManager(),
 		cfg:  cfg,
 	}
+
+	s.obox = obox.New(cfg, s.LocalAddr)
+	s.obox.RegisterRoutes(s.app)
+
 	s.registerRoutes(cfg)
 
 	s.running.Store(true)
@@ -107,6 +112,41 @@ func (s *Server) GetPrinterIp(id string) string {
 	ip := fmt.Sprintf("%s/p/%s", s.LocalAddr(), id)
 	logger.Debugf("Generated printer endpoint: %s", ip)
 	return ip
+}
+
+func (s *Server) Obox() *obox.Module {
+	return s.obox
+}
+
+func (s *Server) GetWebsocketStatus() string {
+	if s.obox != nil {
+		return s.obox.GetWebsocketStatus()
+	}
+	return "disconnected"
+}
+
+func (s *Server) GetOdooDbURL() string {
+	if s.obox != nil {
+		if url := s.obox.GetDbURL(); url != "" {
+			return url
+		}
+	}
+	if s.cfg != nil {
+		return s.cfg.GetOdooDbURL()
+	}
+	return ""
+}
+
+func (s *Server) DisconnectOdoo() {
+	if s.obox != nil {
+		s.obox.Disconnect()
+	}
+}
+
+func (s *Server) OnStatusChange(listener obox.StatusListener) {
+	if s.obox != nil {
+		s.obox.OnStatusChange(listener)
+	}
 }
 
 // RouteBinder registers routes for a Server instance.

@@ -8,11 +8,11 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
 	"testing"
 	"time"
 
 	"epos-proxy/internal/config"
+	"epos-proxy/internal/obox"
 	"epos-proxy/internal/printer"
 	"epos-proxy/internal/testutil"
 )
@@ -27,8 +27,10 @@ func createTestOboxServer(port int) *Server {
 }
 
 func createTestOboxServerWithConfig(t *testing.T, port int) (*Server, *config.Manager) {
-	tempDir := t.TempDir()
-	cfg := config.NewManagerWithPath(filepath.Join(tempDir, "config.json"))
+	t.Helper()
+	t.Setenv("HOME", t.TempDir())
+	cfg, err := config.NewManager()
+	testutil.ExpectedNoError(t, err)
 	cfg.Data.Port = port
 	s, err := New(cfg)
 	testutil.ExpectedNoError(t, err)
@@ -163,7 +165,7 @@ func TestOboxDiscoverDevices_Endpoint(t *testing.T) {
 
 	testutil.ExpectedEqual(t, resp.StatusCode, http.StatusOK)
 
-	var devices []oboxDeviceEntry
+	var devices []obox.DeviceEntry
 	err = json.NewDecoder(resp.Body).Decode(&devices)
 	testutil.ExpectedNoError(t, err)
 	for _, d := range devices {
@@ -315,7 +317,7 @@ func TestExecuteAction_AllCases(t *testing.T) {
 	// Find the registered obox module
 	m := s.Obox()
 
-	m.setCredentials(mockOdoo.URL, "test-token", "mock-uuid")
+	m.SetCredentials(mockOdoo.URL, "test-token", "mock-uuid")
 
 	testActions := []struct {
 		name       string
@@ -338,7 +340,7 @@ func TestExecuteAction_AllCases(t *testing.T) {
 
 	for _, tc := range testActions {
 		t.Run(tc.name, func(t *testing.T) {
-			action := queueAction{
+			action := obox.QueueAction{
 				UUID: tc.actionUUID,
 				Payload: map[string]interface{}{
 					"url":     tc.url,
@@ -346,7 +348,7 @@ func TestExecuteAction_AllCases(t *testing.T) {
 					"payload": tc.payload,
 				},
 			}
-			m.executeAction(action)
+			m.ExecuteAction(action)
 
 			select {
 			case uuid := <-actionReported:
@@ -390,10 +392,10 @@ func TestOboxStoragePersistence(t *testing.T) {
 }
 
 func TestOboxRestoreCredentialsFromConfig(t *testing.T) {
-	tempDir := t.TempDir()
-	configPath := filepath.Join(tempDir, "config.json")
-	cfg := config.NewManagerWithPath(configPath)
-	testAppID, _ := cfg.EnsureAppID()
+	t.Setenv("HOME", t.TempDir())
+	cfg, err := config.NewManager()
+	testutil.ExpectedNoError(t, err)
+	testAppID := cfg.GetAppID()
 	_ = cfg.SetOdooCredentials("http://192.168.1.100:8069", "restored-token", "uuid-1")
 
 	cfg.Data.Port = 4617
@@ -420,11 +422,9 @@ func TestOboxRestoreCredentialsFromConfig(t *testing.T) {
 }
 
 func TestGetOdooStatus(t *testing.T) {
-	tempDir := t.TempDir()
-	configPath := filepath.Join(tempDir, "config.json")
-	cfg := config.NewManagerWithPath(configPath)
-	testAppID, _ := cfg.EnsureAppID()
-	_ = testAppID
+	t.Setenv("HOME", t.TempDir())
+	cfg, err := config.NewManager()
+	testutil.ExpectedNoError(t, err)
 
 	cfg.Data.Port = 4618
 	s, err := New(cfg)
