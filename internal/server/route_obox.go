@@ -19,21 +19,16 @@ import (
 	"github.com/gofiber/fiber/v3"
 )
 
-var obox *oboxModule
-
-// oboxDevice holds the credentials needed to poll Odoo
-type oboxDevice struct {
-	dbURL  string
-	token  string
-	dbUuid string
-}
-
 type oboxModule struct {
 	appId string
 
-	cfg             *config.Manager
-	localAddrFn     func() string
-	device          atomic.Pointer[oboxDevice]
+	localAddrFn func() string
+
+	credMu sync.RWMutex
+	dbURL  string
+	token  string
+	dbUuid string
+
 	liveStatus      atomic.Pointer[string]
 	lastContactTime atomic.Int64
 
@@ -41,39 +36,56 @@ type oboxModule struct {
 	listeners   []StatusListener
 }
 
+func (m *oboxModule) setCredentials(dbURL, token, dbUuid string) {
+	m.credMu.Lock()
+	m.dbURL = dbURL
+	m.token = token
+	m.dbUuid = dbUuid
+	m.credMu.Unlock()
+}
+
+func (m *oboxModule) getCredentials() (dbURL, token, dbUuid string) {
+	m.credMu.RLock()
+	defer m.credMu.RUnlock()
+	return m.dbURL, m.token, m.dbUuid
+}
+
+func (m *oboxModule) clearCredentials() {
+	m.credMu.Lock()
+	m.dbURL = ""
+	m.token = ""
+	m.dbUuid = ""
+	m.credMu.Unlock()
+}
+
+func (m *oboxModule) isConnected() bool {
+	m.credMu.RLock()
+	defer m.credMu.RUnlock()
+	return m.dbURL != "" && m.token != ""
+}
+
 // StatusListener represents a callback function for Odoo status changes.
 type StatusListener func()
 
 func (s *Server) GetWebsocketStatus() string {
-	if obox != nil {
-		return obox.getWebsocketStatus()
-	}
-	return "disconnected"
+	return s.obox.getWebsocketStatus()
 }
 
 func (s *Server) GetOdooDbURL() string {
-	return obox.getDbURL()
-}
-
-func (m *oboxModule) getDbURL() string {
-	if dev := m.device.Load(); dev != nil {
-		return dev.dbURL
+	if url := s.obox.dbURL; url != "" {
+		return url
 	}
-	return m.cfg.GetOdooDbURL()
+	return s.cfg.GetOdooDbURL()
 }
 
 // DisconnectOdoo clears in-memory device credentials and removes stored config.
 func (s *Server) DisconnectOdoo() {
-	if obox != nil {
-		obox.disconnect()
-	}
+	s.obox.disconnect()
 }
 
 // OnStatusChange registers a callback to be called whenever OdooStatus changes.
 func (s *Server) OnStatusChange(listener StatusListener) {
-	if obox != nil {
-		obox.onStatusChange(listener)
-	}
+	s.obox.onStatusChange(listener)
 }
 
 func (m *oboxModule) onStatusChange(listener StatusListener) {
@@ -104,46 +116,43 @@ func (m *oboxModule) setLiveStatus(st string) {
 
 func init() {
 	RegisterRoute(func(s *Server, cfg *config.Manager) {
-		obox = newOboxModule(s.app, s.mgr, cfg, s.LocalAddr)
+		s.obox = newOboxModule(s.app, s.mgr, cfg, s.LocalAddr)
 	})
 }
 
-func newOboxModule(app *fiber.App, mgr *printer.Manager, cfg *config.Manager, localAddrFn func() string) *oboxModule {
-	m := &oboxModule{cfg: cfg, localAddrFn: localAddrFn}
-	initialStatus := "disconnected"
-	if cfg.HasOdooCredentials() {
-		odooCfg := cfg.GetOdooConfig()
-		m.device.Store(&oboxDevice{
-			dbURL:  odooCfg.DbURL,
-			token:  odooCfg.Token,
-			dbUuid: odooCfg.DbUUID,
-		})
-		initialStatus = "connecting"
-		logger.Infof("[mock] Restored Odoo credentials from storage: db=%s dbuuid=%s", odooCfg.DbURL, odooCfg.DbUUID)
+func newOboxModule(app *fiber.App, mgr *printer.Manager, cfg *config.Manager, localAddrFn func() string) oboxModule {
+	m := oboxModule{
+		localAddrFn: localAddrFn,
 	}
-	m.setLiveStatus(initialStatus)
+	if cfg != nil {
+		m.appId = cfg.GetAppID()
+		if cfg.HasOdooCredentials() {
+			odooCfg := cfg.GetOdooConfig()
+			m.dbURL = odooCfg.DbURL
+			m.token = odooCfg.Token
+			m.dbUuid = odooCfg.DbUUID
+			logger.Infof("[mock] Restored Odoo credentials from storage: db=%s dbuuid=%s", odooCfg.DbURL, odooCfg.DbUUID)
+		}
+	}
+	m.setLiveStatus("disconnected")
 	m.registerRoutes(app, mgr)
-	m.appId = cfg.GetAppID()
 	go m.deviceBrain()
 	return m
 }
 
 func (m *oboxModule) getWebsocketStatus() string {
-	if dev := m.device.Load(); dev != nil && dev.dbURL != "" {
-		if ptr := m.liveStatus.Load(); ptr != nil && *ptr != "" {
-			return *ptr
-		}
-		return "connecting"
+	if !m.isConnected() {
+		return "disconnected"
 	}
-	if m.cfg != nil && m.cfg.HasOdooCredentials() {
-		return "connecting"
+	if ptr := m.liveStatus.Load(); ptr != nil && *ptr != "" {
+		return *ptr
 	}
 	return "disconnected"
 }
 
 func (m *oboxModule) disconnect() {
 	logger.Infof("[mock] Obox disconnect triggered")
-	m.device.Store(nil)
+	m.clearCredentials()
 	m.setLiveStatus("disconnected")
 	if m.cfg != nil {
 		if err := m.cfg.ClearOdooConfig(); err != nil {
@@ -155,8 +164,8 @@ func (m *oboxModule) disconnect() {
 func (m *oboxModule) registerRoutes(app *fiber.App, mgr *printer.Manager) {
 	app.Get("/odoo/", func(ctx fiber.Ctx) error {
 		logger.Debug("[mock] Obox LAN health check /odoo/")
-		dev := m.device.Load()
-		if dev != nil {
+		dbURL, _, _ := m.getCredentials()
+		if dbURL != "" {
 			serial := ""
 			if m.cfg != nil {
 				serial = m.cfg.GetAppID()
@@ -165,21 +174,20 @@ func (m *oboxModule) registerRoutes(app *fiber.App, mgr *printer.Manager) {
 				"status": "configured",
 				"data": map[string]string{
 					"serial": serial,
-					"db_url": dev.dbURL,
+					"db_url": dbURL,
 				},
 			})
+		} else {
+			return ctx.JSON(map[string]interface{}{
+				"status": "not_configured",
+			})
 		}
-		return ctx.JSON(map[string]interface{}{
-			"status": "configured",
-			"data":   nil,
-		})
 	})
 
 	app.Get("/odoo/health", func(ctx fiber.Ctx) error {
 		logger.Infof("[mock] Obox /odoo/health ping")
-		dev := m.device.Load()
-		if dev != nil {
-			go m.callOdooPing(dev)
+		if m.isConnected() {
+			go m.callOdooPing()
 		}
 		return ctx.JSON(map[string]string{"status": "ok"})
 	})
@@ -192,13 +200,7 @@ func (m *oboxModule) registerRoutes(app *fiber.App, mgr *printer.Manager) {
 
 	app.Get("/odoo/disconnect", func(ctx fiber.Ctx) error {
 		logger.Infof("[mock] Obox disconnect — clearing device credentials")
-		m.device.Store(nil)
-		m.setLiveStatus("disconnected")
-		if m.cfg != nil {
-			if err := m.cfg.ClearOdooConfig(); err != nil {
-				logger.Warnf("[mock] Failed to clear Odoo credentials from storage: %v", err)
-			}
-		}
+		m.disconnect()
 		return ctx.JSON(map[string]string{"status": "disconnected"})
 	})
 
@@ -215,7 +217,7 @@ func (m *oboxModule) registerRoutes(app *fiber.App, mgr *printer.Manager) {
 
 		logger.Infof("[mock] Obox offline connect received: db_url=%s, token=%s, db_uuid=%s", dbURL, token, dbUUID)
 		if dbURL != "" && token != "" {
-			m.device.Store(&oboxDevice{dbURL: dbURL, token: token, dbUuid: dbUUID})
+			m.setCredentials(dbURL, token, dbUUID)
 			m.setLiveStatus("connecting")
 			if m.cfg != nil {
 				if err := m.cfg.SetOdooCredentials(dbURL, token, dbUUID); err != nil {
@@ -233,13 +235,13 @@ func (m *oboxModule) deviceBrain() {
 	for {
 		time.Sleep(5 * time.Second)
 
-		dev := m.device.Load()
-		if dev == nil {
+		dbURL, token, _ := m.getCredentials()
+		if dbURL == "" || token == "" {
 			m.setLiveStatus("disconnected")
 			continue
 		}
 
-		actions, err := m.fetchNextActions(dev)
+		actions, err := m.fetchNextActions(dbURL, token)
 		if err != nil {
 			if isDeviceNotFound(err) {
 				// Server explicitly rejected this device (404 / no record).
@@ -262,7 +264,7 @@ func (m *oboxModule) deviceBrain() {
 		m.lastContactTime.Store(time.Now().UnixMilli())
 
 		for _, action := range actions {
-			go m.executeAction(dev, action)
+			go m.executeAction(action)
 		}
 	}
 }
@@ -272,7 +274,7 @@ type queueAction struct {
 	Payload map[string]interface{} `json:"payload"`
 }
 
-func (m *oboxModule) fetchNextActions(dev *oboxDevice) ([]queueAction, error) {
+func (m *oboxModule) fetchNextActions(dbURL, token string) ([]queueAction, error) {
 	type rpcPayload struct {
 		JSONRPC string      `json:"jsonrpc"`
 		Method  string      `json:"method"`
@@ -285,12 +287,12 @@ func (m *oboxModule) fetchNextActions(dev *oboxDevice) ([]queueAction, error) {
 		ID:      1,
 		Params: map[string]string{
 			"serial_number": m.appId,
-			"token":         dev.token,
+			"token":         token,
 		},
 	})
 
 	client := &http.Client{Timeout: 5 * time.Second}
-	resp, err := client.Post(dev.dbURL+"/obox/get_next_actions", "application/json", bytes.NewReader(body))
+	resp, err := client.Post(dbURL+"/obox/get_next_actions", "application/json", bytes.NewReader(body))
 	if err != nil {
 		return nil, err
 	}
@@ -332,7 +334,7 @@ func isDeviceNotFound(err error) bool {
 }
 
 // executeAction processes one queue action and reports the result back to Odoo.
-func (m *oboxModule) executeAction(dev *oboxDevice, action queueAction) {
+func (m *oboxModule) executeAction(action queueAction) {
 	rawURL, _ := action.Payload["url"].(string)
 	method, _ := action.Payload["method"].(string)
 	payload := action.Payload["payload"]
@@ -350,22 +352,22 @@ func (m *oboxModule) executeAction(dev *oboxDevice, action queueAction) {
 	case actionPath == "/odoo/health":
 		logger.Infof("[mock brain] Action health ping: returning success")
 		result = map[string]string{"status": "ok"}
-		m.reportActionResult(dev, action.UUID, result)
-		go m.callOdooPing(dev)
+		m.reportActionResult(action.UUID, result)
+		go m.callOdooPing()
 		return
 
 	case actionPath == "/odoo/restart":
 		// Ignore restart obox call, return success, do NOT attempt to restart eposproxy
 		logger.Infof("[mock brain] Action restart: ignored, returning success")
 		result = map[string]string{"status": "restarted"}
-		m.reportActionResult(dev, action.UUID, result)
+		m.reportActionResult(action.UUID, result)
 		return
 
 	case actionPath == "/odoo/disconnect":
 		logger.Infof("[mock brain] Action disconnect: returning success")
-		m.device.Store(nil)
+		m.disconnect()
 		result = map[string]string{"status": "disconnected"}
-		m.reportActionResult(dev, action.UUID, result)
+		m.reportActionResult(action.UUID, result)
 		return
 
 	case actionPath == "/odoo/discover_devices":
@@ -378,18 +380,18 @@ func (m *oboxModule) executeAction(dev *oboxDevice, action queueAction) {
 		} else {
 			result = "[]"
 		}
-		m.reportActionResult(dev, action.UUID, result)
+		m.reportActionResult(action.UUID, result)
 		return
 
 	case actionPath == "/usb/v1/printer/print":
 		logger.Infof("[mock brain] Action printer print: executing print simulation")
 		result = map[string]string{"status": "ok"}
-		m.reportActionResult(dev, action.UUID, result)
+		m.reportActionResult(action.UUID, result)
 		return
 
 	default:
 		result = m.dispatchLocalAction(rawURL, method, payload)
-		m.reportActionResult(dev, action.UUID, result)
+		m.reportActionResult(action.UUID, result)
 	}
 }
 
@@ -439,7 +441,11 @@ func (m *oboxModule) dispatchLocalAction(path, method string, payload interface{
 }
 
 // reportActionResult calls /obox/action_result on Odoo with the action uuid and result.
-func (m *oboxModule) reportActionResult(dev *oboxDevice, uuid string, result interface{}) {
+func (m *oboxModule) reportActionResult(uuid string, result interface{}) {
+	dbURL, token, _ := m.getCredentials()
+	if dbURL == "" || token == "" {
+		return
+	}
 	type rpcPayload struct {
 		JSONRPC string      `json:"jsonrpc"`
 		Method  string      `json:"method"`
@@ -452,14 +458,14 @@ func (m *oboxModule) reportActionResult(dev *oboxDevice, uuid string, result int
 		ID:      1,
 		Params: map[string]interface{}{
 			"serial_number": m.appId,
-			"token":         dev.token,
+			"token":         token,
 			"action_uuid":   uuid,
 			"result":        result,
 		},
 	})
 
 	client := &http.Client{Timeout: 5 * time.Second}
-	resp, err := client.Post(dev.dbURL+"/obox/action_result", "application/json", bytes.NewReader(body))
+	resp, err := client.Post(dbURL+"/obox/action_result", "application/json", bytes.NewReader(body))
 	if err != nil {
 		logger.Errorf("[mock brain] action_result error for uuid %s: %v", uuid, err)
 		return
@@ -468,7 +474,11 @@ func (m *oboxModule) reportActionResult(dev *oboxDevice, uuid string, result int
 	logger.Infof("[mock brain] action_result response status: %d for uuid %s", resp.StatusCode, uuid)
 }
 
-func (m *oboxModule) callOdooPing(dev *oboxDevice) {
+func (m *oboxModule) callOdooPing() {
+	dbURL, token, _ := m.getCredentials()
+	if dbURL == "" || token == "" {
+		return
+	}
 	type rpcPayload struct {
 		JSONRPC string      `json:"jsonrpc"`
 		Method  string      `json:"method"`
@@ -482,12 +492,12 @@ func (m *oboxModule) callOdooPing(dev *oboxDevice) {
 		ID:      1,
 		Params: map[string]string{
 			"serial_number": m.appId,
-			"token":         dev.token,
+			"token":         token,
 		},
 	})
 
 	client := &http.Client{Timeout: 5 * time.Second}
-	resp, err := client.Post(dev.dbURL+"/obox/ping", "application/json", bytes.NewReader(body))
+	resp, err := client.Post(dbURL+"/obox/ping", "application/json", bytes.NewReader(body))
 	if err != nil {
 		logger.Errorf("[mock brain] /obox/ping error: %v", err)
 		return
@@ -495,7 +505,6 @@ func (m *oboxModule) callOdooPing(dev *oboxDevice) {
 	defer resp.Body.Close()
 	logger.Infof("[mock brain] /obox/ping response status: %d", resp.StatusCode)
 }
-
 
 type oboxDeviceEntry struct {
 	Name       string `json:"name"`
@@ -578,11 +587,7 @@ func (m *oboxModule) callOdooOboxConnect(dbURL, token, dbUuid string) {
 
 		if resp.StatusCode == 200 && rpcResp.Error == nil {
 			logger.Infof("[mock] Odoo /obox/connect SUCCESS on attempt %d (paired as %s)", attempt, m.appId)
-			m.device.Store(&oboxDevice{
-				dbURL:  dbURL,
-				token:  token,
-				dbUuid: dbUuid,
-			})
+			m.setCredentials(dbURL, token, dbUuid)
 			if m.cfg != nil {
 				_ = m.cfg.SetOdooCredentials(dbURL, token, dbUuid)
 			}

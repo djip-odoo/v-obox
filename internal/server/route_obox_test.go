@@ -313,15 +313,9 @@ func TestExecuteAction_AllCases(t *testing.T) {
 	defer s.Stop()
 
 	// Find the registered obox module
-	m := obox
-	m.setMockWeight(1.250)
+	m := s.Obox()
 
-	dev := &oboxDevice{
-		dbURL:  mockOdoo.URL,
-		token:  "test-token",
-		dbUuid: "mock-uuid",
-	}
-	m.device.Store(dev)
+	m.setCredentials(mockOdoo.URL, "test-token", "mock-uuid")
 
 	testActions := []struct {
 		name       string
@@ -352,7 +346,7 @@ func TestExecuteAction_AllCases(t *testing.T) {
 					"payload": tc.payload,
 				},
 			}
-			m.executeAction(dev, action)
+			m.executeAction(action)
 
 			select {
 			case uuid := <-actionReported:
