@@ -1,10 +1,8 @@
-import { useContext, useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { BrowserOpenURL } from "../../wailsjs/runtime/runtime";
 import type { Step } from "../types";
 import { useStepDialog } from "../hooks/useStepDialog";
 import Dialog from "./Dialog";
-import { brewSteps, linuxSteps, zadigSteps } from "../assets/data/fixStep";
-import { AppContext } from "../contexts/AppContext";
 
 type ContentPhase = "shown" | "leaving" | "entering";
 
@@ -14,8 +12,33 @@ const CONTENT_PHASE_CLASS: Record<ContentPhase, string> = {
   shown: "opacity-100 translate-x-0 transition duration-300 ease-out",
 };
 
-export default function StepDialog({ printerName }: { printerName: string }) {
-  const appContext = useContext(AppContext);
+interface StepDialogProps {
+  steps: Step[];
+  openButton: React.ReactNode;
+  title?: string;
+  onOpen?: () => void;
+}
+
+function renderFormattedText(text: string) {
+  if (!text) return null;
+  const parts = text.split(/\*([^*]+)\*/g);
+  return parts.map((part, index) =>
+    index % 2 === 1 ? (
+      <span key={index} className="font-bold text-odoo">
+        {part}
+      </span>
+    ) : (
+      part
+    ),
+  );
+}
+
+export default function StepDialog({
+  steps,
+  openButton,
+  title,
+  onOpen,
+}: StepDialogProps) {
   const [contentEl, setContentEl] = useState<HTMLDivElement | null>(null);
   const { currentStep, next, back, setCurrentStep } = useStepDialog();
   const [displayStep, setDisplayStep] = useState(0);
@@ -78,113 +101,153 @@ export default function StepDialog({ printerName }: { printerName: string }) {
     );
   }
 
-  const fixSteps = useMemo<Step[]>(() => {
-    if (appContext.data.isWindows) {
-      return zadigSteps(printerName);
+  const step = steps[displayStep];
+
+  const handleOpen = () => {
+    setCurrentStep(0);
+    if (onOpen) {
+      onOpen();
     }
+  };
 
-    if (appContext.data.isMac) {
-      return brewSteps(printerName);
-    }
+  const dialogTitle = title || (step ? step.title : "Steps");
 
-    if (appContext.data.isLinux) {
-      return linuxSteps(printerName);
-    }
-
-    return [];
-  }, [appContext.data.os]);
-
-  const step = fixSteps[displayStep];
-  if (!step) {
-    return null;
-  }
-
-  const getFixErrorText = () => {
-    if (appContext.data.isWindows) {
-      return "Fix - Install WinUSB driver";
-    }
-
-    if (appContext.data.isMac || appContext.data.isLinux) {
-      return "Fix - Install libusb";
-    }
-
-    return "";
+  const handleDone = () => {
+    setCurrentStep(0);
+    // Trigger close on parent modal container
+    const closeButton = contentEl
+      ?.closest(".relative")
+      ?.querySelector("button") as HTMLButtonElement | null;
+    closeButton?.click();
   };
 
   return (
-    <Dialog
-      openButton={
-        <div className="flex-1 border bg-odoo text-white hover:bg-odoo-dark rounded-lg px-4 py-2 text-center cursor-pointer">
-          {getFixErrorText()}
+    <Dialog openButton={openButton} title={dialogTitle} onOpen={handleOpen}>
+      {steps.length === 0 ? (
+        <div className="py-6 text-center text-gray-500 text-sm">
+          No steps required. Your setup is ready.
         </div>
-      }
-      title={step.title}
-      onOpen={() => setCurrentStep(0)}
-    >
-      <div
-        className="overflow-hidden transition-[height] duration-300 ease-in-out"
-        style={{ height: contentHeight }}
-      >
-        <div ref={setContentEl} className={`${CONTENT_PHASE_CLASS[phase]}`}>
-          <p className="text-gray-500 whitespace-pre-line">{step.desc}</p>
-
-          {step.link && (
-            <a
-              href={step.link}
-              target="_blank"
-              rel="noreferrer"
-              onClick={(event) => {
-                event.preventDefault();
-                BrowserOpenURL(step.link!);
-              }}
-              className="inline-flex items-center mt-3 px-3 py-2 rounded-lg border border-stone-300 text-stone-600 hover:bg-stone-50 hover:border-stone-400"
-            >
-              {step.linkLabel}
-            </a>
-          )}
-
-          {step.image && (
-            <img
-              src={step.image}
-              alt={step.title}
-              className="max-w-full mt-3 rounded-lg"
-            />
-          )}
-
-          {step.codes?.map((code, index) => (
-            <div key={index} className="mt-3 relative group">
-              <pre className="bg-slate-800 text-emerald-500 text-sm rounded-lg px-4 py-3 overflow-x-auto font-mono">
-                {code}
-              </pre>
-              <button
-                className="absolute top-2.5 right-2 px-2 py-1 text-xs rounded-md bg-slate-700 text-slate-300 hover:bg-slate-600 opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer"
-                onClick={() => copyCode(index, code)}
-              >
-                {codeCopied[index] ? "✓ Copied" : "Copy"}
-              </button>
+      ) : step ? (
+        <>
+          {steps.length > 1 && (
+            <div className="flex items-center justify-between mb-3 text-xs text-stone-500 font-medium">
+              <span>
+                Step {displayStep + 1} of {steps.length}
+              </span>
+              <div className="flex items-center gap-1.5">
+                {steps.map((_, i) => (
+                  <div
+                    key={i}
+                    className={`h-1.5 rounded-full transition-all duration-300 ${
+                      i === displayStep
+                        ? "w-6 bg-odoo"
+                        : i < displayStep
+                          ? "w-2.5 bg-odoo/40"
+                          : "w-2.5 bg-stone-200"
+                    }`}
+                  />
+                ))}
+              </div>
             </div>
-          ))}
-        </div>
-      </div>
+          )}
 
-      <div className="flex gap-2 pt-5">
-        {currentStep > 0 && (
-          <button
-            className="flex-1 py-2 rounded-lg border border-stone-300 text-stone-600 hover:bg-stone-50 hover:border-stone-400 cursor-pointer whitespace-nowrap transition-colors"
-            onClick={back}
+          <div
+            className="overflow-hidden transition-[height] duration-300 ease-in-out"
+            style={{ height: contentHeight }}
           >
-            Back
-          </button>
-        )}
-        {currentStep < fixSteps.length - 1 && (
-          <button
-            className="flex-1 py-2 rounded-lg bg-odoo text-white hover:bg-odoo-dark whitespace-nowrap cursor-pointer transition-colors"
-            onClick={() => next(fixSteps.length)}
-          >
-            Next
-          </button>
-        )}
-      </div>
+            <div ref={setContentEl} className={`${CONTENT_PHASE_CLASS[phase]}`}>
+              <h3 className="font-semibold text-stone-900 text-base mb-2">
+                {renderFormattedText(step.title)}
+              </h3>
+              <p className="text-gray-600 text-sm whitespace-pre-line leading-relaxed">
+                {renderFormattedText(step.desc)}
+              </p>
+
+              {step.link && (
+                <a
+                  href={step.link}
+                  target="_blank"
+                  rel="noreferrer"
+                  onClick={(event) => {
+                    event.preventDefault();
+                    BrowserOpenURL(step.link!);
+                  }}
+                  className="inline-flex items-center mt-3 px-3 py-2 rounded-lg border border-stone-300 text-stone-600 hover:bg-stone-50 hover:border-stone-400 text-sm transition font-medium"
+                >
+                  {step.linkLabel}
+                </a>
+              )}
+
+              {step.image && (
+                <img
+                  src={step.image}
+                  alt={step.title}
+                  className="max-w-full mt-3 rounded-lg border border-stone-200 shadow-xs"
+                />
+              )}
+
+              {step.codes?.map((code, index) => (
+                <div
+                  key={index}
+                  className="mt-3.5 rounded-xl bg-slate-900 border border-slate-800 overflow-hidden shadow-inner"
+                >
+                  <div className="flex items-center justify-between px-3.5 py-1.5 bg-slate-800/80 border-b border-slate-700/60 text-[11px] text-slate-300 font-mono">
+                    <span className="flex items-center gap-1.5">
+                      <span className="w-2 h-2 rounded-full bg-emerald-400 shrink-0" />
+                      Command
+                    </span>
+                    <button
+                      type="button"
+                      className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-medium bg-slate-700 text-slate-200 hover:bg-slate-600 hover:text-white transition cursor-pointer shadow-xs"
+                      onClick={() => copyCode(index, code)}
+                    >
+                      {codeCopied[index] ? (
+                        <span className="text-emerald-400 font-semibold">
+                          ✓ Copied
+                        </span>
+                      ) : (
+                        <span>Copy</span>
+                      )}
+                    </button>
+                  </div>
+                  <pre className="p-3.5 text-emerald-400 text-xs sm:text-sm font-mono overflow-x-auto select-all leading-relaxed whitespace-pre">
+                    {code}
+                  </pre>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="flex gap-2 pt-5">
+            {currentStep > 0 && (
+              <button
+                type="button"
+                className="flex-1 py-2 rounded-lg border border-stone-300 text-stone-600 hover:bg-stone-50 hover:border-stone-400 cursor-pointer whitespace-nowrap transition-colors text-sm font-medium"
+                onClick={back}
+              >
+                Back
+              </button>
+            )}
+            {currentStep < steps.length - 1 ? (
+              <button
+                type="button"
+                className="flex-1 py-2 rounded-lg bg-odoo text-white hover:bg-odoo-dark whitespace-nowrap cursor-pointer transition-colors text-sm font-medium shadow-xs"
+                onClick={() => next(steps.length)}
+              >
+                Next
+              </button>
+            ) : (
+              <button
+                type="button"
+                className="flex-1 py-2 rounded-lg bg-odoo text-white hover:bg-odoo-dark whitespace-nowrap cursor-pointer transition-colors text-sm font-medium shadow-xs"
+                onClick={handleDone}
+              >
+                Done
+              </button>
+            )}
+          </div>
+        </>
+      ) : null}
     </Dialog>
   );
 }

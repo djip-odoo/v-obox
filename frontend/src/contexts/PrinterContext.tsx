@@ -3,7 +3,9 @@ import {
   AddLANPrinter,
   CheckLANPrinterStatus,
   ConfirmRemoveLANPrinter,
+  IsNetworkPrintingEnabled,
   Printers,
+  SetNetworkPrintingEnabled,
 } from "../../wailsjs/go/main/App";
 
 import { createContext, useCallback, useEffect, useRef, useState } from "react";
@@ -24,10 +26,12 @@ type PrinterContextType = {
     printers: main.Printers | null;
     lanStatus: PrinterLanStatusByIp;
     fetchError: string | null;
+    networkPrintingEnabled: boolean;
   };
   actions: {
     removeLanPrinter: (printer: main.Printer) => Promise<ActionStatus>;
     addLanPrinter: (ip: string) => Promise<ActionStatus>;
+    toggleNetworkPrinting: (enabled: boolean) => Promise<ActionStatus>;
   };
 };
 
@@ -41,6 +45,7 @@ export const PrinterContextWrapper = ({ children }: PrinterContextWrapper) => {
   const [printers, setPrinters] = useState<main.Printers | null>(null);
   const [lanStatus, setLanStatus] = useState<PrinterLanStatusByIp>({});
   const [fetchError, setFetchError] = useState<string | null>(null);
+  const [networkPrintingEnabled, setNetworkPrintingEnabledState] = useState(false);
 
   // A status sweep can outlast the poll interval (USB rescan plus a 3s dial
   // timeout per unreachable LAN printer), so ticks skip while one is running.
@@ -191,15 +196,50 @@ export const PrinterContextWrapper = ({ children }: PrinterContextWrapper) => {
     };
   }, [checkAppStatus]);
 
+  const loadNetworkPrintingStatus = useCallback(async () => {
+    try {
+      const enabled = await IsNetworkPrintingEnabled();
+      setNetworkPrintingEnabledState(enabled);
+    } catch (err) {
+      console.error("Failed to load network printing status", err);
+    }
+  }, []);
+
+  const toggleNetworkPrinting = async (enabled: boolean) => {
+    try {
+      await SetNetworkPrintingEnabled(enabled);
+      setNetworkPrintingEnabledState(enabled);
+      await checkAppStatus(true);
+      return {
+        status: true,
+        message: enabled
+          ? "Network printing enabled"
+          : "Network printing disabled",
+      };
+    } catch (error) {
+      console.error("Failed to toggle network printing:", error);
+      return {
+        status: false,
+        message: `Failed to toggle network printing: ${error}`,
+      };
+    }
+  };
+
+  useEffect(() => {
+    loadNetworkPrintingStatus();
+  }, [loadNetworkPrintingStatus]);
+
   const setters = {};
   const actions = {
     removeLanPrinter,
     addLanPrinter,
+    toggleNetworkPrinting,
   };
   const data = {
     printers: printers,
     lanStatus,
     fetchError,
+    networkPrintingEnabled,
   };
 
   return (

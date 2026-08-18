@@ -102,9 +102,7 @@ export default function Dialog({
   return (
     <>
       {openButton && (
-        <div className="mt-6 text-center">
           <div onClick={() => open()}>{openButton}</div>
-        </div>
       )}
 
       {mounted &&

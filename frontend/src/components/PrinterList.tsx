@@ -1,5 +1,6 @@
 import { useContext } from "react";
 import NetworkIpDialog from "./NetworkIpDialog";
+import NetworkPrinting from "./NetworkPrinting";
 import PrinterListItem from "./PrinterListItem";
 import { PrinterContext } from "../contexts/PrinterContext";
 
@@ -63,9 +64,10 @@ export default function PrinterList() {
         )}
       </div>
 
-      <div className="mt-6 text-center flex flex-col gap-2 sm:flex-row sm:justify-center">
+      <div className="mt-6 text-center flex flex-col gap-2.5 sm:flex-row sm:justify-center items-center">
         <NetworkIpDialog />
       </div>
+      <NetworkPrinting />
     </>
   );
 }

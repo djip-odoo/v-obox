@@ -2,7 +2,7 @@ import { main } from "../../wailsjs/go/models";
 import { PrinterContext } from "../contexts/PrinterContext";
 import { useContext } from "react";
 import PrinterActions from "./PrinterActions";
-import StepDialog from "./StepDialog";
+import LibusbFixDialog from "./LibusbFixDialog";
 import CloseButton from "./CloseButton";
 
 type PrinterListItemProps =
@@ -84,7 +84,7 @@ export default function PrinterListItem({
             Unable to communicate with this printer: {printer.errorMsg}
           </div>
           {hasLibUsbErrorFix(printer.errorMsg) && (
-            <StepDialog printerName={printer.name} />
+            <LibusbFixDialog printerName={printer.name} />
           )}
         </li>
       )}
