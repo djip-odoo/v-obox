@@ -231,7 +231,7 @@ func (m *oboxModule) registerRoutes(app *fiber.App, mgr *printer.Manager) {
 func (m *oboxModule) deviceBrain() {
 	logger.Infof("[mock brain] Background polling worker started")
 	for {
-		time.Sleep(2 * time.Second)
+		time.Sleep(5 * time.Second)
 
 		dev := m.device.Load()
 		if dev == nil {
@@ -272,7 +272,6 @@ type queueAction struct {
 	Payload map[string]interface{} `json:"payload"`
 }
 
-// fetchNextActions calls /obox/get_next_actions on Odoo and returns pending actions.
 func (m *oboxModule) fetchNextActions(dev *oboxDevice) ([]queueAction, error) {
 	type rpcPayload struct {
 		JSONRPC string      `json:"jsonrpc"`
@@ -382,6 +381,12 @@ func (m *oboxModule) executeAction(dev *oboxDevice, action queueAction) {
 		m.reportActionResult(dev, action.UUID, result)
 		return
 
+	case actionPath == "/usb/v1/printer/print":
+		logger.Infof("[mock brain] Action printer print: executing print simulation")
+		result = map[string]string{"status": "ok"}
+		m.reportActionResult(dev, action.UUID, result)
+		return
+
 	case strings.HasPrefix(actionPath, "/sos/v1/enable"):
 		logger.Errorf("[sos] Action remote debug enable failed: sos not supported")
 		result = map[string]interface{}{
@@ -397,12 +402,6 @@ func (m *oboxModule) executeAction(dev *oboxDevice, action queueAction) {
 			"error":   "no_sos",
 			"message": "Remote debug (SOS) is not supported/needed on this host",
 		}
-		m.reportActionResult(dev, action.UUID, result)
-		return
-
-	case actionPath == "/usb/v1/printer/print":
-		logger.Infof("[mock brain] Action printer print: executing print simulation")
-		result = map[string]string{"status": "ok"}
 		m.reportActionResult(dev, action.UUID, result)
 		return
 
