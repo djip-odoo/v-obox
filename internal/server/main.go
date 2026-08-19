@@ -73,10 +73,10 @@ func New(cfg *config.Manager) (*Server, error) {
 }
 
 func (s *Server) Stop() error {
+	logger.Infof("Stopping HTTP server")
 	if !s.running.Swap(false) {
 		return nil
 	}
-	logger.Infof("Stopping HTTP server")
 	if s.obox != nil {
 		s.obox.Stop()
 	}

@@ -44,7 +44,7 @@ func TestNew_PortResolutionError(t *testing.T) {
 		var ln net.Listener
 		var err error
 		for range 30 {
-			ln, err = net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", p))
+			ln, err = net.Listen("tcp", fmt.Sprintf("0.0.0.0:%d", p))
 			if err == nil {
 				break
 			}

@@ -74,14 +74,16 @@ func (m *Module) oboxWebsocketHandler() {
 
 		err := m.runWebsocketSession(dbURL, token)
 		if err != nil {
-			logger.Debugf("[obox ws] Session ended: %v", err)
-		}
-
-		select {
-		case <-m.ctx.Done():
-			return
-		case <-time.After(backoff):
-			backoff = min(backoff*2, maxBackoff)
+			logger.Warnf("[obox ws] Connection to Odoo websocket ended: %v (reconnecting in %v)", err, backoff)
+			m.setLiveStatus("disconnected")
+			select {
+			case <-m.ctx.Done():
+				return
+			case <-time.After(backoff):
+				backoff = min(backoff*2, maxBackoff)
+			}
+		} else {
+			backoff = 1 * time.Second
 		}
 	}
 }
@@ -99,7 +101,10 @@ func (m *Module) runWebsocketSession(dbURL, token string) error {
 		Proxy:            http.ProxyFromEnvironment,
 	}
 
-	header := http.Header{}
+	header := http.Header{
+		"Origin": []string{"Obox"},
+		"Pragma": []string{"no-cache"},
+	}
 	conn, resp, err := dialer.DialContext(m.ctx, wsURL, header)
 	if err != nil {
 		if resp != nil {
@@ -108,6 +113,15 @@ func (m *Module) runWebsocketSession(dbURL, token string) error {
 		return fmt.Errorf("dial websocket error: %w", err)
 	}
 	defer conn.Close()
+
+	conn.SetPingHandler(func(appData string) error {
+		m.lastContactTime.Store(time.Now().UnixMilli())
+		return conn.WriteControl(websocket.PongMessage, []byte(appData), time.Now().Add(time.Second))
+	})
+	conn.SetPongHandler(func(appData string) error {
+		m.lastContactTime.Store(time.Now().UnixMilli())
+		return nil
+	})
 
 	// Subscribe to obox_<token> channel
 	channel := "obox_" + token
