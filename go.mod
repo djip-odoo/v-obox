@@ -6,6 +6,7 @@ require (
 	github.com/emersion/go-autostart v0.0.0-20250403115856-34830d6457d2
 	github.com/gofiber/fiber/v3 v3.4.0
 	github.com/google/gousb v1.1.3
+	github.com/gorilla/websocket v1.5.3
 	github.com/sirupsen/logrus v1.9.4
 	github.com/wailsapp/wails/v2 v2.12.0
 	github.com/yusufpapurcu/wmi v1.2.4
@@ -22,7 +23,6 @@ require (
 	github.com/gofiber/schema v1.8.0 // indirect
 	github.com/gofiber/utils/v2 v2.1.1 // indirect
 	github.com/google/uuid v1.6.0 // indirect
-	github.com/gorilla/websocket v1.5.3 // indirect
 	github.com/jchv/go-winloader v0.0.0-20250406163304-c1995be93bd1 // indirect
 	github.com/klauspost/compress v1.19.0 // indirect
 	github.com/labstack/echo/v4 v4.15.1 // indirect

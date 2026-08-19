@@ -29,6 +29,8 @@ type Module struct {
 	listenersMu sync.RWMutex
 	listeners   []StatusListener
 
+	triggerChan chan struct{}
+
 	ctx    context.Context
 	cancel context.CancelFunc
 }
@@ -40,6 +42,7 @@ func Manager(cfg *config.Manager, mgr *printer.Manager, localAddrFn func() strin
 		mgr:         mgr,
 		localAddrFn: localAddrFn,
 		appID:       cfg.GetAppID(),
+		triggerChan: make(chan struct{}, 1),
 		ctx:         ctx,
 		cancel:      cancel,
 	}
@@ -54,7 +57,18 @@ func Manager(cfg *config.Manager, mgr *printer.Manager, localAddrFn func() strin
 
 	m.setLiveStatus("disconnected")
 	go m.oboxQueueHandler()
+	go m.oboxWebsocketHandler()
 	return m
+}
+
+func (m *Module) TriggerFetch() {
+	if m.triggerChan == nil {
+		return
+	}
+	select {
+	case m.triggerChan <- struct{}{}:
+	default:
+	}
 }
 
 func (m *Module) Stop() {
@@ -70,6 +84,7 @@ func (m *Module) SetCredentials(dbURL, token, dbUUID string) {
 	m.dbUUID = &dbUUID
 	m.credMu.Unlock()
 	m.notifyStatusChange()
+	m.TriggerFetch()
 }
 
 func (m *Module) GetCredentials() (dbURL, token string) {

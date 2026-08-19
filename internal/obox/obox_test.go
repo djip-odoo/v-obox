@@ -23,6 +23,7 @@ func createTestModule(t *testing.T) (*Module, *fiber.App) {
 	app := fiber.New()
 
 	m := Manager(cfg, printer.NewManager(), func() string { return "127.0.0.1:4545" })
+	t.Cleanup(m.Stop)
 	app.Get("/odoo/", m.HandleDiscovery)
 	app.Get("/odoo/connect", m.HandleConnect)
 	app.Get("/odoo/disconnect", m.HandleDisconnect)
@@ -351,6 +352,7 @@ func TestObox_CallOdooOboxConnect(t *testing.T) {
 	testutil.ExpectedNoError(t, err)
 
 	m := Manager(cfg, printer.NewManager(), func() string { return "127.0.0.1:4545" })
+	defer m.Stop()
 
 	m.callOdooOboxConnect(mockServer.URL, "conn-tok", "conn-uuid")
 

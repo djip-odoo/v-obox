@@ -19,7 +19,7 @@ type QueueAction struct {
 
 func (m *Module) oboxQueueHandler() {
 	logger.Infof("[obox queue] Background polling worker started")
-	ticker := time.NewTicker(5 * time.Second)
+	ticker := time.NewTicker(30 * time.Second) // 30s fallback polling
 	defer ticker.Stop()
 
 	for {
@@ -27,38 +27,44 @@ func (m *Module) oboxQueueHandler() {
 		case <-m.ctx.Done():
 			logger.Infof("[obox queue] Background polling worker stopped")
 			return
+		case <-m.triggerChan:
+			logger.Debugf("[obox queue] Action fetch triggered via event")
 		case <-ticker.C:
 		}
 
-		dbURL, token := m.GetCredentials()
-		if dbURL == "" || token == "" {
+		m.processNextActions()
+	}
+}
+
+func (m *Module) processNextActions() {
+	dbURL, token := m.GetCredentials()
+	if dbURL == "" || token == "" {
+		m.setLiveStatus("disconnected")
+		return
+	}
+
+	actions, err := m.fetchNextActions(dbURL, token)
+	if err != nil {
+		if isDeviceNotFound(err) {
+			logger.Warnf("[obox queue] Device not found on server, disconnecting: %v", err)
+			m.Disconnect()
+			return
+		}
+		logger.Infof("[obox queue] fetchNextActions: %v", err)
+		last := m.lastContactTime.Load()
+		if last == 0 || time.Since(time.UnixMilli(last)) > 10*time.Second {
 			m.setLiveStatus("disconnected")
-			continue
+		} else {
+			m.setLiveStatus("connecting")
 		}
+		return
+	}
 
-		actions, err := m.fetchNextActions(dbURL, token)
-		if err != nil {
-			if isDeviceNotFound(err) {
-				logger.Warnf("[obox queue] Device not found on server, disconnecting: %v", err)
-				m.Disconnect()
-				continue
-			}
-			logger.Infof("[obox queue] fetchNextActions: %v", err)
-			last := m.lastContactTime.Load()
-			if last == 0 || time.Since(time.UnixMilli(last)) > 10*time.Second {
-				m.setLiveStatus("disconnected")
-			} else {
-				m.setLiveStatus("connecting")
-			}
-			continue
-		}
+	m.setLiveStatus("connected")
+	m.lastContactTime.Store(time.Now().UnixMilli())
 
-		m.setLiveStatus("connected")
-		m.lastContactTime.Store(time.Now().UnixMilli())
-
-		for _, action := range actions {
-			go m.ExecuteAction(action)
-		}
+	for _, action := range actions {
+		go m.ExecuteAction(action)
 	}
 }
 
