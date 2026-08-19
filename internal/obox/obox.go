@@ -1,6 +1,7 @@
 package obox
 
 import (
+	"context"
 	"sync"
 	"sync/atomic"
 
@@ -27,14 +28,20 @@ type Module struct {
 
 	listenersMu sync.RWMutex
 	listeners   []StatusListener
+
+	ctx    context.Context
+	cancel context.CancelFunc
 }
 
 func Manager(cfg *config.Manager, mgr *printer.Manager, localAddrFn func() string) *Module {
+	ctx, cancel := context.WithCancel(context.Background())
 	m := &Module{
 		cfg:         cfg,
 		mgr:         mgr,
 		localAddrFn: localAddrFn,
 		appID:       cfg.GetAppID(),
+		ctx:         ctx,
+		cancel:      cancel,
 	}
 
 	if cfg.HasOdooCredentials() {
@@ -48,6 +55,12 @@ func Manager(cfg *config.Manager, mgr *printer.Manager, localAddrFn func() strin
 	m.setLiveStatus("disconnected")
 	go m.oboxQueueHandler()
 	return m
+}
+
+func (m *Module) Stop() {
+	if m.cancel != nil {
+		m.cancel()
+	}
 }
 
 func (m *Module) SetCredentials(dbURL, token, dbUUID string) {

@@ -105,13 +105,12 @@ func TestIsPortAvailable(t *testing.T) {
 }
 
 func TestFindAvailablePort(t *testing.T) {
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	testutil.ExpectedNoError(t, err)
-	defer ln.Close()
+	start := 59900
+	end := 59910
 
-	port, err := findAvailablePort(PortRangeStart, PortRangeEnd)
+	port, err := findAvailablePort(start, end)
 	testutil.ExpectedNoError(t, err)
-	testutil.ExpectedTrue(t, port >= PortRangeStart && port <= PortRangeEnd, "Expected port in range")
+	testutil.ExpectedTrue(t, port >= start && port <= end, "Expected port in range")
 }
 
 func TestManager_ResolvePort(t *testing.T) {
@@ -219,8 +218,8 @@ func TestManager_ConcurrentAccess(t *testing.T) {
 }
 
 func TestFindAvailablePort_RangeExhausted(t *testing.T) {
-	start := 4545
-	end := 4547
+	start := testutil.GetFreePort(t)
+	end := start + 2
 
 	var listeners []net.Listener
 	for p := start; p <= end; p++ {

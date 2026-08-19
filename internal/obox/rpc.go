@@ -32,7 +32,7 @@ func isDeviceNotFound(err error) bool {
 	if !errors.As(err, &rpcErr) {
 		return false
 	}
-	return rpcErr.Code == http.StatusNotFound
+	return rpcErr.Code == http.StatusNotFound || rpcErr.Data.Name == "werkzeug.exceptions.NotFound"
 }
 
 func (m *Module) reportActionResult(uuid string, result interface{}) {
@@ -58,8 +58,14 @@ func (m *Module) reportActionResult(uuid string, result interface{}) {
 		},
 	})
 
+	req, err := http.NewRequestWithContext(m.ctx, "POST", dbURL+"/obox/action_result", bytes.NewReader(body))
+	if err != nil {
+		return
+	}
+	req.Header.Set("Content-Type", "application/json")
+
 	client := &http.Client{Timeout: 5 * time.Second}
-	resp, err := client.Post(dbURL+"/obox/action_result", "application/json", bytes.NewReader(body))
+	resp, err := client.Do(req)
 	if err != nil {
 		logger.Errorf("[obox queue] action_result error for uuid %s: %v", uuid, err)
 		return
@@ -90,8 +96,14 @@ func (m *Module) callOdooPing() {
 		},
 	})
 
+	req, err := http.NewRequestWithContext(m.ctx, "POST", dbURL+"/obox/ping", bytes.NewReader(body))
+	if err != nil {
+		return
+	}
+	req.Header.Set("Content-Type", "application/json")
+
 	client := &http.Client{Timeout: 5 * time.Second}
-	resp, err := client.Post(dbURL+"/obox/ping", "application/json", bytes.NewReader(body))
+	resp, err := client.Do(req)
 	if err != nil {
 		logger.Errorf("[obox queue] /obox/ping error: %v", err)
 		return
@@ -112,7 +124,11 @@ func (m *Module) callOdooOboxConnect(dbURL, token, dbUUID string) {
 	}
 
 	for attempt := 1; attempt <= 10; attempt++ {
-		time.Sleep(time.Duration(attempt*300) * time.Millisecond)
+		select {
+		case <-m.ctx.Done():
+			return
+		case <-time.After(time.Duration(attempt*300) * time.Millisecond):
+		}
 
 		payload := rpcPayload{
 			JSONRPC: "2.0",
@@ -132,7 +148,13 @@ func (m *Module) callOdooOboxConnect(dbURL, token, dbUUID string) {
 			return
 		}
 
-		resp, err := client.Post(endpoint, "application/json", bytes.NewReader(body))
+		req, err := http.NewRequestWithContext(m.ctx, "POST", endpoint, bytes.NewReader(body))
+		if err != nil {
+			return
+		}
+		req.Header.Set("Content-Type", "application/json")
+
+		resp, err := client.Do(req)
 		if err != nil {
 			logger.Warnf("[obox] /obox/connect attempt %d connection error: %v", attempt, err)
 			continue

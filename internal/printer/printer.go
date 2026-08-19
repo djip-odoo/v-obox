@@ -195,7 +195,7 @@ func (p *Printer) ensureOpenUSBLocked() error {
 		findAny = p.id == nil
 	)
 
-	devices, err := ctx.OpenDevices(func(desc *gousb.DeviceDesc) bool {
+	devices, err := openDevices(ctx, func(desc *gousb.DeviceDesc) bool {
 		if findAny && len(eps) > 0 {
 			return false
 		}

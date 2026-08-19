@@ -19,8 +19,16 @@ type QueueAction struct {
 
 func (m *Module) oboxQueueHandler() {
 	logger.Infof("[obox queue] Background polling worker started")
+	ticker := time.NewTicker(5 * time.Second)
+	defer ticker.Stop()
+
 	for {
-		time.Sleep(5 * time.Second)
+		select {
+		case <-m.ctx.Done():
+			logger.Infof("[obox queue] Background polling worker stopped")
+			return
+		case <-ticker.C:
+		}
 
 		dbURL, token := m.GetCredentials()
 		if dbURL == "" || token == "" {
@@ -71,8 +79,14 @@ func (m *Module) fetchNextActions(dbURL, token string) ([]QueueAction, error) {
 		},
 	})
 
+	req, err := http.NewRequestWithContext(m.ctx, "POST", dbURL+"/obox/get_next_actions", bytes.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+
 	client := &http.Client{Timeout: 5 * time.Second}
-	resp, err := client.Post(dbURL+"/obox/get_next_actions", "application/json", bytes.NewReader(body))
+	resp, err := client.Do(req)
 	if err != nil {
 		return nil, err
 	}
@@ -128,9 +142,9 @@ func (m *Module) ExecuteAction(action QueueAction) {
 
 	case actionPath == "/odoo/disconnect":
 		logger.Infof("[obox queue] Action disconnect: returning success")
-		m.Disconnect()
 		result = map[string]string{"status": "disconnected"}
 		m.reportActionResult(action.UUID, result)
+		m.Disconnect()
 		return
 
 	case actionPath == "/odoo/discover_devices":
