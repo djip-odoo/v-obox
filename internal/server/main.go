@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"strings"
 	"sync"
 	"sync/atomic"
 
@@ -72,16 +73,24 @@ func New(cfg *config.Manager) (*Server, error) {
 }
 
 func (s *Server) Stop() error {
+	if !s.running.Swap(false) {
+		return nil
+	}
 	logger.Infof("Stopping HTTP server")
-	s.running.Store(false)
 	if s.obox != nil {
 		s.obox.Stop()
 	}
 	var closeErr error
 	if s.ln != nil {
 		closeErr = s.ln.Close()
+		if closeErr != nil && (errors.Is(closeErr, net.ErrClosed) || strings.Contains(closeErr.Error(), "use of closed network connection")) {
+			closeErr = nil
+		}
 	}
 	err := s.app.Shutdown()
+	if err != nil && (errors.Is(err, net.ErrClosed) || strings.Contains(err.Error(), "use of closed network connection")) {
+		err = nil
+	}
 	if err != nil {
 		return err
 	}

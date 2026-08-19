@@ -170,7 +170,7 @@ func StartMockTCPServer(t testing.TB, onConnect ...func(conn net.Conn)) (net.Lis
 	port := 9100
 
 	addr := fmt.Sprintf("127.0.0.1:%d", port)
-	for range 10 {
+	for range 30 {
 		ln, err = net.Listen("tcp", addr)
 		if err == nil {
 			break
@@ -179,7 +179,7 @@ func StartMockTCPServer(t testing.TB, onConnect ...func(conn net.Conn)) (net.Lis
 			break
 		}
 		// If fixed port is in TIME_WAIT from a previous test, pause briefly to let the OS release it
-		time.Sleep(30 * time.Millisecond)
+		time.Sleep(50 * time.Millisecond)
 	}
 
 	if err != nil {

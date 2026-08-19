@@ -8,11 +8,23 @@ import (
 	"testing"
 
 	"epos-proxy/internal/config"
+	"epos-proxy/internal/testutil"
 
 	"github.com/gofiber/fiber/v3"
 )
 
 func TestServerRoutes(t *testing.T) {
+	routeBindersMu.Lock()
+	savedBinders := make([]RouteBinder, len(routeBinders))
+	copy(savedBinders, routeBinders)
+	routeBindersMu.Unlock()
+
+	defer func() {
+		routeBindersMu.Lock()
+		routeBinders = savedBinders
+		routeBindersMu.Unlock()
+	}()
+
 	customRouteHit := false
 	RegisterRoute(func(s *Server, cfg *config.Manager) {
 		s.app.Get("/test-custom-route", func(ctx fiber.Ctx) error {
@@ -21,7 +33,12 @@ func TestServerRoutes(t *testing.T) {
 		})
 	})
 
-	cfg := &config.Manager{Data: config.AppConfig{Port: 4545}}
+	t.Setenv("HOME", t.TempDir())
+	cfg, err := config.NewManager()
+	if err != nil {
+		t.Fatalf("Failed to create config manager: %v", err)
+	}
+	cfg.Data.Port = testutil.GetFreePort(t)
 	s, err := New(cfg)
 	if err != nil {
 		t.Fatalf("Failed to create server: %v", err)
@@ -68,7 +85,13 @@ func TestServerRoutes(t *testing.T) {
 }
 
 func TestCustomSerialNumberSupport(t *testing.T) {
-	cfg := &config.Manager{Data: config.AppConfig{Port: 4546, AppID: "CUSTOM_SERIAL_123"}}
+	t.Setenv("HOME", t.TempDir())
+	cfg, err := config.NewManager()
+	if err != nil {
+		t.Fatalf("Failed to create config manager: %v", err)
+	}
+	cfg.Data.Port = testutil.GetFreePort(t)
+	cfg.Data.AppID = "CUSTOM_SERIAL_123"
 	s, err := New(cfg)
 	if err != nil {
 		t.Fatalf("Failed to create server: %v", err)

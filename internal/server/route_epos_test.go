@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"epos-proxy/internal/config"
 	"epos-proxy/internal/printer"
@@ -40,10 +41,17 @@ func TestNew_PortResolutionError(t *testing.T) {
 
 	var listeners []net.Listener
 	for p := config.PortRangeStart; p <= config.PortRangeEnd; p++ {
-		ln, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", p))
-		if err == nil {
-			listeners = append(listeners, ln)
+		var ln net.Listener
+		var err error
+		for range 30 {
+			ln, err = net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", p))
+			if err == nil {
+				break
+			}
+			time.Sleep(30 * time.Millisecond)
 		}
+		testutil.ExpectedNoError(t, err)
+		listeners = append(listeners, ln)
 	}
 	defer func() {
 		for _, ln := range listeners {

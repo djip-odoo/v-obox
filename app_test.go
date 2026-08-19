@@ -51,6 +51,11 @@ func TestApp_Startup_Success(t *testing.T) {
 	tempDir := t.TempDir()
 	t.Setenv("HOME", tempDir)
 
+	cfg, err := config.NewManager()
+	testutil.ExpectedNoError(t, err)
+	cfg.Data.Port = testutil.GetFreePort(t)
+	testutil.ExpectedNoError(t, cfg.Save())
+
 	dialogs := &fakeDialogs{}
 	app := NewApp()
 	app.dialogs = dialogs
@@ -81,12 +86,12 @@ func TestApp_Startup_PortExhaustion_Failure(t *testing.T) {
 	for p := config.PortRangeStart; p <= config.PortRangeEnd; p++ {
 		var ln net.Listener
 		var err error
-		for range 10 {
+		for range 30 {
 			ln, err = net.Listen("tcp", fmt.Sprintf("0.0.0.0:%d", p))
 			if err == nil {
 				break
 			}
-			time.Sleep(30 * time.Millisecond)
+			time.Sleep(50 * time.Millisecond)
 		}
 		testutil.ExpectedNoError(t, err)
 		listeners = append(listeners, ln)
@@ -111,7 +116,7 @@ func TestApp_Startup_PortExhaustion_Failure(t *testing.T) {
 	testutil.ExpectedLen(t, dialogs.messages, 1)
 	testutil.ExpectedEqual(t, dialogs.messages[0].Type, wailsruntime.ErrorDialog)
 	testutil.ExpectedEqual(t, dialogs.messages[0].Title, "Startup Error")
-	testutil.ExpectedContains(t, dialogs.messages[0].Message, "no available port")
+	testutil.ExpectedContains(t, dialogs.messages[0].Message, "4545-4555")
 }
 
 func TestApp_CheckOdooStatus_And_Disconnect(t *testing.T) {

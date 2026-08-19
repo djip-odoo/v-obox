@@ -17,28 +17,30 @@ import (
 	"epos-proxy/internal/testutil"
 )
 
-func createTestOboxServer(port int) *Server {
-	cfg := &config.Manager{Data: config.AppConfig{Port: port}}
-	s, err := New(cfg)
-	if err != nil {
-		panic(err)
-	}
-	return s
-}
-
-func createTestOboxServerWithConfig(t *testing.T, port int) (*Server, *config.Manager) {
+func createTestOboxServer(t *testing.T) *Server {
 	t.Helper()
 	t.Setenv("HOME", t.TempDir())
 	cfg, err := config.NewManager()
 	testutil.ExpectedNoError(t, err)
-	cfg.Data.Port = port
+	cfg.Data.Port = testutil.GetFreePort(t)
+	s, err := New(cfg)
+	testutil.ExpectedNoError(t, err)
+	return s
+}
+
+func createTestOboxServerWithConfig(t *testing.T) (*Server, *config.Manager) {
+	t.Helper()
+	t.Setenv("HOME", t.TempDir())
+	cfg, err := config.NewManager()
+	testutil.ExpectedNoError(t, err)
+	cfg.Data.Port = testutil.GetFreePort(t)
 	s, err := New(cfg)
 	testutil.ExpectedNoError(t, err)
 	return s, cfg
 }
 
 func TestOboxDiscovery_Endpoint(t *testing.T) {
-	s := createTestOboxServer(4601)
+	s := createTestOboxServer(t)
 	defer s.Stop()
 
 	// GET /odoo/ LAN discovery check
@@ -59,7 +61,7 @@ func TestOboxDiscovery_Endpoint(t *testing.T) {
 }
 
 func TestOboxConnectDB_Endpoint(t *testing.T) {
-	s := createTestOboxServer(4602)
+	s := createTestOboxServer(t)
 	defer s.Stop()
 
 	// GET /odoo/connect
@@ -87,7 +89,7 @@ func TestOboxConnectDB_Endpoint(t *testing.T) {
 }
 
 func TestOboxOfflineConnect_Endpoint(t *testing.T) {
-	s := createTestOboxServer(4603)
+	s := createTestOboxServer(t)
 	defer s.Stop()
 
 	req := httptest.NewRequest("GET", "/odoo/connect?db_url=http://127.0.0.1:8069&db_uuid=test-uuid&token=test-tok", nil)
@@ -99,7 +101,7 @@ func TestOboxOfflineConnect_Endpoint(t *testing.T) {
 }
 
 func TestOboxLANStatus_Endpoint(t *testing.T) {
-	s := createTestOboxServer(4604)
+	s := createTestOboxServer(t)
 	defer s.Stop()
 
 	req := httptest.NewRequest("GET", "/odoo/", nil)
@@ -111,7 +113,7 @@ func TestOboxLANStatus_Endpoint(t *testing.T) {
 }
 
 func TestOboxRemoteDebug_Endpoints(t *testing.T) {
-	s := createTestOboxServer(4609)
+	s := createTestOboxServer(t)
 	defer s.Stop()
 
 	// Enable
@@ -138,7 +140,7 @@ func TestOboxPrinter_Endpoints(t *testing.T) {
 	})
 	testutil.ExpectedNoError(t, err)
 
-	s := createTestOboxServer(4612)
+	s := createTestOboxServer(t)
 	defer s.Stop()
 
 	printerID := printer.EncodeLANPrinterID("127.0.0.1")
@@ -180,7 +182,7 @@ func TestOboxPrinter_Endpoints(t *testing.T) {
 }
 
 func TestOboxDisplay_Endpoint(t *testing.T) {
-	s := createTestOboxServer(4613)
+	s := createTestOboxServer(t)
 	defer s.Stop()
 
 	body := map[string]string{"url": "https://odoo.com"}
@@ -194,7 +196,7 @@ func TestOboxDisplay_Endpoint(t *testing.T) {
 }
 
 func TestOboxWiFi_And_LED_Endpoints(t *testing.T) {
-	s := createTestOboxServer(4614)
+	s := createTestOboxServer(t)
 	defer s.Stop()
 
 	// WiFi status
@@ -241,7 +243,7 @@ func TestExecuteAction_AllCases(t *testing.T) {
 	}))
 	defer mockOdoo.Close()
 
-	s := createTestOboxServer(4615)
+	s := createTestOboxServer(t)
 	defer s.Stop()
 
 	// Find the registered obox module
@@ -291,7 +293,7 @@ func TestExecuteAction_AllCases(t *testing.T) {
 }
 
 func TestOboxStoragePersistence(t *testing.T) {
-	s, cfg := createTestOboxServerWithConfig(t, 4616)
+	s, cfg := createTestOboxServerWithConfig(t)
 	defer s.Stop()
 
 	testAppID := s.AppID()
@@ -328,7 +330,7 @@ func TestOboxRestoreCredentialsFromConfig(t *testing.T) {
 	testAppID := cfg.GetAppID()
 	_ = cfg.SetOdooCredentials("http://192.168.1.100:8069", "restored-token", "uuid-1")
 
-	cfg.Data.Port = 4617
+	cfg.Data.Port = testutil.GetFreePort(t)
 	s, err := New(cfg)
 	testutil.ExpectedNoError(t, err)
 	defer s.Stop()
@@ -356,7 +358,7 @@ func TestGetOdooStatus(t *testing.T) {
 	cfg, err := config.NewManager()
 	testutil.ExpectedNoError(t, err)
 
-	cfg.Data.Port = 4618
+	cfg.Data.Port = testutil.GetFreePort(t)
 	s, err := New(cfg)
 	testutil.ExpectedNoError(t, err)
 	defer s.Stop()
