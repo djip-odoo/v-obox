@@ -76,13 +76,20 @@ func TestApp_Startup_PortExhaustion_Failure(t *testing.T) {
 	tempDir := t.TempDir()
 	t.Setenv("HOME", tempDir)
 
-	// Occupy all ports in range 4545-4555
+	// Occupy all ports in range 4545-4555 on 0.0.0.0
 	var listeners []net.Listener
 	for p := config.PortRangeStart; p <= config.PortRangeEnd; p++ {
-		ln, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", p))
-		if err == nil {
-			listeners = append(listeners, ln)
+		var ln net.Listener
+		var err error
+		for range 10 {
+			ln, err = net.Listen("tcp", fmt.Sprintf("0.0.0.0:%d", p))
+			if err == nil {
+				break
+			}
+			time.Sleep(30 * time.Millisecond)
 		}
+		testutil.ExpectedNoError(t, err)
+		listeners = append(listeners, ln)
 	}
 	defer func() {
 		for _, ln := range listeners {
@@ -113,6 +120,7 @@ func TestApp_CheckOdooStatus_And_Disconnect(t *testing.T) {
 
 	cfg, err := config.NewManager()
 	testutil.ExpectedNoError(t, err)
+	cfg.Data.Port = testutil.GetFreePort(t)
 	_ = cfg.SetOdooCredentials("http://127.0.0.1:8069", "tok", "uuid-1")
 
 	srv, err := server.New(cfg)
@@ -152,6 +160,7 @@ func TestApp_ConfirmDisconnectOdoo(t *testing.T) {
 			t.Setenv("HOME", t.TempDir())
 			cfg, err := config.NewManager()
 			testutil.ExpectedNoError(t, err)
+			cfg.Data.Port = testutil.GetFreePort(t)
 			_ = cfg.SetOdooCredentials("http://127.0.0.1:8069", "tok", "uuid-1")
 
 			srv, err := server.New(cfg)

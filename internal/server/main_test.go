@@ -8,11 +8,22 @@ import (
 	"testing"
 
 	"epos-proxy/internal/config"
+	"epos-proxy/internal/testutil"
 
 	"github.com/gofiber/fiber/v3"
 )
 
 func TestServerRoutes(t *testing.T) {
+	routeBindersMu.Lock()
+	savedBinders := make([]RouteBinder, len(routeBinders))
+	copy(savedBinders, routeBinders)
+	routeBindersMu.Unlock()
+	defer func() {
+		routeBindersMu.Lock()
+		routeBinders = savedBinders
+		routeBindersMu.Unlock()
+	}()
+
 	customRouteHit := false
 	RegisterRoute(func(s *Server, cfg *config.Manager) {
 		s.app.Get("/test-custom-route", func(ctx fiber.Ctx) error {
@@ -21,7 +32,8 @@ func TestServerRoutes(t *testing.T) {
 		})
 	})
 
-	cfg := &config.Manager{Data: config.AppConfig{Port: 4545}}
+	port := testutil.GetFreePort(t)
+	cfg := &config.Manager{Data: config.AppConfig{Port: port}}
 	s, err := New(cfg)
 	if err != nil {
 		t.Fatalf("Failed to create server: %v", err)
@@ -46,13 +58,13 @@ func TestServerRoutes(t *testing.T) {
 	}
 
 	// Test Obox route registered via route_obox.go
-	req := httptest.NewRequest("GET", "/odoo/health", nil)
+	req := httptest.NewRequest("GET", "/odoo/", nil)
 	resp, err := s.App().Test(req)
 	if err != nil {
-		t.Fatalf("Failed to test /odoo/health: %v", err)
+		t.Fatalf("Failed to test /odoo/: %v", err)
 	}
 	if resp.StatusCode != http.StatusOK {
-		t.Errorf("Expected status 200 for /odoo/health, got %d", resp.StatusCode)
+		t.Errorf("Expected status 200 for /odoo/, got %d", resp.StatusCode)
 	}
 
 	// Test ePOS route registered via route_epos.go
@@ -68,7 +80,8 @@ func TestServerRoutes(t *testing.T) {
 }
 
 func TestCustomSerialNumberSupport(t *testing.T) {
-	cfg := &config.Manager{Data: config.AppConfig{Port: 4546, AppID: "CUSTOM_SERIAL_123"}}
+	port := testutil.GetFreePort(t)
+	cfg := &config.Manager{Data: config.AppConfig{Port: port, AppID: "CUSTOM_SERIAL_123"}}
 	s, err := New(cfg)
 	if err != nil {
 		t.Fatalf("Failed to create server: %v", err)
@@ -111,14 +124,14 @@ func TestCustomSerialNumberSupport(t *testing.T) {
 		t.Errorf("Expected /odoo/ response to contain %q, got: %s", serverSerial, string(bodyBytes))
 	}
 
-	// 4. Test /odoo/discover_devices endpoint
-	reqDiscover := httptest.NewRequest("GET", "/odoo/discover_devices", nil)
+	// 4. Test /usb/v1/printer/list endpoint
+	reqDiscover := httptest.NewRequest("GET", "/usb/v1/printer/list", nil)
 	respDiscover, err := s.App().Test(reqDiscover)
 	if err != nil {
-		t.Fatalf("GET /odoo/discover_devices failed: %v", err)
+		t.Fatalf("GET /usb/v1/printer/list failed: %v", err)
 	}
 	if respDiscover.StatusCode != http.StatusOK {
-		t.Fatalf("Expected 200 from /odoo/discover_devices, got %d", respDiscover.StatusCode)
+		t.Fatalf("Expected 200 from /usb/v1/printer/list, got %d", respDiscover.StatusCode)
 	}
 	respDiscover.Body.Close()
 }

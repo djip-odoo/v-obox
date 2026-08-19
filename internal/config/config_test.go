@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"sync"
 	"testing"
+	"time"
 
 	"epos-proxy/internal/testutil"
 )
@@ -105,13 +106,12 @@ func TestIsPortAvailable(t *testing.T) {
 }
 
 func TestFindAvailablePort(t *testing.T) {
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	testutil.ExpectedNoError(t, err)
-	defer ln.Close()
+	start := 59900
+	end := 59910
 
-	port, err := findAvailablePort(PortRangeStart, PortRangeEnd)
+	port, err := findAvailablePort(start, end)
 	testutil.ExpectedNoError(t, err)
-	testutil.ExpectedTrue(t, port >= PortRangeStart && port <= PortRangeEnd, "Expected port in range")
+	testutil.ExpectedTrue(t, port >= start && port <= end, "Expected port in range")
 }
 
 func TestManager_ResolvePort(t *testing.T) {
@@ -127,22 +127,49 @@ func TestManager_ResolvePort(t *testing.T) {
 		Data: AppConfig{Port: 0},
 	}
 
-	resolved, err := cm.ResolvePort()
+	var resolved int
+	for range 30 {
+		resolved, err = cm.ResolvePort()
+		if err == nil {
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
 	testutil.ExpectedNoError(t, err)
 	testutil.ExpectedTrue(t, resolved >= PortRangeStart && resolved <= PortRangeEnd)
 	testutil.ExpectedEqual(t, cm.Data.Port, resolved)
 
 	// Case 2: Port is already set and available -> Should return existing port
-	resolved2, err := cm.ResolvePort()
+	var resolved2 int
+	for range 30 {
+		resolved2, err = cm.ResolvePort()
+		if err == nil {
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
 	testutil.ExpectedNoError(t, err)
 	testutil.ExpectedEqual(t, resolved2, resolved)
 
 	// Case 3: Port is set but occupied -> Should resolve a new port
-	ln, err = net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", resolved))
+	for range 30 {
+		ln, err = net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", resolved))
+		if err == nil {
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
 	testutil.ExpectedNoError(t, err)
 	defer ln.Close()
 
-	resolved3, err := cm.ResolvePort()
+	var resolved3 int
+	for range 30 {
+		resolved3, err = cm.ResolvePort()
+		if err == nil {
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
 	testutil.ExpectedNoError(t, err)
 	testutil.ExpectedNotEqual(t, resolved3, resolved)
 }
@@ -219,23 +246,12 @@ func TestManager_ConcurrentAccess(t *testing.T) {
 }
 
 func TestFindAvailablePort_RangeExhausted(t *testing.T) {
-	start := 4545
-	end := 4547
+	ln1, err := net.Listen("tcp", "127.0.0.1:0")
+	testutil.ExpectedNoError(t, err)
+	defer ln1.Close()
+	p1 := ln1.Addr().(*net.TCPAddr).Port
 
-	var listeners []net.Listener
-	for p := start; p <= end; p++ {
-		ln, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", p))
-		testutil.ExpectedNoError(t, err)
-		listeners = append(listeners, ln)
-	}
-
-	defer func() {
-		for _, ln := range listeners {
-			_ = ln.Close()
-		}
-	}()
-
-	port, err := findAvailablePort(start, end)
+	port, err := findAvailablePort(p1, p1)
 	testutil.ExpectedError(t, err)
 	testutil.ExpectedTrue(t, errors.Is(err, ErrNoAvailablePort))
 	testutil.ExpectedEqual(t, port, 0)

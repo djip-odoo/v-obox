@@ -32,7 +32,31 @@ func isDeviceNotFound(err error) bool {
 	if !errors.As(err, &rpcErr) {
 		return false
 	}
-	return rpcErr.Code == http.StatusNotFound
+	return rpcErr.Code == http.StatusNotFound || rpcErr.Data.Name == "werkzeug.exceptions.NotFound"
+}
+
+type rpcPayload struct {
+	JSONRPC string      `json:"jsonrpc"`
+	Method  string      `json:"method"`
+	ID      int         `json:"id"`
+	Params  interface{} `json:"params"`
+}
+
+func (m *Module) postJSONRPC(endpoint string, params interface{}) (*http.Response, error) {
+	payload := rpcPayload{JSONRPC: "2.0", Method: "call", ID: 1, Params: params}
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return nil, fmt.Errorf("json-rpc payload marshal error: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(m.ctx, http.MethodPost, endpoint, bytes.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	client := &http.Client{Timeout: 5 * time.Second}
+	return client.Do(req)
 }
 
 func (m *Module) reportActionResult(uuid string, result interface{}) {
@@ -40,26 +64,15 @@ func (m *Module) reportActionResult(uuid string, result interface{}) {
 	if dbURL == "" || token == "" {
 		return
 	}
-	type rpcPayload struct {
-		JSONRPC string      `json:"jsonrpc"`
-		Method  string      `json:"method"`
-		ID      int         `json:"id"`
-		Params  interface{} `json:"params"`
-	}
-	body, _ := json.Marshal(rpcPayload{
-		JSONRPC: "2.0",
-		Method:  "call",
-		ID:      1,
-		Params: map[string]interface{}{
-			"serial_number": m.appID,
-			"token":         token,
-			"action_uuid":   uuid,
-			"result":        result,
-		},
-	})
 
-	client := &http.Client{Timeout: 5 * time.Second}
-	resp, err := client.Post(dbURL+"/obox/action_result", "application/json", bytes.NewReader(body))
+	params := map[string]interface{}{
+		"serial_number": m.appID,
+		"token":         token,
+		"action_uuid":   uuid,
+		"result":        result,
+	}
+
+	resp, err := m.postJSONRPC(dbURL+"/obox/action_result", params)
 	if err != nil {
 		logger.Errorf("[obox queue] action_result error for uuid %s: %v", uuid, err)
 		return
@@ -73,25 +86,8 @@ func (m *Module) callOdooPing() {
 	if dbURL == "" || token == "" {
 		return
 	}
-	type rpcPayload struct {
-		JSONRPC string      `json:"jsonrpc"`
-		Method  string      `json:"method"`
-		ID      int         `json:"id"`
-		Params  interface{} `json:"params"`
-	}
 
-	body, _ := json.Marshal(rpcPayload{
-		JSONRPC: "2.0",
-		Method:  "call",
-		ID:      1,
-		Params: map[string]string{
-			"serial_number": m.appID,
-			"token":         token,
-		},
-	})
-
-	client := &http.Client{Timeout: 5 * time.Second}
-	resp, err := client.Post(dbURL+"/obox/ping", "application/json", bytes.NewReader(body))
+	resp, err := m.postJSONRPC(dbURL+"/obox/ping", map[string]string{"serial_number": m.appID, "token": token})
 	if err != nil {
 		logger.Errorf("[obox queue] /obox/ping error: %v", err)
 		return
@@ -102,37 +98,22 @@ func (m *Module) callOdooPing() {
 
 func (m *Module) callOdooOboxConnect(dbURL, token, dbUUID string) {
 	endpoint := dbURL + "/obox/connect"
-	client := &http.Client{Timeout: 5 * time.Second}
-
-	type rpcPayload struct {
-		JSONRPC string      `json:"jsonrpc"`
-		Method  string      `json:"method"`
-		ID      int         `json:"id"`
-		Params  interface{} `json:"params"`
-	}
 
 	for attempt := 1; attempt <= 10; attempt++ {
-		time.Sleep(time.Duration(attempt*300) * time.Millisecond)
-
-		payload := rpcPayload{
-			JSONRPC: "2.0",
-			Method:  "call",
-			ID:      1,
-			Params: map[string]interface{}{
-				"serial_number": m.appID,
-				"token":         token,
-				"local_ip":      m.localAddrFn(),
-				"services":      []string{"usb", "printer"},
-			},
-		}
-
-		body, err := json.Marshal(payload)
-		if err != nil {
-			logger.Errorf("[obox] callOdooOboxConnect marshal error: %v", err)
+		select {
+		case <-m.ctx.Done():
 			return
+		case <-time.After(time.Duration(attempt*300) * time.Millisecond):
 		}
 
-		resp, err := client.Post(endpoint, "application/json", bytes.NewReader(body))
+		params := map[string]interface{}{
+			"serial_number": m.appID,
+			"token":         token,
+			"local_ip":      m.localAddrFn(),
+			"services":      []string{"usb", "printer"},
+		}
+
+		resp, err := m.postJSONRPC(endpoint, params)
 		if err != nil {
 			logger.Warnf("[obox] /obox/connect attempt %d connection error: %v", attempt, err)
 			continue

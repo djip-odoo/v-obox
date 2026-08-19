@@ -74,6 +74,9 @@ func New(cfg *config.Manager) (*Server, error) {
 func (s *Server) Stop() error {
 	logger.Infof("Stopping HTTP server")
 	s.running.Store(false)
+	if s.obox != nil {
+		s.obox.Stop()
+	}
 	var closeErr error
 	if s.ln != nil {
 		closeErr = s.ln.Close()

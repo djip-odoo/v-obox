@@ -1,7 +1,6 @@
 package obox
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -19,12 +18,23 @@ type QueueAction struct {
 
 func (m *Module) oboxQueueHandler() {
 	logger.Infof("[obox queue] Background polling worker started")
+	defer logger.Infof("[obox queue] Background polling worker stopped")
+
+	timer := time.NewTimer(0)
+	defer timer.Stop()
+
 	for {
-		time.Sleep(5 * time.Second)
+		select {
+		case <-m.ctx.Done():
+			return
+		case <-timer.C:
+		}
 
 		dbURL, token := m.GetCredentials()
 		if dbURL == "" || token == "" {
 			m.setLiveStatus("disconnected")
+			logger.Infof("test hello --------------------------------------")
+			timer.Reset(5 * time.Second)
 			continue
 		}
 
@@ -33,15 +43,20 @@ func (m *Module) oboxQueueHandler() {
 			if isDeviceNotFound(err) {
 				logger.Warnf("[obox queue] Device not found on server, disconnecting: %v", err)
 				m.Disconnect()
+				timer.Reset(5 * time.Second)
 				continue
 			}
+
 			logger.Infof("[obox queue] fetchNextActions: %v", err)
+
 			last := m.lastContactTime.Load()
 			if last == 0 || time.Since(time.UnixMilli(last)) > 10*time.Second {
 				m.setLiveStatus("disconnected")
 			} else {
 				m.setLiveStatus("connecting")
 			}
+
+			timer.Reset(5 * time.Second)
 			continue
 		}
 
@@ -49,30 +64,15 @@ func (m *Module) oboxQueueHandler() {
 		m.lastContactTime.Store(time.Now().UnixMilli())
 
 		for _, action := range actions {
-			go m.ExecuteAction(action)
+			m.ExecuteAction(action)
 		}
+
+		timer.Reset(5 * time.Second)
 	}
 }
 
 func (m *Module) fetchNextActions(dbURL, token string) ([]QueueAction, error) {
-	type rpcPayload struct {
-		JSONRPC string      `json:"jsonrpc"`
-		Method  string      `json:"method"`
-		ID      int         `json:"id"`
-		Params  interface{} `json:"params"`
-	}
-	body, _ := json.Marshal(rpcPayload{
-		JSONRPC: "2.0",
-		Method:  "call",
-		ID:      1,
-		Params: map[string]string{
-			"serial_number": m.appID,
-			"token":         token,
-		},
-	})
-
-	client := &http.Client{Timeout: 5 * time.Second}
-	resp, err := client.Post(dbURL+"/obox/get_next_actions", "application/json", bytes.NewReader(body))
+	resp, err := m.postJSONRPC(dbURL+"/obox/get_next_actions", map[string]string{"serial_number": m.appID, "token": token})
 	if err != nil {
 		return nil, err
 	}
@@ -128,9 +128,9 @@ func (m *Module) ExecuteAction(action QueueAction) {
 
 	case actionPath == "/odoo/disconnect":
 		logger.Infof("[obox queue] Action disconnect: returning success")
-		m.Disconnect()
 		result = map[string]string{"status": "disconnected"}
 		m.reportActionResult(action.UUID, result)
+		m.Disconnect()
 		return
 
 	case actionPath == "/odoo/discover_devices":

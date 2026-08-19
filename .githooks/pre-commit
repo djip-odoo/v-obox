@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+
+# Git pre-commit hook: format staged Go files with gofmt before committing.
+
+set -e
+
+echo "⚙️ Formatting staged Go files..."
+
+staged_go_files=$(git diff --cached --name-only --diff-filter=ACM | grep '\.go$' || true)
+
+if [ -n "$staged_go_files" ]; then
+    while IFS= read -r file; do
+        if [ -f "$file" ]; then
+            gofmt -w "$file"
+            git add "$file"
+        fi
+    done <<< "$staged_go_files"
+
+    echo "✅ Go files formatted."
+else
+    echo "✅ No staged Go files to format."
+fi

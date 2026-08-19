@@ -190,18 +190,18 @@ func TestGetPrinterInfo_Direct(t *testing.T) {
 	testutil.ExpectedEqual(t, info.Path, "1.1.2")
 
 	// 2. Open error
-	openDevices = func(ctx *gousb.Context, fn func(desc *gousb.DeviceDesc) bool) ([]*gousb.Device, error) {
+	mockOpenDevices(t, func(ctx *gousb.Context, fn func(desc *gousb.DeviceDesc) bool) ([]*gousb.Device, error) {
 		return nil, errors.New("cannot open device")
-	}
+	})
 
 	infoErr, err := GetPrinterInfo(ctx, epsonDesc)
 	testutil.ExpectedError(t, err)
 	testutil.ExpectedNil(t, infoErr)
 
 	// 3. Device not found (empty slice)
-	openDevices = func(ctx *gousb.Context, fn func(desc *gousb.DeviceDesc) bool) ([]*gousb.Device, error) {
+	mockOpenDevices(t, func(ctx *gousb.Context, fn func(desc *gousb.DeviceDesc) bool) ([]*gousb.Device, error) {
 		return nil, nil
-	}
+	})
 
 	infoNotFound, err := GetPrinterInfo(ctx, epsonDesc)
 	testutil.ExpectedNoError(t, err)
