@@ -43,7 +43,7 @@ func TestOboxDiscovery_Endpoint(t *testing.T) {
 
 	// GET /odoo/ LAN discovery check
 	req := httptest.NewRequest("GET", "/odoo/", nil)
-	resp, err := s.App().Test(req)
+	resp, err := s.app.Test(req)
 	testutil.ExpectedNoError(t, err)
 	defer resp.Body.Close()
 
@@ -64,7 +64,7 @@ func TestOboxConnectDB_Endpoint(t *testing.T) {
 
 	// GET /odoo/connect
 	req := httptest.NewRequest("GET", "/odoo/connect?db_url=http://127.0.0.1:8069&token=test-token-123&db_uuid=test-uuid", nil)
-	resp, err := s.App().Test(req)
+	resp, err := s.app.Test(req)
 	testutil.ExpectedNoError(t, err)
 	defer resp.Body.Close()
 
@@ -72,7 +72,7 @@ func TestOboxConnectDB_Endpoint(t *testing.T) {
 
 	// Verify /odoo/ now returns the configured serial and db_url
 	reqStatus := httptest.NewRequest("GET", "/odoo/", nil)
-	respStatus, err := s.App().Test(reqStatus)
+	respStatus, err := s.app.Test(reqStatus)
 	testutil.ExpectedNoError(t, err)
 	defer respStatus.Body.Close()
 
@@ -104,7 +104,7 @@ func TestOboxPrinter_Endpoints(t *testing.T) {
 	xmlPayload := `<s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/"><s:Body><epos-print xmlns="http://www.epson-pos.com/schemas/2011/03/epos-print"><text>Hello</text></epos-print></s:Body></s:Envelope>`
 	req := httptest.NewRequest("POST", "/usb/v1/printer/"+printerID+"/cgi-bin/epos/service.cgi", bytes.NewBufferString(xmlPayload))
 	req.Header.Set("Content-Type", "application/xml")
-	resp, err := s.App().Test(req)
+	resp, err := s.app.Test(req)
 	testutil.ExpectedNoError(t, err)
 	defer resp.Body.Close()
 
@@ -140,7 +140,7 @@ func TestOboxUnsupportedEndpoints(t *testing.T) {
 		} else {
 			req = httptest.NewRequest(tc.method, tc.path, nil)
 		}
-		resp, err := s.App().Test(req)
+		resp, err := s.app.Test(req)
 		testutil.ExpectedNoError(t, err)
 		testutil.ExpectedEqual(t, resp.StatusCode, http.StatusBadRequest)
 		resp.Body.Close()
@@ -158,7 +158,7 @@ func TestOboxStoragePersistence(t *testing.T) {
 
 	// 2. Offline connect endpoint persists credentials to storage
 	req := httptest.NewRequest("GET", "/odoo/connect?db_url=http://127.0.0.1:8069&db_uuid=test-uuid-456&token=test-tok-789", nil)
-	resp, err := s.App().Test(req)
+	resp, err := s.app.Test(req)
 	testutil.ExpectedNoError(t, err)
 	resp.Body.Close()
 	testutil.ExpectedEqual(t, resp.StatusCode, http.StatusOK)
@@ -171,7 +171,7 @@ func TestOboxStoragePersistence(t *testing.T) {
 
 	// 3. Disconnect clears credentials from storage
 	reqDiscReq := httptest.NewRequest("GET", "/odoo/disconnect", nil)
-	respDiscReq, err := s.App().Test(reqDiscReq)
+	respDiscReq, err := s.app.Test(reqDiscReq)
 	testutil.ExpectedNoError(t, err)
 	respDiscReq.Body.Close()
 
@@ -192,7 +192,7 @@ func TestOboxRestoreCredentialsFromConfig(t *testing.T) {
 
 	// Hit /odoo/ to verify credentials were automatically restored into module
 	req := httptest.NewRequest("GET", "/odoo/", nil)
-	resp, err := s.App().Test(req)
+	resp, err := s.app.Test(req)
 	testutil.ExpectedNoError(t, err)
 	defer resp.Body.Close()
 
@@ -223,7 +223,7 @@ func TestGetOdooStatus(t *testing.T) {
 
 	// 2. Connect via /odoo/connect
 	reqConnect := httptest.NewRequest("GET", "/odoo/connect?db_url=http://127.0.0.1:8069&token=status-token-123&db_uuid=test-uuid", nil)
-	respConnect, err := s.App().Test(reqConnect)
+	respConnect, err := s.app.Test(reqConnect)
 	testutil.ExpectedNoError(t, err)
 	testutil.ExpectedEqual(t, respConnect.StatusCode, http.StatusOK)
 	respConnect.Body.Close()
@@ -233,7 +233,7 @@ func TestGetOdooStatus(t *testing.T) {
 
 	// 4. Disconnect via /odoo/disconnect
 	reqDisc := httptest.NewRequest("GET", "/odoo/disconnect", nil)
-	respDisc, err := s.App().Test(reqDisc)
+	respDisc, err := s.app.Test(reqDisc)
 	testutil.ExpectedNoError(t, err)
 	respDisc.Body.Close()
 

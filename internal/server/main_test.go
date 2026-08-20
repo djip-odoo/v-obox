@@ -73,24 +73,6 @@ func TestServer_Lifecycle(t *testing.T) {
 }
 
 func TestServerRoutes(t *testing.T) {
-	routeBindersMu.Lock()
-	savedBinders := make([]RouteBinder, len(routeBinders))
-	copy(savedBinders, routeBinders)
-	routeBindersMu.Unlock()
-	defer func() {
-		routeBindersMu.Lock()
-		routeBinders = savedBinders
-		routeBindersMu.Unlock()
-	}()
-
-	customRouteHit := false
-	RegisterRoute(func(s *Server, cfg *config.Manager) {
-		s.app.Get("/test-custom-route", func(ctx fiber.Ctx) error {
-			customRouteHit = true
-			return ctx.SendString("ok")
-		})
-	})
-
 	port := testutil.GetFreePort(t)
 	cfg := &config.Manager{Data: config.AppConfig{Port: port}}
 	s, err := New(cfg)
@@ -103,22 +85,9 @@ func TestServerRoutes(t *testing.T) {
 		t.Errorf("Expected server to be running")
 	}
 
-	// Test custom route registered via RegisterRoute
-	reqCustom := httptest.NewRequest("GET", "/test-custom-route", nil)
-	respCustom, err := s.App().Test(reqCustom)
-	if err != nil {
-		t.Fatalf("Failed to test /test-custom-route: %v", err)
-	}
-	if respCustom.StatusCode != http.StatusOK {
-		t.Errorf("Expected status 200 for /test-custom-route, got %d", respCustom.StatusCode)
-	}
-	if !customRouteHit {
-		t.Errorf("Expected customRouteHit to be true")
-	}
-
-	// Test Obox route registered via route_obox.go
+	// Test Obox route registered via registerOboxRoutes
 	req := httptest.NewRequest("GET", "/odoo/", nil)
-	resp, err := s.App().Test(req)
+	resp, err := s.app.Test(req)
 	if err != nil {
 		t.Fatalf("Failed to test /odoo/: %v", err)
 	}
@@ -126,10 +95,10 @@ func TestServerRoutes(t *testing.T) {
 		t.Errorf("Expected status 200 for /odoo/, got %d", resp.StatusCode)
 	}
 
-	// Test ePOS route registered via route_epos.go
+	// Test ePOS route registered via registerEPOSRoutes
 	reqEPOS := httptest.NewRequest("POST", "/cgi-bin/epos/service.cgi", strings.NewReader("<invalid></invalid>"))
 	reqEPOS.Header.Set("Content-Type", "text/xml")
-	respEPOS, err := s.App().Test(reqEPOS)
+	respEPOS, err := s.app.Test(reqEPOS)
 	if err != nil {
 		t.Fatalf("Failed to test ePOS endpoint: %v", err)
 	}
@@ -154,7 +123,7 @@ func TestCustomSerialNumberSupport(t *testing.T) {
 
 	// 1. Initial /odoo/ check (unconfigured)
 	reqInit := httptest.NewRequest("GET", "/odoo/", nil)
-	respInit, err := s.App().Test(reqInit)
+	respInit, err := s.app.Test(reqInit)
 	if err != nil {
 		t.Fatalf("GET /odoo/ failed: %v", err)
 	}
@@ -164,7 +133,7 @@ func TestCustomSerialNumberSupport(t *testing.T) {
 
 	// 2. Connect via /odoo/connect
 	reqConnect := httptest.NewRequest("GET", "/odoo/connect?db_url=http://127.0.0.1:8069&token=test-token&db_uuid=test-uuid", nil)
-	respConnect, err := s.App().Test(reqConnect)
+	respConnect, err := s.app.Test(reqConnect)
 	if err != nil {
 		t.Fatalf("GET /odoo/connect failed: %v", err)
 	}
@@ -174,7 +143,7 @@ func TestCustomSerialNumberSupport(t *testing.T) {
 
 	// 3. Test /odoo/ returns the custom serial
 	reqStatus := httptest.NewRequest("GET", "/odoo/", nil)
-	respStatus, err := s.App().Test(reqStatus)
+	respStatus, err := s.app.Test(reqStatus)
 	if err != nil {
 		t.Fatalf("GET /odoo/ failed: %v", err)
 	}

@@ -45,7 +45,7 @@ func TestPrintData_ValidXML_Success(t *testing.T) {
 	req := httptest.NewRequest("POST", url, bytes.NewReader([]byte(xmlPayload)))
 	req.Header.Set("Content-Type", "text/xml")
 
-	resp, err := s.App().Test(req)
+	resp, err := s.app.Test(req)
 	testutil.ExpectedNoError(t, err)
 	testutil.ExpectedEqual(t, resp.StatusCode, http.StatusOK)
 
@@ -62,7 +62,7 @@ func TestPrintData_SchemaError(t *testing.T) {
 	req := httptest.NewRequest("POST", "/p/any-printer/cgi-bin/epos/service.cgi", bytes.NewReader([]byte(invalidPayload)))
 	req.Header.Set("Content-Type", "text/xml")
 
-	resp, err := s.App().Test(req)
+	resp, err := s.app.Test(req)
 	testutil.ExpectedNoError(t, err)
 
 	body, _ := io.ReadAll(resp.Body)
@@ -84,7 +84,7 @@ func TestPrintData_UnreachablePrinter_EX_BADPORT(t *testing.T) {
 	req := httptest.NewRequest("POST", url, bytes.NewReader([]byte(xmlPayload)))
 	req.Header.Set("Content-Type", "text/xml")
 
-	resp, err := s.App().Test(req)
+	resp, err := s.app.Test(req)
 	testutil.ExpectedNoError(t, err)
 
 	body, _ := io.ReadAll(resp.Body)
@@ -112,7 +112,7 @@ func TestPrintLabel_Success(t *testing.T) {
 	url := fmt.Sprintf("/p/%s/pstprnt", printerID)
 	req := httptest.NewRequest("POST", url, bytes.NewReader(labelData))
 
-	resp, err := s.App().Test(req)
+	resp, err := s.app.Test(req)
 	testutil.ExpectedNoError(t, err)
 	testutil.ExpectedEqual(t, resp.StatusCode, http.StatusOK)
 }
@@ -122,7 +122,7 @@ func TestPrintLabel_EmptyBody_BadRequest(t *testing.T) {
 	defer s.Stop()
 
 	req := httptest.NewRequest("POST", "/p/any-printer/pstprnt", bytes.NewReader([]byte{}))
-	resp, err := s.App().Test(req)
+	resp, err := s.app.Test(req)
 	testutil.ExpectedNoError(t, err)
 	testutil.ExpectedEqual(t, resp.StatusCode, http.StatusBadRequest)
 }
@@ -137,7 +137,7 @@ func TestPrintLabel_UnreachablePrinter_ServerError(t *testing.T) {
 	url := fmt.Sprintf("/p/%s/pstprnt", printerID)
 	req := httptest.NewRequest("POST", url, bytes.NewReader(labelData))
 
-	resp, err := s.App().Test(req)
+	resp, err := s.app.Test(req)
 	testutil.ExpectedNoError(t, err)
 	testutil.ExpectedEqual(t, resp.StatusCode, http.StatusInternalServerError)
 }
@@ -150,7 +150,7 @@ func TestCORSHeaders(t *testing.T) {
 	req.Header.Set("Origin", "http://example.com")
 	req.Header.Set("Access-Control-Request-Method", "POST")
 
-	resp, err := s.App().Test(req)
+	resp, err := s.app.Test(req)
 	testutil.ExpectedNoError(t, err)
 
 	allowOrigin := resp.Header.Get("Access-Control-Allow-Origin")
@@ -188,7 +188,7 @@ func TestPrintData_AutoSelectRoute(t *testing.T) {
 			req := httptest.NewRequest("POST", "/cgi-bin/epos/service.cgi", bytes.NewReader([]byte(tc.payload)))
 			req.Header.Set("Content-Type", "text/xml")
 
-			resp, err := s.App().Test(req)
+			resp, err := s.app.Test(req)
 			testutil.ExpectedNoError(t, err)
 
 			body, err := io.ReadAll(resp.Body)

@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"net"
-	"sync"
 	"sync/atomic"
 
 	"epos-proxy/internal/config"
@@ -56,7 +55,7 @@ func New(cfg *config.Manager) (*Server, error) {
 	}
 
 	s.obox = obox.Manager(cfg, s.mgr, s.LocalAddr)
-	s.registerRoutes(cfg)
+	s.registerRoutes()
 
 	s.running.Store(true)
 	go func() {
@@ -90,10 +89,6 @@ func (s *Server) Stop() error {
 
 func (s *Server) Running() bool {
 	return s.running.Load()
-}
-
-func (s *Server) App() *fiber.App {
-	return s.app
 }
 
 func (s *Server) AppID() string {
@@ -138,27 +133,7 @@ func (s *Server) OnStatusChange(listener obox.StatusListener) {
 	}
 }
 
-// RouteBinder registers routes for a Server instance.
-type RouteBinder func(s *Server, cfg *config.Manager)
-
-var (
-	routeBinders   []RouteBinder
-	routeBindersMu sync.Mutex
-)
-
-func RegisterRoute(binder RouteBinder) {
-	routeBindersMu.Lock()
-	defer routeBindersMu.Unlock()
-	routeBinders = append(routeBinders, binder)
-}
-
-func (s *Server) registerRoutes(cfg *config.Manager) {
-	routeBindersMu.Lock()
-	binders := make([]RouteBinder, len(routeBinders))
-	copy(binders, routeBinders)
-	routeBindersMu.Unlock()
-
-	for _, binder := range binders {
-		binder(s, cfg)
-	}
+func (s *Server) registerRoutes() {
+	registerEPOSRoutes(s.app, s.mgr)
+	registerOboxRoutes(s)
 }

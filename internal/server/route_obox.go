@@ -1,16 +1,9 @@
 package server
 
 import (
-	"epos-proxy/internal/config"
 	"epos-proxy/internal/logger"
 	"github.com/gofiber/fiber/v3"
 )
-
-func init() {
-	RegisterRoute(func(s *Server, cfg *config.Manager) {
-		registerOboxRoutes(s)
-	})
-}
 
 func registerOboxRoutes(s *Server) {
 	if s.obox == nil {
