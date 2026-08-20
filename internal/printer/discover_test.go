@@ -1,7 +1,6 @@
 package printer
 
 import (
-	"path/filepath"
 	"testing"
 
 	"epos-proxy/internal/config"
@@ -15,14 +14,11 @@ func TestDiscoverAllPrinters_NilConfig(t *testing.T) {
 }
 
 func TestDiscoverAllPrinters_WithLANPrinters(t *testing.T) {
-	tempDir := t.TempDir()
 	cfg := &config.Manager{
 		Data: config.AppConfig{
 			LANPrinters: []string{"192.168.1.50", "192.168.1.51"},
 		},
 	}
-	_ = cfg.Save()
-	_ = filepath.Join(tempDir, "config.json")
 
 	result := DiscoverAllPrinters(cfg, func(id string) string { return "http://127.0.0.1:8080/p/" + id })
 	testutil.ExpectedNotNil(t, result.Printers)

@@ -133,6 +133,18 @@ func TestApp_Startup_PortExhaustion_Failure(t *testing.T) {
 	testutil.ExpectedEqual(t, dialogs.messages[0].Type, wailsruntime.ErrorDialog)
 	testutil.ExpectedEqual(t, dialogs.messages[0].Title, "Startup Error")
 	testutil.ExpectedContains(t, dialogs.messages[0].Message, "no available port")
+
+	// Calling frontend-bound methods when startup failed must be nil-safe and not panic
+	appVar := app.AppVariable()
+	testutil.ExpectedFalse(t, appVar.ServerRunning)
+
+	printers := app.Printers()
+	testutil.ExpectedNotNil(t, printers.Printers)
+
+	status := app.CheckOdooStatus()
+	testutil.ExpectedEqual(t, status.WebsocketStatus, "disconnected")
+
+	testutil.ExpectedTrue(t, app.ConfirmQuit())
 }
 
 func TestApp_CheckOdooStatus(t *testing.T) {

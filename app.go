@@ -90,6 +90,14 @@ func (a *App) showError(title, message string) {
 	}
 }
 
+// surfaces a fatal error to the user and terminates the application upon dismissal.
+func (a *App) showFatalError(title, message string) {
+	a.showError(title, message)
+	if a.ctx != nil {
+		wailsruntime.Quit(a.ctx)
+	}
+}
+
 type Printer struct {
 	Name       string `json:"name"`
 	Ip         string `json:"ip"`
@@ -163,7 +171,7 @@ func (a *App) startup(ctx context.Context) {
 	srv, err := server.New(a.config)
 	if err != nil {
 		logger.Errorf("Failed to start required webserver: %v", err)
-		a.showError("Startup Error", fmt.Sprintf("Application could not start because the webserver failed to start:\n%v", err))
+		a.showFatalError("Startup Error", fmt.Sprintf("Application could not start because the webserver failed to start:\n%v", err))
 		return
 	}
 
@@ -185,16 +193,24 @@ func (a *App) shutdown(ctx context.Context) {
 }
 
 func (a *App) AppVariable() AppVariable {
+	running := false
+	if a.webserver != nil {
+		running = a.webserver.Running()
+	}
 	return AppVariable{
 		Os:            runtime.GOOS,
-		ServerRunning: a.webserver.Running(),
+		ServerRunning: running,
 		AppID:         a.appID,
 	}
 }
 
 func (a *App) Printers() printer.DiscoveryResult {
 	logger.Debug("Collecting printer status")
-	return printer.DiscoverAllPrinters(a.config, a.webserver.GetPrinterIp)
+	var getPrinterIP func(string) string
+	if a.webserver != nil {
+		getPrinterIP = a.webserver.GetPrinterIp
+	}
+	return printer.DiscoverAllPrinters(a.config, getPrinterIP)
 }
 
 func (a *App) AddLANPrinter(ip string) error {
@@ -316,11 +332,20 @@ func (a *App) DisableAutostart() error {
 func (a *App) CheckOdooStatus() OdooStatusInterface {
 	logger.Debugf("checking Odoo status")
 
+	ipAddress := ""
+	dbURL := ""
+	wsStatus := "disconnected"
+	if a.webserver != nil {
+		ipAddress = a.webserver.LocalAddr()
+		dbURL = a.webserver.GetOdooDbURL()
+		wsStatus = a.webserver.GetWebsocketStatus()
+	}
+
 	return OdooStatusInterface{
 		AppId:           a.appID,
-		IpAddress:       a.webserver.LocalAddr(),
-		DbURL:           a.webserver.GetOdooDbURL(),
-		WebsocketStatus: a.webserver.GetWebsocketStatus(),
+		IpAddress:       ipAddress,
+		DbURL:           dbURL,
+		WebsocketStatus: wsStatus,
 	}
 }
 
@@ -343,10 +368,14 @@ func (a *App) ConfirmDisconnectOdoo() (bool, error) {
 		return false, nil
 	}
 
-	a.webserver.DisconnectOdoo()
-	if err := a.config.ClearOdooConfig(); err != nil {
-		logger.Warnf("Failed to clear Odoo config: %v", err)
-		return false, fmt.Errorf("failed to disconnect Odoo: %w", err)
+	if a.webserver != nil {
+		a.webserver.DisconnectOdoo()
+	}
+	if a.config != nil {
+		if err := a.config.ClearOdooConfig(); err != nil {
+			logger.Warnf("Failed to clear Odoo config: %v", err)
+			return false, fmt.Errorf("failed to disconnect Odoo: %w", err)
+		}
 	}
 	a.ev().Emit(a.ctx, "odoo:status_changed", a.CheckOdooStatus())
 	return true, nil
