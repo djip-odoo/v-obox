@@ -19,15 +19,18 @@ type Module struct {
 	localAddrFn func() string
 
 	credMu sync.RWMutex
-	dbURL  *string
-	token  *string
-	dbUUID *string
+	dbURL  string
+	token  string
+	dbUUID string
 
 	liveStatus      atomic.Pointer[string]
 	lastContactTime atomic.Int64
 
 	listenersMu sync.RWMutex
 	listeners   []StatusListener
+
+	workerMu     sync.Mutex
+	workerCancel context.CancelFunc
 
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -46,18 +49,47 @@ func Manager(cfg *config.Manager, mgr *printer.Manager, localAddrFn func() strin
 
 	if cfg.HasOdooCredentials() {
 		odooCfg := cfg.GetOdooConfig()
-		m.dbURL = &odooCfg.DbURL
-		m.token = &odooCfg.Token
-		m.dbUUID = &odooCfg.DbUUID
+		m.dbURL = odooCfg.DbURL
+		m.token = odooCfg.Token
+		m.dbUUID = odooCfg.DbUUID
 		logger.Infof("[obox] Restored Odoo credentials from storage: db=%s dbuuid=%s", odooCfg.DbURL, odooCfg.DbUUID)
+		m.startQueueHandler()
 	}
 
 	m.setLiveStatus("disconnected")
-	go m.oboxQueueHandler()
 	return m
 }
 
+func (m *Module) startQueueHandler() {
+	m.workerMu.Lock()
+	defer m.workerMu.Unlock()
+
+	if m.workerCancel != nil || m.ctx.Err() != nil {
+		return
+	}
+
+	dbURL, token := m.GetCredentials()
+	if dbURL == "" || token == "" {
+		return
+	}
+
+	workerCtx, cancel := context.WithCancel(m.ctx)
+	m.workerCancel = cancel
+	go m.oboxQueueHandler(workerCtx)
+}
+
+func (m *Module) stopQueueHandler() {
+	m.workerMu.Lock()
+	defer m.workerMu.Unlock()
+
+	if m.workerCancel != nil {
+		m.workerCancel()
+		m.workerCancel = nil
+	}
+}
+
 func (m *Module) Stop() {
+	m.stopQueueHandler()
 	if m.cancel != nil {
 		m.cancel()
 	}
@@ -65,44 +97,45 @@ func (m *Module) Stop() {
 
 func (m *Module) SetCredentials(dbURL, token, dbUUID string) {
 	m.credMu.Lock()
-	m.dbURL = &dbURL
-	m.token = &token
-	m.dbUUID = &dbUUID
+	m.dbURL = dbURL
+	m.token = token
+	m.dbUUID = dbUUID
 	m.credMu.Unlock()
+	m.startQueueHandler()
 	m.notifyStatusChange()
 }
 
 func (m *Module) GetCredentials() (dbURL, token string) {
 	m.credMu.RLock()
 	defer m.credMu.RUnlock()
-	if m.dbURL != nil {
-		dbURL = *m.dbURL
+	if m.dbURL != "" {
+		dbURL = m.dbURL
 	}
-	if m.token != nil {
-		token = *m.token
+	if m.token != "" {
+		token = m.token
 	}
 	return dbURL, token
 }
 
 func (m *Module) ClearCredentials() {
 	m.credMu.Lock()
-	m.dbURL = nil
-	m.token = nil
-	m.dbUUID = nil
+	m.dbURL = ""
+	m.token = ""
+	m.dbUUID = ""
 	m.credMu.Unlock()
 }
 
 func (m *Module) IsConnected() bool {
 	m.credMu.RLock()
 	defer m.credMu.RUnlock()
-	return m.dbURL != nil && m.token != nil && *m.dbURL != "" && *m.token != ""
+	return m.dbURL != "" && m.token != ""
 }
 
 func (m *Module) GetDbURL() string {
 	m.credMu.RLock()
 	defer m.credMu.RUnlock()
-	if m.dbURL != nil && *m.dbURL != "" {
-		return *m.dbURL
+	if m.dbURL != "" {
+		return m.dbURL
 	}
 	return ""
 }
@@ -119,6 +152,7 @@ func (m *Module) GetWebsocketStatus() string {
 
 func (m *Module) Disconnect() {
 	logger.Infof("[obox] Disconnect triggered")
+	m.stopQueueHandler()
 	if m.cfg != nil {
 		if err := m.cfg.ClearOdooConfig(); err != nil {
 			logger.Warnf("[obox] Failed to clear Odoo credentials from storage: %v", err)

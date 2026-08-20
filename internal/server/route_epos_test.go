@@ -43,12 +43,12 @@ func TestNew_PortResolutionError(t *testing.T) {
 	for p := config.PortRangeStart; p <= config.PortRangeEnd; p++ {
 		var ln net.Listener
 		var err error
-		for range 10 {
-			ln, err = net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", p))
+		for range 30 {
+			ln, err = net.Listen("tcp", fmt.Sprintf("0.0.0.0:%d", p))
 			if err == nil {
 				break
 			}
-			time.Sleep(30 * time.Millisecond)
+			time.Sleep(50 * time.Millisecond)
 		}
 		testutil.ExpectedNoError(t, err)
 		listeners = append(listeners, ln)

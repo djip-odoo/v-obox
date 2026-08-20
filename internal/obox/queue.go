@@ -1,6 +1,7 @@
 package obox
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -16,16 +17,17 @@ type QueueAction struct {
 	Payload map[string]interface{} `json:"payload"`
 }
 
-func (m *Module) oboxQueueHandler() {
+func (m *Module) oboxQueueHandler(ctx context.Context) {
 	logger.Infof("[obox queue] Background polling worker started")
 	defer logger.Infof("[obox queue] Background polling worker stopped")
 
 	timer := time.NewTimer(0)
 	defer timer.Stop()
 
+	logger.Infof("test hello --------------------------------------")
 	for {
 		select {
-		case <-m.ctx.Done():
+		case <-ctx.Done():
 			return
 		case <-timer.C:
 		}
@@ -33,9 +35,8 @@ func (m *Module) oboxQueueHandler() {
 		dbURL, token := m.GetCredentials()
 		if dbURL == "" || token == "" {
 			m.setLiveStatus("disconnected")
-			logger.Infof("test hello --------------------------------------")
-			timer.Reset(5 * time.Second)
-			continue
+
+			return
 		}
 
 		actions, err := m.fetchNextActions(dbURL, token)
@@ -43,8 +44,7 @@ func (m *Module) oboxQueueHandler() {
 			if isDeviceNotFound(err) {
 				logger.Warnf("[obox queue] Device not found on server, disconnecting: %v", err)
 				m.Disconnect()
-				timer.Reset(5 * time.Second)
-				continue
+				return
 			}
 
 			logger.Infof("[obox queue] fetchNextActions: %v", err)
