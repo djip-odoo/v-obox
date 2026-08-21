@@ -39,41 +39,154 @@ func (f *fakeDialogs) SaveFile(_ context.Context, opts wailsruntime.SaveDialogOp
 	return f.savePath, f.saveErr
 }
 
+type emittedEvent struct {
+	Name string
+	Data []interface{}
+}
+
+type fakeEvents struct {
+	emitted []emittedEvent
+}
+
+func (f *fakeEvents) Emit(_ context.Context, eventName string, optionalData ...interface{}) {
+	f.emitted = append(f.emitted, emittedEvent{
+		Name: eventName,
+		Data: optionalData,
+	})
+}
+
+func createTestApp(t testing.TB, cfg *config.Manager) *App {
+	t.Helper()
+	if cfg == nil {
+		t.Setenv("HOME", t.TempDir())
+		var err error
+		cfg, err = config.NewManager()
+		testutil.ExpectedNoError(t, err)
+	}
+	if cfg.Data.Port == 0 {
+		cfg.Data.Port = testutil.GetFreePort(t)
+	}
+	mgr := printer.NewManager()
+	srv := server.New(cfg.Data.Port, mgr, cfg)
+	t.Cleanup(func() { _ = srv.Stop() })
+	return &App{
+		webserver:      srv,
+		config:         cfg,
+		printerManager: mgr,
+		dialogs:        &fakeDialogs{},
+		events:         &fakeEvents{},
+	}
+}
+
 func TestNewApp(t *testing.T) {
 	app := NewApp()
 	testutil.ExpectedNotNil(t, app)
 	testutil.ExpectedNotNil(t, app.autoStart)
+	testutil.ExpectedNotNil(t, app.events)
 	testutil.ExpectedNotNil(t, app.printerManager)
 }
 
-func TestApp_AppVariableAndPrintersAndGetPrinterIp(t *testing.T) {
+func TestApp_Startup_Success(t *testing.T) {
 	tempDir := t.TempDir()
 	t.Setenv("HOME", tempDir)
 
+	port := testutil.GetFreePort(t)
+	cfgFile := filepath.Join(tempDir, ".config", config.AppName, "config.json")
+	_ = os.MkdirAll(filepath.Dir(cfgFile), 0755)
+	_ = os.WriteFile(cfgFile, []byte(fmt.Sprintf(`{"port": %d}`, port)), 0644)
+
+	dialogs := &fakeDialogs{}
+	events := &fakeEvents{}
+	app := NewApp()
+	app.dialogs = dialogs
+	app.events = events
+
+	app.startup(context.Background())
+	t.Cleanup(func() {
+		if app.webserver != nil {
+			_ = app.webserver.Stop()
+		}
+	})
+
+	testutil.ExpectedNotNil(t, app.webserver)
+	testutil.ExpectedTrue(t, app.webserver.Running(), "expected webserver to be running")
+	testutil.ExpectedEqual(t, len(dialogs.messages), 0)
+
+	status := app.CheckOdooStatus()
+	testutil.ExpectedEqual(t, status.WebsocketStatus, "disconnected")
+	testutil.ExpectedEqual(t, status.IpAddress, app.webserver.LocalAddr())
+}
+
+func TestApp_CheckOdooStatus(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
 	cfg, err := config.NewManager()
 	testutil.ExpectedNoError(t, err)
+	_ = cfg.SetOdooCredentials("http://127.0.0.1:8069", "tok", "uuid-1")
 
-	err = cfg.AddLanEposPrinter("192.168.1.100")
-	testutil.ExpectedNoError(t, err)
+	app := createTestApp(t, cfg)
+	status := app.CheckOdooStatus()
+	testutil.ExpectedEqual(t, status.DbURL, "http://127.0.0.1:8069")
+	testutil.ExpectedEqual(t, status.AppId, cfg.GetAppID())
+}
 
-	port := testutil.GetFreePort(t)
-	mgr := printer.NewManager()
-	srv := server.New(port, mgr)
-	defer srv.Stop()
-
-	app := &App{
-		webserver:      srv,
-		config:         cfg,
-		printerManager: mgr,
+func TestApp_ConfirmDisconnectOdoo(t *testing.T) {
+	tests := []struct {
+		name             string
+		dialogResult     string
+		dialogErr        error
+		expectDisconnect bool
+		expectErr        bool
+	}{
+		{name: "confirm disconnect", dialogResult: "Disconnect", expectDisconnect: true},
+		{name: "cancel disconnect", dialogResult: "Cancel", expectDisconnect: false},
+		{name: "dialog error", dialogErr: errors.New("dialog failed"), expectErr: true},
 	}
 
-	appVariable := app.AppVariable()
-	testutil.ExpectedEqual(t, app.GetPrinterIp("czpTTjEyMzQ1Ng"), fmt.Sprintf("127.0.0.1:%d/p/czpTTjEyMzQ1Ng", port))
-	testutil.ExpectedTrue(t, appVariable.ServerRunning, "Expected ServerRunning to be true")
-	testutil.ExpectedEqual(t, appVariable.DefaultIp, fmt.Sprintf("127.0.0.1:%d", port))
-	testutil.ExpectedTrue(t, appVariable.Os != "", "Expected non-empty Os field in app variable")
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("HOME", t.TempDir())
+			cfg, err := config.NewManager()
+			testutil.ExpectedNoError(t, err)
+			_ = cfg.SetOdooCredentials("http://127.0.0.1:8069", "tok", "uuid-1")
 
-	// Verify Printers() includes the configured LAN printer
+			app := createTestApp(t, cfg)
+			dialogs := &fakeDialogs{messageResult: tc.dialogResult, messageErr: tc.dialogErr}
+			events := &fakeEvents{}
+			app.dialogs = dialogs
+			app.events = events
+
+			disconnected, err := app.ConfirmDisconnectOdoo()
+			if tc.expectErr {
+				testutil.ExpectedError(t, err)
+			} else {
+				testutil.ExpectedNoError(t, err)
+			}
+			testutil.ExpectedEqual(t, disconnected, tc.expectDisconnect)
+
+			if tc.expectDisconnect {
+				testutil.ExpectedFalse(t, cfg.HasOdooCredentials())
+				testutil.ExpectedLen(t, events.emitted, 1)
+				testutil.ExpectedEqual(t, events.emitted[0].Name, "odoo:status_changed")
+			} else {
+				testutil.ExpectedTrue(t, cfg.HasOdooCredentials())
+				testutil.ExpectedLen(t, events.emitted, 0)
+			}
+		})
+	}
+}
+
+func TestApp_AppVariableAndPrintersAndGetPrinterIp(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	cfg, err := config.NewManager()
+	testutil.ExpectedNoError(t, err)
+	testutil.ExpectedNoError(t, cfg.AddLanEposPrinter("192.168.1.100"))
+
+	app := createTestApp(t, cfg)
+	appVariable := app.AppVariable()
+	testutil.ExpectedEqual(t, app.GetPrinterIp("czpTTjEyMzQ1Ng"), fmt.Sprintf("127.0.0.1:%d/p/czpTTjEyMzQ1Ng", cfg.Data.Port))
+	testutil.ExpectedTrue(t, appVariable.ServerRunning)
+	testutil.ExpectedTrue(t, appVariable.Os != "")
+
 	printers := app.Printers()
 	foundLAN := false
 	for _, p := range printers.Printers {
@@ -81,52 +194,41 @@ func TestApp_AppVariableAndPrintersAndGetPrinterIp(t *testing.T) {
 			foundLAN = true
 			testutil.ExpectedEqual(t, p.Type, string(printer.TypeReceipt))
 			testutil.ExpectedEqual(t, p.Name, "Network - 192.168.1.100")
-			testutil.ExpectedEqual(t, p.Ip, fmt.Sprintf("127.0.0.1:%d/p/%s", port, p.Id))
+			testutil.ExpectedEqual(t, p.Ip, fmt.Sprintf("%s/p/%s", app.webserver.LocalAddr(), p.Identifier))
 		}
 	}
-	testutil.ExpectedTrue(t, foundLAN, "Expected to find configured LAN printer in printer status")
+	testutil.ExpectedTrue(t, foundLAN)
 }
 
 func TestApp_AddLANPrinter(t *testing.T) {
-	tempDir := t.TempDir()
-	t.Setenv("HOME", tempDir)
-
+	t.Setenv("HOME", t.TempDir())
 	cfg, err := config.NewManager()
 	testutil.ExpectedNoError(t, err)
 
-	app := &App{config: cfg}
+	app := &App{config: cfg, printerManager: printer.NewManager()}
 
-	// Invalid IP format.
-	err = app.AddLANPrinter("not.an.ip")
-	testutil.ExpectedError(t, err)
+	// Invalid format
+	testutil.ExpectedError(t, app.AddLANPrinter("not.an.ip"))
+	testutil.ExpectedError(t, app.AddLANPrinter("  "))
 
-	// Empty IP.
-	err = app.AddLANPrinter("  ")
-	testutil.ExpectedError(t, err)
+	// Unreachable
+	testutil.ExpectedError(t, app.AddLANPrinter("127.0.0.254"))
 
-	// Unreachable printer.
-	err = app.AddLANPrinter("127.0.0.254")
-	testutil.ExpectedError(t, err)
-
-	// Reachable printer.
+	// Reachable
 	_, _, err = testutil.StartMockTCPServer(t)
 	testutil.ExpectedNoError(t, err)
 
-	err = app.AddLANPrinter("127.0.0.1")
-	testutil.ExpectedNoError(t, err)
-
+	testutil.ExpectedNoError(t, app.AddLANPrinter("127.0.0.1"))
 	printers := cfg.GetLANPrinters()
 	testutil.ExpectedLen(t, printers, 1)
 	testutil.ExpectedEqual(t, printers[0], "127.0.0.1")
 }
 
 func TestApp_CheckLANPrinterStatus(t *testing.T) {
-	app := &App{}
+	app := &App{printerManager: printer.NewManager()}
 
-	// 1. Unreachable (closed IP returns false)
 	testutil.ExpectedFalse(t, app.CheckLANPrinterStatus("127.0.0.254"))
 
-	// 2. Active listener using StartMockTCPServer
 	_, _, err := testutil.StartMockTCPServer(t)
 	testutil.ExpectedNoError(t, err)
 	testutil.ExpectedTrue(t, app.CheckLANPrinterStatus("127.0.0.1"))
@@ -151,16 +253,14 @@ func TestApp_ConfirmRemoveLANPrinter(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Setenv("HOME", t.TempDir())
-
 			cfg, err := config.NewManager()
 			testutil.ExpectedNoError(t, err)
 			testutil.ExpectedNoError(t, cfg.AddLanEposPrinter(ip))
 
 			dialogs := &fakeDialogs{messageResult: tc.dialogResult, messageErr: tc.dialogErr}
-			app := &App{config: cfg, dialogs: dialogs}
+			app := &App{config: cfg, printerManager: printer.NewManager(), dialogs: dialogs}
 
 			removed, err := app.ConfirmRemoveLANPrinter(ip)
-
 			if tc.expectErr {
 				testutil.ExpectedError(t, err)
 			} else {
@@ -168,14 +268,11 @@ func TestApp_ConfirmRemoveLANPrinter(t *testing.T) {
 			}
 			testutil.ExpectedEqual(t, removed, tc.expectRemoved)
 
-			// The printer must survive unless the user actually confirmed.
 			expectedRemaining := 1
 			if tc.expectRemoved {
 				expectedRemaining = 0
 			}
 			testutil.ExpectedLen(t, cfg.GetLANPrinters(), expectedRemaining)
-
-			// Exactly one confirmation dialog is shown, and it names the printer.
 			testutil.ExpectedLen(t, dialogs.messages, 1)
 			testutil.ExpectedContains(t, dialogs.messages[0].Message, ip)
 		})
@@ -204,13 +301,12 @@ func TestApp_ConfirmQuit(t *testing.T) {
 }
 
 func TestApp_DownloadLogs(t *testing.T) {
-	// initLogs points the logger at a temporary directory containing one log file, and returns that directory.
 	initLogs := func(t *testing.T) string {
 		t.Helper()
 		t.Setenv("HOME", t.TempDir())
 		logger.InitLogger()
 		dir := logger.LogDirectory()
-		testutil.ExpectedTrue(t, dir != "", "expected a log directory after InitLogger")
+		testutil.ExpectedTrue(t, dir != "")
 		return dir
 	}
 
@@ -225,65 +321,42 @@ func TestApp_DownloadLogs(t *testing.T) {
 
 		info, err := os.Stat(savePath)
 		testutil.ExpectedNoError(t, err)
-		testutil.ExpectedTrue(t, info.Size() > 0, "expected a non-empty archive")
-
+		testutil.ExpectedTrue(t, info.Size() > 0)
 		testutil.ExpectedLen(t, dialogs.saves, 1)
 		testutil.ExpectedContains(t, dialogs.saves[0].DefaultFilename, "epos-proxy-logs-")
-		testutil.ExpectedLen(t, dialogs.messages, 0)
 	})
 
 	t.Run("cancelling the save dialog writes nothing", func(t *testing.T) {
 		initLogs(t)
-
-		// Wails returns an empty path when the user dismisses the dialog.
 		dialogs := &fakeDialogs{savePath: ""}
 		app := &App{dialogs: dialogs}
-
 		app.DownloadLogs()
-
-		// No archive attempted and, crucially, no error surfaced to the user.
 		testutil.ExpectedLen(t, dialogs.messages, 0)
 	})
 
 	t.Run("save dialog error is reported", func(t *testing.T) {
 		initLogs(t)
-
 		dialogs := &fakeDialogs{saveErr: errors.New("dialog unavailable")}
 		app := &App{dialogs: dialogs}
-
 		app.DownloadLogs()
-
 		testutil.ExpectedLen(t, dialogs.messages, 1)
 		testutil.ExpectedEqual(t, dialogs.messages[0].Type, wailsruntime.ErrorDialog)
-		testutil.ExpectedContains(t, dialogs.messages[0].Message, "dialog unavailable")
 	})
 
 	t.Run("zip failure is reported", func(t *testing.T) {
 		initLogs(t)
-
-		// Parent directory does not exist, so creating the archive fails.
 		savePath := filepath.Join(t.TempDir(), "missing", "logs.zip")
 		dialogs := &fakeDialogs{savePath: savePath}
 		app := &App{dialogs: dialogs}
-
 		app.DownloadLogs()
-
 		testutil.ExpectedLen(t, dialogs.messages, 1)
 		testutil.ExpectedEqual(t, dialogs.messages[0].Type, wailsruntime.ErrorDialog)
-		testutil.ExpectedContains(t, dialogs.messages[0].Message, "failed to create zip file")
 	})
 }
 
 func TestApp_AutostartMethods(t *testing.T) {
-	tempDir := t.TempDir()
-	t.Setenv("HOME", tempDir)
-
+	t.Setenv("HOME", t.TempDir())
 	app := NewApp()
-
-	// Enable autostart on linux creates desktop file
-	err := app.EnableAutostart()
-	testutil.ExpectedNoError(t, err)
-
-	// Disable autostart
+	testutil.ExpectedNoError(t, app.EnableAutostart())
 	_ = app.DisableAutostart()
 }

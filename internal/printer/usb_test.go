@@ -172,16 +172,18 @@ func TestListUSBPrinters_UnavailableDevice(t *testing.T) {
 func TestGetPrinterInfo_Direct(t *testing.T) {
 	epsonDesc := testutil.MockEpsonPrinterDesc()
 
+	// openDevices is fully mocked below, so the *gousb.Context value is never
+	// forwarded to libusb. Passing nil avoids calling gousb.NewContext() which
+	// opens a real USB context and can hang in CI environments with no USB access.
+	var ctx *gousb.Context
+
 	// 1. Device found and opened
-	mockOpenDevices(t, func(ctx *gousb.Context, fn func(desc *gousb.DeviceDesc) bool) ([]*gousb.Device, error) {
+	mockOpenDevices(t, func(_ *gousb.Context, fn func(desc *gousb.DeviceDesc) bool) ([]*gousb.Device, error) {
 		if fn(epsonDesc) {
 			return []*gousb.Device{{Desc: epsonDesc}}, nil
 		}
 		return nil, nil
 	})
-
-	ctx := gousb.NewContext()
-	defer ctx.Close()
 
 	info, err := GetPrinterInfo(ctx, epsonDesc)
 	testutil.ExpectedNoError(t, err)
@@ -190,18 +192,18 @@ func TestGetPrinterInfo_Direct(t *testing.T) {
 	testutil.ExpectedEqual(t, info.Path, "1.1.2")
 
 	// 2. Open error
-	openDevices = func(ctx *gousb.Context, fn func(desc *gousb.DeviceDesc) bool) ([]*gousb.Device, error) {
+	mockOpenDevices(t, func(_ *gousb.Context, fn func(desc *gousb.DeviceDesc) bool) ([]*gousb.Device, error) {
 		return nil, errors.New("cannot open device")
-	}
+	})
 
 	infoErr, err := GetPrinterInfo(ctx, epsonDesc)
 	testutil.ExpectedError(t, err)
 	testutil.ExpectedNil(t, infoErr)
 
 	// 3. Device not found (empty slice)
-	openDevices = func(ctx *gousb.Context, fn func(desc *gousb.DeviceDesc) bool) ([]*gousb.Device, error) {
+	mockOpenDevices(t, func(_ *gousb.Context, fn func(desc *gousb.DeviceDesc) bool) ([]*gousb.Device, error) {
 		return nil, nil
-	}
+	})
 
 	infoNotFound, err := GetPrinterInfo(ctx, epsonDesc)
 	testutil.ExpectedNoError(t, err)
