@@ -64,7 +64,7 @@ func main() {
 			},
 		},
 		OnBeforeClose: func(ctx context.Context) (prevent bool) {
-			if app.ConfirmQuit() {
+			if app.webserver == nil || app.ConfirmQuit() {
 				logger.Infof("User confirmed quit")
 				return false
 			}
