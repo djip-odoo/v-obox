@@ -459,19 +459,22 @@ async function loadMonitorSettings() {
 
 async function selectMonitor(id) {
   selectedMonitorID.value = id
+  // Selecting a monitor implicitly enables "remember" — user wants this to persist
+  rememberSelection.value = true
   await saveMonitorSettings()
 }
 
 async function saveMonitorSettings() {
+  if (!isDesktopApp()) return
   try {
     await connector.saveMonitorSelection(selectedMonitorID.value, rememberSelection.value)
-    // If display is currently open, we reload it on the new monitor immediately
+    // If display is currently open, move it to the newly selected monitor
     if (isOpenOnDesktop.value && selectedMonitorID.value && currentURL.value) {
       await connector.openCustomerDisplayWindow(selectedMonitorID.value, currentURL.value.url)
     }
   } catch (err) {
     console.error('Failed to save monitor selection:', err)
-    notify('Failed to save monitor selection', 'danger')
+    notify(`Failed to save monitor selection: ${err?.message || String(err)}`, 'danger')
   }
 }
 

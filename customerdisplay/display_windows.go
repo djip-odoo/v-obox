@@ -6,12 +6,14 @@
 //   - golang.org/x/sys/windows for Win32 monitor enumeration
 //   - github.com/wailsapp/go-webview2 for WebView2 rendering
 //
+// All WebView2 operations are dispatched to a dedicated OS thread that owns a
+// COM STA Win32 message loop via runOnUIThread / runOnUIThreadAsync.
 // Each public function maps to the platform-agnostic shim in customer_display.go.
 package customerdisplay
 
 import (
-	"encoding/json"
 	"fmt"
+	"runtime"
 	"sync"
 	"time"
 	"unsafe"
@@ -56,14 +58,101 @@ const (
 	SWP_NOACTIVATE           = 0x0010
 	SW_SHOW                  = 5
 	SW_HIDE                  = 0
+
+	WM_APP   = 0x8000
+	WM_QUIT  = 0x0012
+	WM_RUNFN = WM_APP + 1 // custom message: run a func() via PostMessage lParam
 )
 
+// ── UI-thread dispatcher ──────────────────────────────────────────────────
+//
+// WebView2 (go-webview2 / EdgeChromium) must be created, navigated, and
+// destroyed from the same OS thread that owns a COM STA message loop.
+// We create one dedicated goroutine that is locked to its OS thread and runs
+// a Win32 message loop; all WebView2 operations are posted to it.
+
+var (
+	uiThreadHWND uintptr
+	uiOnce       sync.Once
+)
+
+// runOnUIThread posts fn to the UI thread and blocks until it completes.
+func runOnUIThread(fn func()) {
+	uiOnce.Do(startUIThread)
+	done := make(chan struct{})
+	wrapper := func() { fn(); close(done) }
+	ptr := &wrapper
+	user32.NewProc("PostMessageW").Call(
+		uiThreadHWND, WM_RUNFN, 0, uintptr(unsafe.Pointer(ptr)),
+	)
+	<-done
+}
+
+// runOnUIThreadAsync posts fn to the UI thread without waiting.
+func runOnUIThreadAsync(fn func()) {
+	uiOnce.Do(startUIThread)
+	wrapper := fn
+	ptr := &wrapper
+	user32.NewProc("PostMessageW").Call(
+		uiThreadHWND, WM_RUNFN, 0, uintptr(unsafe.Pointer(ptr)),
+	)
+}
+
+func startUIThread() {
+	ready := make(chan uintptr, 1)
+	go func() {
+		runtime.LockOSThread() // bind this goroutine to one OS thread forever
+
+		hInstance, _, _ := kernel32.NewProc("GetModuleHandleW").Call(0)
+		// Create a message-only window so PostMessage has a target HWND.
+		hwnd, _, _ := user32.NewProc("CreateWindowExW").Call(
+			0,
+			uintptr(unsafe.Pointer(windows.StringToUTF16Ptr("STATIC"))),
+			uintptr(unsafe.Pointer(windows.StringToUTF16Ptr("CDUIThread"))),
+			0,
+			0, 0, 0, 0,
+			0xFFFFFFFF, // HWND_MESSAGE
+			0, hInstance, 0,
+		)
+		ready <- hwnd
+
+		type MSG struct {
+			Hwnd    uintptr
+			Message uint32
+			WParam  uintptr
+			LParam  uintptr
+			Time    uint32
+			Pt      POINT
+		}
+		var msg MSG
+		procGetMessage := user32.NewProc("GetMessageW")
+		procTranslateMessage := user32.NewProc("TranslateMessage")
+		procDispatchMessage := user32.NewProc("DispatchMessageW")
+		for {
+			r, _, _ := procGetMessage.Call(uintptr(unsafe.Pointer(&msg)), 0, 0, 0)
+			if r == 0 || r == ^uintptr(0) {
+				break
+			}
+			if msg.Message == WM_RUNFN && msg.LParam != 0 {
+				fnPtr := (*func())(unsafe.Pointer(msg.LParam))
+				(*fnPtr)()
+				continue
+			}
+			procTranslateMessage.Call(uintptr(unsafe.Pointer(&msg)))
+			procDispatchMessage.Call(uintptr(unsafe.Pointer(&msg)))
+		}
+	}()
+	uiThreadHWND = <-ready
+}
+
 // ── Singleton state ───────────────────────────────────────────────────────
+// All fields are only accessed on the UI thread except via the mu-guarded
+// reads in platformReload / platformNavigate.
 
 type displayState struct {
 	mu         sync.Mutex
-	wv         *edge.Chromium // WebView2 controller
-	hwnd       uintptr        // host HWND
+	wv         *edge.Chromium
+	hwnd       uintptr
 	currentURL string
 }
 
@@ -135,7 +224,6 @@ var (
 
 func wndProc(hwnd, msg, wp, lp uintptr) uintptr {
 	const WM_DESTROY = 0x0002
-	const WM_SIZE = 0x0005
 	if msg == WM_DESTROY {
 		state.mu.Lock()
 		state.hwnd = 0
@@ -143,12 +231,6 @@ func wndProc(hwnd, msg, wp, lp uintptr) uintptr {
 		state.currentURL = ""
 		state.mu.Unlock()
 		return 0
-	}
-	if msg == WM_SIZE && state.wv != nil {
-		// Resize the WebView2 controller to fill the new window size
-		// go-webview2 exposes Resize on the Chromium object
-		// state.wv.Resize() // called below in openOnMonitor
-		_ = lp
 	}
 	ret, _, _ := user32.NewProc("DefWindowProcW").Call(hwnd, msg, wp, lp)
 	return ret
@@ -185,21 +267,18 @@ func registerClass(hInstance uintptr) {
 	})
 }
 
-// ── WebView2 lifecycle ────────────────────────────────────────────────────
+// ── WebView2 window management (UI thread only) ───────────────────────────
 
 func openOnMonitor(m *MonitorInfo, url string) {
-	// Create or reuse the host window
 	if state.hwnd == 0 {
 		hInstance, _, _ := kernel32.NewProc("GetModuleHandleW").Call(0)
 		registerClass(hInstance)
 
 		hwnd, _, _ := user32.NewProc("CreateWindowExW").Call(
-			0, // dwExStyle
+			0x00000008, // WS_EX_TOPMOST
 			uintptr(unsafe.Pointer(hostClass)),
 			uintptr(unsafe.Pointer(windows.StringToUTF16Ptr("Customer Display"))),
-			0x80000000| // WS_POPUP
-				0x00800000| // WS_BORDER (removed for borderless)
-				0,
+			0x80000000, // WS_POPUP
 			uintptr(m.X), uintptr(m.Y),
 			uintptr(m.Width), uintptr(m.Height),
 			0, 0, hInstance, 0,
@@ -209,16 +288,18 @@ func openOnMonitor(m *MonitorInfo, url string) {
 		}
 		state.hwnd = hwnd
 
-		// Create WebView2 inside the host window
 		chromium := edge.NewChromium()
 		chromium.SetPermission(edge.CoreWebView2PermissionKindClipboardRead, edge.CoreWebView2PermissionStateAllow)
 		if ok := chromium.Embed(state.hwnd); !ok {
+			user32.NewProc("DestroyWindow").Call(state.hwnd)
+			state.hwnd = 0
 			return
 		}
 		chromium.Resize()
+		state.mu.Lock()
 		state.wv = chromium
+		state.mu.Unlock()
 	} else {
-		// Reposition window on the new monitor
 		procSetWindowPos.Call(
 			state.hwnd, 0,
 			uintptr(m.X), uintptr(m.Y),
@@ -228,7 +309,9 @@ func openOnMonitor(m *MonitorInfo, url string) {
 		state.wv.Resize()
 	}
 
+	state.mu.Lock()
 	state.currentURL = url
+	state.mu.Unlock()
 	state.wv.Navigate(url)
 	procShowWindow.Call(state.hwnd, SW_SHOW)
 }
@@ -238,10 +321,7 @@ func openOnMonitor(m *MonitorInfo, url string) {
 func platformInit() {
 	// Enable per-monitor DPI awareness for correct multi-monitor scaling.
 	procSetProcessDPIAware.Call()
-	// Windows does not have a simple equivalent to GDK monitor-added signals;
-	// the Wails runtime handles WM_DISPLAYCHANGE at the app level. We leave
-	// this as a no-op placeholder — monitor change callbacks are not fired on
-	// Windows in the current architecture.
+	uiOnce.Do(startUIThread) // start UI thread eagerly
 }
 
 func platformGetMonitors() []MonitorInfo {
@@ -249,15 +329,8 @@ func platformGetMonitors() []MonitorInfo {
 }
 
 func platformOpen(monitorID, url string) {
-	state.mu.Lock()
-	defer state.mu.Unlock()
-
-	var m *MonitorInfo
-	if monitorID != "" {
-		m = findMonitor(monitorID)
-	}
+	m := findMonitor(monitorID)
 	if m == nil {
-		// Fall back to primary monitor
 		all := enumerateMonitors()
 		for i := range all {
 			if all[i].IsPrimary {
@@ -272,39 +345,45 @@ func platformOpen(monitorID, url string) {
 	if m == nil {
 		return
 	}
-	openOnMonitor(m, url)
+	mCopy := *m
+	runOnUIThread(func() { openOnMonitor(&mCopy, url) })
 }
 
 func platformClose() {
-	state.mu.Lock()
-	defer state.mu.Unlock()
-
-	if state.hwnd != 0 {
-		user32.NewProc("DestroyWindow").Call(state.hwnd)
-		state.hwnd = 0
-		state.wv = nil
-		state.currentURL = ""
-	}
+	runOnUIThread(func() {
+		if state.hwnd != 0 {
+			user32.NewProc("DestroyWindow").Call(state.hwnd)
+		}
+	})
 }
 
 func platformReload() {
-	state.mu.Lock()
-	defer state.mu.Unlock()
-
-	if state.wv != nil && state.currentURL != "" {
-		state.wv.Navigate(state.currentURL)
-	}
+	runOnUIThread(func() {
+		state.mu.Lock()
+		wv := state.wv
+		url := state.currentURL
+		state.mu.Unlock()
+		if wv != nil && url != "" {
+			wv.Navigate(url)
+		}
+	})
 }
 
 func platformNavigate(url string) {
-	state.mu.Lock()
-	defer state.mu.Unlock()
-
-	if state.wv != nil {
-		state.currentURL = url
-		state.wv.Navigate(url)
-	}
+	runOnUIThread(func() {
+		state.mu.Lock()
+		wv := state.wv
+		state.mu.Unlock()
+		if wv != nil {
+			state.mu.Lock()
+			state.currentURL = url
+			state.mu.Unlock()
+			wv.Navigate(url)
+		}
+	})
 }
+
+// ── Identify / Test overlays ──────────────────────────────────────────────
 
 // identifyHTML returns an HTML page showing the monitor number n.
 func identifyHTML(n int) string {
@@ -338,8 +417,7 @@ p{font-size:20px;color:#94a3b8;max-width:600px;line-height:1.6;}
 <p style="font-size:14px;color:#64748b;margin-top:40px;">This window will close automatically.</p>
 </body></html>`
 
-// showHTMLWindow creates a transient, borderless, always-on-top window with a
-// WebView2 that loads the provided HTML string, then closes after duration.
+// showHTMLWindow must be called from the UI thread.
 func showHTMLWindow(m MonitorInfo, html string, duration time.Duration) {
 	hInstance, _, _ := kernel32.NewProc("GetModuleHandleW").Call(0)
 	registerClass(hInstance)
@@ -364,14 +442,13 @@ func showHTMLWindow(m MonitorInfo, html string, duration time.Duration) {
 	}
 	chromium.Resize()
 
-	// Encode html as a data: URL for NavigateToString
-	b, _ := json.Marshal(html)
-	_ = b
 	chromium.NavigateToString(html)
 	procShowWindow.Call(hwnd, SW_SHOW)
 
 	time.AfterFunc(duration, func() {
-		user32.NewProc("DestroyWindow").Call(hwnd)
+		runOnUIThreadAsync(func() {
+			user32.NewProc("DestroyWindow").Call(hwnd)
+		})
 	})
 }
 

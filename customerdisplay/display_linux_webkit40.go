@@ -1,9 +1,13 @@
-//go:build linux && webkit2_41
+//go:build linux && !webkit2_41
 
+// display_linux_webkit40.go — fallback for distros that only ship webkit2gtk-4.0
+// (Ubuntu 20.04, Debian 11, etc.). Identical to display_linux.go except for the
+// pkg-config target. The wails build flag -tags webkit2_41 selects the 4.1 variant;
+// without it, this file is compiled instead.
 package customerdisplay
 
 /*
-#cgo pkg-config: gtk+-3.0 webkit2gtk-4.1
+#cgo pkg-config: gtk+-3.0 webkit2gtk-4.0
 #include <stdlib.h>
 
 char* get_monitors_json_c();
@@ -22,8 +26,7 @@ import (
 	"unsafe"
 )
 
-// Note: goOnMonitorAdded and goOnMonitorRemoved are defined in display_linux_callbacks.go
-// and shared between both webkit build variants.
+// Note: goOnMonitorAdded and goOnMonitorRemoved are defined in display_linux_callbacks.go.
 
 // ── Platform implementation ───────────────────────────────────────────────
 

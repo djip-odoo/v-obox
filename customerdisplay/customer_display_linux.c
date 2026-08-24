@@ -72,7 +72,6 @@ static gboolean open_customer_display_idle(gpointer user_data) {
     if (customer_window) {
         gtk_window_move(GTK_WINDOW(customer_window), rect.x, rect.y);
         gtk_window_resize(GTK_WINDOW(customer_window), rect.width, rect.height);
-        gtk_window_fullscreen_on_monitor(GTK_WINDOW(customer_window), gdk_screen_get_default(), target_idx);
         
         if (args->url && g_strcmp0(current_customer_url, args->url) != 0) {
             g_free(current_customer_url);
@@ -97,7 +96,7 @@ static gboolean open_customer_display_idle(gpointer user_data) {
         g_signal_connect(customer_window, "destroy", G_CALLBACK(on_customer_window_destroy), NULL);
         
         gtk_widget_show_all(customer_window);
-        gtk_window_fullscreen_on_monitor(GTK_WINDOW(customer_window), gdk_screen_get_default(), target_idx);
+        gtk_window_fullscreen(GTK_WINDOW(customer_window));
     }
     
     g_free(args->monitor_id);
@@ -220,7 +219,7 @@ static gboolean identify_monitors_idle(gpointer user_data) {
         
         g_ptr_array_add(windows, win);
         gtk_widget_show_all(win);
-        gtk_window_fullscreen_on_monitor(GTK_WINDOW(win), gdk_screen_get_default(), i);
+        gtk_window_fullscreen(GTK_WINDOW(win));
     }
     
     g_timeout_add(3000, close_identify_windows, windows);
@@ -357,7 +356,7 @@ static gboolean open_test_display_idle(gpointer user_data) {
     g_signal_connect(win, "key-press-event", G_CALLBACK(on_test_window_key_press), NULL);
     
     gtk_widget_show_all(win);
-    gtk_window_fullscreen_on_monitor(GTK_WINDOW(win), gdk_screen_get_default(), target_idx);
+    gtk_window_fullscreen(GTK_WINDOW(win));
     
     g_timeout_add(3000, test_close_timeout, win);
     
