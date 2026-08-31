@@ -1,18 +1,22 @@
 /**
- * authState — module-level singleton that holds the current auth credentials.
+ * authState — module-level singleton that holds current auth credentials.
  *
- * RuntimeContext sets the Wails token once on startup.
- * PIN sessions set the session token in sessionStorage (persists across renders
- * but clears on tab/page refresh as the user requested).
- *
- * The API client calls `getAuthHeaders()` for every privileged request.
+ * - Desktop Wails context: Sets the Wails token once on startup.
+ * - Remote Webview context: Stores the PIN session token strictly in-memory.
+ *   Upon every page refresh, in-memory state resets to null, requiring re-authentication.
  */
 
 const SESSION_KEY = "epos-pin-session-token";
 
 let _wailsToken: string | null = null;
+let _pinSessionToken: string | null = null;
 
-/** Called once by RuntimeContext when the Wails token is obtained. */
+// Clear any stale browser storage on script load
+if (typeof window !== "undefined") {
+  sessionStorage.removeItem(SESSION_KEY);
+}
+
+/** Called once by AppContext when the Wails token is obtained. */
 export function setWailsToken(token: string): void {
   _wailsToken = token;
 }
@@ -22,19 +26,22 @@ export function isWailsContext(): boolean {
   return _wailsToken !== null;
 }
 
-/** Retrieves the active PIN session token from sessionStorage. */
+/** Retrieves the active in-memory PIN session token. */
 export function getPINSessionToken(): string | null {
-  return sessionStorage.getItem(SESSION_KEY);
+  return _pinSessionToken;
 }
 
-/** Persists a PIN session token (until tab refresh). */
+/** Sets a PIN session token for the current page session. */
 export function setPINSessionToken(token: string): void {
-  sessionStorage.setItem(SESSION_KEY, token);
+  _pinSessionToken = token;
 }
 
-/** Clears the PIN session token (called on 401 responses). */
+/** Clears the PIN session token (called on 401 responses or logout). */
 export function clearPINSessionToken(): void {
-  sessionStorage.removeItem(SESSION_KEY);
+  _pinSessionToken = null;
+  if (typeof window !== "undefined") {
+    sessionStorage.removeItem(SESSION_KEY);
+  }
 }
 
 /**

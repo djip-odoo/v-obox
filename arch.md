@@ -211,7 +211,11 @@ Kiosk mode displays an embedded POS terminal fullscreen.
 
 - **Storage**: Stored in `config.json` (`webview_pin`). Default initial PIN is `"0000"`.
 - **Desktop-Only Configuration**: To prevent unauthorized tampering over LAN, the PIN can **only be created or changed directly inside the desktop application** via the native App Menu (**App Menu -> Set PIN**).
-- **Remote PIN Gate (`usePINGate.ts`)**: When a remote user attempts a privileged action (e.g. Test Print, Add LAN Printer, Modify Kiosk URL), `usePINGate` checks for an active session token. If missing or expired, it presents the `<PINModal />` numpad keypad. Upon successful entry, it obtains a session token saved to `sessionStorage` (persisting until tab refresh).
+- **Remote Immediate PIN Overlay & Gate ([PINContext.tsx](file:///home/odoo/odoo/epos-proxy/frontend/src/contexts/PINContext.tsx) & [usePINGate.ts](file:///home/odoo/odoo/epos-proxy/frontend/src/hooks/usePINGate.ts))**:
+  - Upon initial load or refresh in remote browser context, if unauthenticated, the application immediately presents the `<PINModal />` numpad overlay.
+  - Entering the 4-digit PIN issues an in-memory session token that **strictly clears on every page refresh**.
+  - **Persistent Cooldown & Attempts**: Failed PIN attempts and 30s lockout cooldowns persist in `localStorage` (`epos-pin-attempts`, `epos-pin-cooldown-until`) so refreshing the page cannot bypass rate-limiting or lockout timers.
+  - All subsequent actions within the authenticated page session (Test Print, Cash Drawer, Add/Delete LAN Printer, Open/Close Kiosk, Save URL, Reload Kiosk) execute seamlessly on the **1st click**.
 
 ---
 

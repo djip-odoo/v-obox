@@ -2,9 +2,11 @@ import { useContext, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { WebViewContext } from "../contexts/WebViewContext";
 import { ToastContext } from "../contexts/ToastContext";
+import { AppContext } from "../contexts/AppContext";
+import { usePref, KEYS } from "../hooks/useLocalStorage";
 
 const MAX_ATTEMPTS = 3;
-const COOLDOWN_SECONDS = 30;
+const COOLDOWN_SECONDS = 60;
 
 interface PINModalProps {
   onSuccess: (pin?: string) => void;
@@ -22,18 +24,58 @@ export default function PINModal({
   subtitle,
 }: PINModalProps) {
   const { actions } = useContext(WebViewContext);
+  const appContext = useContext(AppContext);
   const toastContext = useContext(ToastContext);
 
   const [digits, setDigits] = useState<string[]>([]);
-  const [error, setError] = useState<string | null>(null);
-  const [attempts, setAttempts] = useState(0);
-  const [cooldown, setCooldown] = useState(0);
+  const [attempts, setAttempts] = usePref<number>(KEYS.PIN_ATTEMPTS, 0);
+  const [cooldown, setCooldown] = usePref<number>(KEYS.PIN_COOLDOWN_UNTIL, 0);
+  const [error, setError] = useState<string | null>(() => {
+    if (mode !== "auth") return null;
+    if (cooldown > 0) {
+      return `Too many attempts. Wait ${cooldown}s.`;
+    }
+    if (attempts > 0 && attempts < MAX_ATTEMPTS) {
+      return `Incorrect PIN (${MAX_ATTEMPTS - attempts} attempt${
+        MAX_ATTEMPTS - attempts === 1 ? "" : "s"
+      } left)`;
+    }
+    return null;
+  });
   const [shaking, setShaking] = useState(false);
   const cooldownRef = useRef<number | null>(null);
 
   // For "set" mode
   const [step, setStep] = useState<"enter" | "confirm">("enter");
   const [firstPin, setFirstPin] = useState<string | null>(null);
+
+  // Resume or start countdown timer if cooldown is active
+  useEffect(() => {
+    if (mode !== "auth" || cooldown <= 0) return;
+
+    setError(`Too many attempts. Wait ${cooldown}s.`);
+    cooldownRef.current = window.setInterval(() => {
+      setCooldown((prev) => {
+        const next = prev - 1;
+        if (next <= 0) {
+          if (cooldownRef.current !== null) {
+            clearInterval(cooldownRef.current);
+          }
+          setAttempts(0);
+          setError(null);
+          return 0;
+        }
+        setError(`Too many attempts. Wait ${next}s.`);
+        return next;
+      });
+    }, 1000);
+
+    return () => {
+      if (cooldownRef.current !== null) {
+        clearInterval(cooldownRef.current);
+      }
+    };
+  }, [mode, cooldown, setAttempts, setCooldown]);
 
   // keyboard listener
   useEffect(() => {
@@ -60,7 +102,7 @@ export default function PINModal({
         handleAuthSubmit(digits.join(""));
       }
     }
-  }, [digits, mode, step, firstPin]);
+  }, [digits, mode, step, firstPin, cooldown]);
 
   const addDigit = (d: string) => {
     if (digits.length >= 4 || cooldown > 0) return;
@@ -88,21 +130,32 @@ export default function PINModal({
 
   const startCooldown = () => {
     setCooldown(COOLDOWN_SECONDS);
-    let remaining = COOLDOWN_SECONDS;
+    setError(`Too many attempts. Wait ${COOLDOWN_SECONDS}s.`);
+    if (cooldownRef.current !== null) {
+      clearInterval(cooldownRef.current);
+    }
     cooldownRef.current = window.setInterval(() => {
-      remaining -= 1;
-      setCooldown(remaining);
-      if (remaining <= 0) {
-        clearInterval(cooldownRef.current!);
-        setAttempts(0);
-        setError(null);
-      }
+      setCooldown((prev) => {
+        const next = prev - 1;
+        if (next <= 0) {
+          if (cooldownRef.current !== null) {
+            clearInterval(cooldownRef.current);
+          }
+          setAttempts(0);
+          setError(null);
+          return 0;
+        }
+        setError(`Too many attempts. Wait ${next}s.`);
+        return next;
+      });
     }, 1000);
   };
 
   const handleAuthSubmit = async (pin: string) => {
     const ok = await actions.validatePIN(pin);
     if (ok) {
+      setAttempts(0);
+      setCooldown(0);
       onSuccess(pin);
       return;
     }
@@ -112,7 +165,6 @@ export default function PINModal({
     const next = attempts + 1;
     setAttempts(next);
     if (next >= MAX_ATTEMPTS) {
-      setError(`Too many attempts. Wait ${COOLDOWN_SECONDS}s.`);
       startCooldown();
     } else {
       setError(
@@ -204,7 +256,7 @@ export default function PINModal({
         {/* Error / cooldown */}
         {error && (
           <div className="text-sm text-red-500 text-center -mt-2">
-            {cooldown > 0 ? `${error.split(".")[0]}. Wait ${cooldown}s.` : error}
+            {cooldown > 0 ? `Too many attempts. Wait ${cooldown}s.` : error}
           </div>
         )}
 
@@ -236,12 +288,14 @@ export default function PINModal({
         </div>
 
         {/* Cancel */}
-        <button
-          onClick={onDismiss}
-          className="text-sm text-gray-400 hover:text-gray-600 cursor-pointer transition-colors"
-        >
-          Cancel
-        </button>
+        {appContext.data.isWails && (
+          <button
+            onClick={onDismiss}
+            className="text-sm text-gray-400 hover:text-gray-600 cursor-pointer transition-colors"
+          >
+            Cancel
+          </button>
+        )}
       </div>
 
       <style>{`
