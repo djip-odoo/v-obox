@@ -131,6 +131,26 @@ public class WailsJSBridge {
     }
 
     /**
+     * Quit application completely
+     * Called from JavaScript: wails.quitApp()
+     */
+    @JavascriptInterface
+    public void quitApp() {
+        if (bridge != null && bridge.getActivity() != null) {
+            bridge.getActivity().runOnUiThread(() -> {
+                try {
+                    if (bridge.getActivity() instanceof MainActivity) {
+                        ((MainActivity) bridge.getActivity()).setFullscreenMode(false);
+                    }
+                    bridge.getActivity().finishAndRemoveTask();
+                } catch (Exception e) {
+                    Log.e(TAG, "Error quitting app", e);
+                }
+            });
+        }
+    }
+
+    /**
      * Send a callback response to JavaScript
      */
     private void sendCallback(String callbackId, String result, String error) {

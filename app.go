@@ -358,6 +358,14 @@ func (a *App) ReloadKiosk() {
 	a.EmitEvent("kiosk-reload")
 }
 
+// QuitApp exits the application cleanly
+func (a *App) QuitApp() {
+	logger.Info("QuitApp called, shutting down application")
+	if app := application.Get(); app != nil {
+		app.Quit()
+	}
+}
+
 func (a *App) ConfirmRemoveLANPrinter(ip string) (bool, error) {
 	logger.Debugf("Remove LAN printer requested: %s", ip)
 

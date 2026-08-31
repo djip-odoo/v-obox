@@ -57,6 +57,7 @@ export interface IBackendService {
   validatePIN(pin: string): Promise<boolean>;
   setWindowFullscreen(fullscreen: boolean): Promise<void>;
   reloadKiosk(): Promise<void>;
+  quitApp(): Promise<void>;
 }
 
 class WailsBackendService implements IBackendService {
@@ -152,6 +153,16 @@ class WailsBackendService implements IBackendService {
   async reloadKiosk(): Promise<void> {
     await WailsApp.ReloadKiosk();
   }
+
+  async quitApp(): Promise<void> {
+    const w = window as unknown as Record<string, unknown>;
+    const wails = w["wails"] as Record<string, unknown> | undefined;
+    if (typeof wails?.["quitApp"] === "function") {
+      (wails["quitApp"] as () => void)();
+      return;
+    }
+    await WailsApp.QuitApp();
+  }
 }
 
 class RemoteBackendService implements IBackendService {
@@ -226,15 +237,68 @@ class RemoteBackendService implements IBackendService {
     return apiCreatePINSession(pin);
   }
 
-  setWindowFullscreen(): Promise<void> {
+  setWindowFullscreen(fullscreen: boolean): Promise<void> {
+    const w = window as unknown as Record<string, unknown>;
+    const wails = w["wails"] as Record<string, unknown> | undefined;
+    if (typeof wails?.["setFullscreen"] === "function") {
+      (wails["setFullscreen"] as (v: boolean) => void)(fullscreen);
+    }
     return Promise.resolve();
   }
 
   async reloadKiosk(): Promise<void> {
     await apiReloadKiosk();
   }
+
+  quitApp(): Promise<void> {
+    const w = window as unknown as Record<string, unknown>;
+    const wails = w["wails"] as Record<string, unknown> | undefined;
+    if (typeof wails?.["quitApp"] === "function") {
+      (wails["quitApp"] as () => void)();
+    }
+    return Promise.resolve();
+  }
 }
 
-export const backendService: IBackendService = detectWails()
-  ? new WailsBackendService()
-  : new RemoteBackendService();
+class DynamicBackendService implements IBackendService {
+  private readonly wails = new WailsBackendService();
+  private readonly remote = new RemoteBackendService();
+
+  private get active(): IBackendService {
+    return detectWails() ? this.wails : this.remote;
+  }
+
+  get isWails(): boolean {
+    return detectWails();
+  }
+
+  getAppVariable() { return this.active.getAppVariable(); }
+  getTroubleshootInfo() { return this.active.getTroubleshootInfo(); }
+  getNetworkPrintingEnabled() { return this.active.getNetworkPrintingEnabled(); }
+  setNetworkPrintingEnabled(v: boolean) { return this.active.setNetworkPrintingEnabled(v); }
+  getAutostart() { return this.active.getAutostart(); }
+  setAutostart(v: boolean) { return this.active.setAutostart(v); }
+  getPrinters() { return this.active.getPrinters(); }
+  checkLANPrinterStatus(ip: string) { return this.active.checkLANPrinterStatus(ip); }
+  addLANPrinter(ip: string) { return this.active.addLANPrinter(ip); }
+  removeLANPrinter(ip: string) { return this.active.removeLANPrinter(ip); }
+  testPrint(printer: Printer | ApiPrinter) { return this.active.testPrint(printer); }
+  openCashDrawer(printer: Printer | ApiPrinter) { return this.active.openCashDrawer(printer); }
+  getWebViewConfig() { return this.active.getWebViewConfig(); }
+  setWebViewURL(url: string) { return this.active.setWebViewURL(url); }
+  setWebViewEnabled(enabled: boolean) { return this.active.setWebViewEnabled(enabled); }
+  setWebViewPIN(pin: string) { return this.active.setWebViewPIN(pin); }
+  validatePIN(pin: string) { return this.active.validatePIN(pin); }
+  setWindowFullscreen(fullscreen: boolean) {
+    const w = window as unknown as Record<string, unknown>;
+    const wails = w["wails"] as Record<string, unknown> | undefined;
+    if (typeof wails?.["setFullscreen"] === "function") {
+      (wails["setFullscreen"] as (v: boolean) => void)(fullscreen);
+    }
+    return this.active.setWindowFullscreen(fullscreen);
+  }
+  reloadKiosk() { return this.active.reloadKiosk(); }
+  quitApp() { return this.active.quitApp(); }
+}
+
+export const backendService: IBackendService = new DynamicBackendService();

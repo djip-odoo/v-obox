@@ -1,13 +1,53 @@
-build/bin
-node_modules
-frontend/dist
+# Go
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+*.prof
+vendor/
 
-.DS_Store
+# Build output
+bin/
+build/bin/
+epos-proxy
 
-.idea/
-
-/frontend/wailsjs/
-.vscode/
+# Frontend / Node.js
+node_modules/
+frontend/dist/
+frontend/wailsjs/
 package.json.md5
 package-lock.json
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Wails build artifacts
+frontend/src/wailsjs/
+
+# Task runner
+.task/
+
+# Test / Coverage
 coverage.out
+coverage.html
+*.coverprofile
+
+# IDE / Editor
+.idea/
+.vscode/
+.vs/
+*.swp
+*.swo
+*~
+*.iml
+
+# OS
+.DS_Store
+Thumbs.db
+ehthumbs.db
+Desktop.ini

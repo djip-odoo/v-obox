@@ -30,7 +30,10 @@ import android.webkit.WebViewClient;
 import android.webkit.WebChromeClient;
 import android.webkit.ConsoleMessage;
 
+import android.view.KeyEvent;
+import android.view.MotionEvent;
 import android.view.View;
+import android.view.WindowManager;
 import androidx.annotation.Nullable;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.content.FileProvider;
@@ -767,6 +770,9 @@ public class MainActivity extends AppCompatActivity {
     @Override
     protected void onResume() {
         super.onResume();
+        if (isKioskFullscreen) {
+            setFullscreenMode(true);
+        }
         if (bridge != null) {
             bridge.onResume();
         }
@@ -818,6 +824,18 @@ public class MainActivity extends AppCompatActivity {
         this.isKioskFullscreen = fullscreen;
         runOnUiThread(() -> {
             try {
+                if (fullscreen) {
+                    getWindow().addFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN);
+                    getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                        getWindow().getAttributes().layoutInDisplayCutoutMode =
+                            WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES;
+                    }
+                } else {
+                    getWindow().clearFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN);
+                    getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+                }
+
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                     WindowInsetsControllerCompat controller = WindowCompat.getInsetsController(getWindow(), getWindow().getDecorView());
                     if (controller != null) {
@@ -826,21 +844,42 @@ public class MainActivity extends AppCompatActivity {
                             controller.setSystemBarsBehavior(WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE);
                         } else {
                             controller.show(WindowInsetsCompat.Type.systemBars());
+                            controller.setSystemBarsBehavior(WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE);
                         }
                     }
                 } else {
                     View decorView = getWindow().getDecorView();
                     if (fullscreen) {
-                        decorView.setSystemUiVisibility(
-                            View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+                        int flags = View.SYSTEM_UI_FLAG_LAYOUT_STABLE
                             | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
                             | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
                             | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
                             | View.SYSTEM_UI_FLAG_FULLSCREEN
-                            | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
-                        );
+                            | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY;
+                        decorView.setSystemUiVisibility(flags);
+                        decorView.setOnSystemUiVisibilityChangeListener(visibility -> {
+                            if ((visibility & View.SYSTEM_UI_FLAG_FULLSCREEN) == 0 && isKioskFullscreen) {
+                                decorView.setSystemUiVisibility(flags);
+                            }
+                        });
                     } else {
+                        decorView.setOnSystemUiVisibilityChangeListener(null);
                         decorView.setSystemUiVisibility(View.SYSTEM_UI_FLAG_VISIBLE);
+                    }
+                }
+
+                if (fullscreen) {
+                    collapseStatusBar();
+                    try {
+                        startLockTask();
+                    } catch (Exception e) {
+                        Log.w(TAG, "startLockTask warning: " + e.getMessage());
+                    }
+                } else {
+                    try {
+                        stopLockTask();
+                    } catch (Exception e) {
+                        Log.w(TAG, "stopLockTask warning: " + e.getMessage());
                     }
                 }
             } catch (Exception e) {
@@ -849,10 +888,53 @@ public class MainActivity extends AppCompatActivity {
         });
     }
 
+    private void collapseStatusBar() {
+        try {
+            @SuppressLint("WrongConstant") Object service = getSystemService("statusbar");
+            if (service != null) {
+                Class<?> statusbarManager = Class.forName("android.app.StatusBarManager");
+                java.lang.reflect.Method collapse = statusbarManager.getMethod("collapsePanels");
+                collapse.invoke(service);
+            }
+        } catch (Exception ignored) {}
+    }
+
+    @Override
+    public boolean dispatchTouchEvent(MotionEvent ev) {
+        if (isKioskFullscreen) {
+            float y = ev.getRawY();
+            int screenHeight = getResources().getDisplayMetrics().heightPixels;
+            // Block top edge pulldown and bottom edge navigation gestures
+            if (y < 150 || y > (screenHeight - 150)) {
+                collapseStatusBar();
+            }
+        }
+        return super.dispatchTouchEvent(ev);
+    }
+
+    @Override
+    public boolean dispatchKeyEvent(KeyEvent event) {
+        if (isKioskFullscreen) {
+            int keyCode = event.getKeyCode();
+            if (keyCode == KeyEvent.KEYCODE_BACK ||
+                keyCode == KeyEvent.KEYCODE_HOME ||
+                keyCode == KeyEvent.KEYCODE_APP_SWITCH) {
+                return true;
+            }
+        }
+        return super.dispatchKeyEvent(event);
+    }
+
     @Override
     public void onWindowFocusChanged(boolean hasFocus) {
         super.onWindowFocusChanged(hasFocus);
-        if (hasFocus && isKioskFullscreen) {
+        if (isKioskFullscreen) {
+            if (!hasFocus) {
+                collapseStatusBar();
+                try {
+                    sendBroadcast(new Intent(Intent.ACTION_CLOSE_SYSTEM_DIALOGS));
+                } catch (Exception ignored) {}
+            }
             setFullscreenMode(true);
         }
     }
