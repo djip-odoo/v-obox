@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=epos-proxy
+Exec=epos-proxy
+Icon=epos-proxy
+Categories=Development;
+Terminal=false
+Keywords=wails
+Version=1.0
+StartupNotify=false
