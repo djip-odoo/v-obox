@@ -1,6 +1,7 @@
 package printer
 
 import (
+	"encoding/base64"
 	"fmt"
 	"net"
 	"strings"
@@ -60,4 +61,25 @@ func ValidateIPAddress(ip string) (string, error) {
 	}
 
 	return ip, nil
+}
+
+func EncodeLANPrinterID(ip string) string {
+	return base64.RawURLEncoding.EncodeToString([]byte("l:" + ip))
+}
+
+func DecodeLANPrinterID(id string) (string, bool) {
+	decoded, err := base64.RawURLEncoding.DecodeString(id)
+	if err != nil {
+		return "", false
+	}
+
+	if len(decoded) < 3 || decoded[1] != ':' {
+		return "", false
+	}
+
+	if decoded[0] != 'l' {
+		return "", false
+	}
+
+	return string(decoded[2:]), true
 }

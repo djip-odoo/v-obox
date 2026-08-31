@@ -23,7 +23,7 @@
     "allowJs": true,
   },
   "exclude": ["node_modules", "**/*.spec.ts"],
-  "include": ["src/**/*", "wailsjs/**/*.ts"],
+  "include": ["src/**/*", "bindings/**/*"],
   "references": [
     {
       "path": "./tsconfig.node.json"

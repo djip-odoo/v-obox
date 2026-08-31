@@ -6,7 +6,7 @@ import {
   useRef,
   useState,
 } from "react";
-import { EventsOn } from "../../wailsjs/runtime/runtime";
+import { Events } from "@wailsio/runtime";
 import { AppContext } from "./AppContext";
 import { backendService } from "../services/backend";
 
@@ -80,7 +80,8 @@ export const WebViewContextWrapper = ({
   useEffect(() => {
     if (!isWails) return;
 
-    const unsubKiosk = EventsOn("kiosk-state-changed", async (enabled: boolean) => {
+    const unsubKiosk = Events.On("kiosk-state-changed", async (ev: { data: boolean }) => {
+      const enabled = ev.data;
       setIsKioskActive(enabled);
       await backendService.setWindowFullscreen(enabled);
       try {
@@ -91,7 +92,7 @@ export const WebViewContextWrapper = ({
       }
     });
 
-    const unsubConfig = EventsOn("webview-config-changed", async () => {
+    const unsubConfig = Events.On("webview-config-changed", async () => {
       try {
         const cfg = await backendService.getWebViewConfig();
         setConfig(cfg);
@@ -100,7 +101,7 @@ export const WebViewContextWrapper = ({
       }
     });
 
-    const unsubReload = EventsOn("kiosk-reload", () => {
+    const unsubReload = Events.On("kiosk-reload", () => {
       setReloadNonce((n) => n + 1);
     });
 

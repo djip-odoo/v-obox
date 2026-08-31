@@ -1,6 +1,6 @@
-import type { main } from "../../../wailsjs/go/models";
+import type { TroubleshootInfo } from "../../types/models";
 
-export function getWindowsSteps(info: main.TroubleshootInfo) {
+export function getWindowsSteps(info: TroubleshootInfo) {
   return [
     ...defaultSteps(info),
     {
@@ -12,7 +12,7 @@ export function getWindowsSteps(info: main.TroubleshootInfo) {
   ];
 }
 
-export function getMacSteps(info: main.TroubleshootInfo) {
+export function getMacSteps(info: TroubleshootInfo) {
   return [
     ...defaultSteps(info),
     {
@@ -24,7 +24,7 @@ export function getMacSteps(info: main.TroubleshootInfo) {
   ];
 }
 
-function linuxFirewalldSteps(info: main.TroubleshootInfo) {
+function linuxFirewalldSteps(info: TroubleshootInfo) {
   const { port, firewallZone } = info;
   return [
     ...defaultSteps(info),
@@ -37,7 +37,7 @@ function linuxFirewalldSteps(info: main.TroubleshootInfo) {
   ];
 }
 
-function linuxUfwSteps(info: main.TroubleshootInfo) {
+function linuxUfwSteps(info: TroubleshootInfo) {
   const { port, subnet } = info;
 
   return [
@@ -51,7 +51,7 @@ function linuxUfwSteps(info: main.TroubleshootInfo) {
   ];
 }
 
-function linuxNftablesSteps(info: main.TroubleshootInfo) {
+function linuxNftablesSteps(info: TroubleshootInfo) {
   const { port, subnet } = info;
   return [
     ...defaultSteps(info),
@@ -64,7 +64,7 @@ function linuxNftablesSteps(info: main.TroubleshootInfo) {
   ];
 }
 
-function linuxNoFirewallSteps(info: main.TroubleshootInfo) {
+function linuxNoFirewallSteps(info: TroubleshootInfo) {
   return [
     ...defaultSteps(info),
     {
@@ -75,7 +75,7 @@ function linuxNoFirewallSteps(info: main.TroubleshootInfo) {
   ];
 }
 
-function defaultSteps({ localIp, port }: main.TroubleshootInfo) {
+function defaultSteps({ localIp, port }: TroubleshootInfo) {
   return [
     {
       title: "Check Proxy Server Accessibility",
@@ -88,7 +88,7 @@ export function staticIpAdvice(localIp: string) {
   return `To ensure your printer connection never breaks, *reserve a fixed / static IP* for this computer (*${localIp}*) in your router's DHCP settings.\nAfter changing it, restart the app before configuring your POS device.`;
 }
 
-function networkSteps({ localIp, port }: main.TroubleshootInfo) {
+function networkSteps({ localIp, port }: TroubleshootInfo) {
   return [
     {
       title: "Check Network & Wi-Fi Connection",
@@ -101,7 +101,7 @@ function networkSteps({ localIp, port }: main.TroubleshootInfo) {
   ];
 }
 
-export function getLinuxSteps(info: main.TroubleshootInfo) {
+export function getLinuxSteps(info: TroubleshootInfo) {
   if (info.activeFirewall === "firewalld") {
     return linuxFirewalldSteps(info);
   }

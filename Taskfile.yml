@@ -5,6 +5,10 @@ vars:
   BIN_DIR: "bin"
   PACKAGE_MANAGER: '{{.PACKAGE_MANAGER | default "npm"}}'
   VITE_PORT: '{{.WAILS_VITE_PORT | default 9245}}'
+  # Target OS for build/package/run. Defaults to the host OS, and is overridden
+  # by `wails3 build GOOS=...` (or the GOOS env var) for cross-compilation. The
+  # tasks below dispatch to the matching platform Taskfile via this variable.
+  GOOS: '{{.GOOS | default OS}}'
 
 includes:
   common: ./build/Taskfile.yml
@@ -18,17 +22,17 @@ tasks:
   build:
     summary: Builds the application
     cmds:
-      - task: "{{OS}}:build"
+      - task: "{{.GOOS}}:build"
 
   package:
     summary: Packages a production build of the application
     cmds:
-      - task: "{{OS}}:package"
+      - task: "{{.GOOS}}:package"
 
   run:
     summary: Runs the application
     cmds:
-      - task: "{{OS}}:run"
+      - task: "{{.GOOS}}:run"
 
   dev:
     summary: Runs the application in development mode
@@ -59,24 +63,3 @@ tasks:
     summary: Builds and runs the Docker image
     cmds:
       - task: common:run:docker
-
-  build:android:
-    summary: Builds the application for Android (debug)
-    cmds:
-      - task: android:build
-
-  run:android:
-    summary: Builds, installs, and runs the application on Android emulator/device
-    cmds:
-      - task: android:run
-
-  run:device:
-    summary: Builds, installs, and runs the application on connected physical Android device (armeabi-v7a)
-    cmds:
-      - task: android:run:device
-
-  package:android:
-    summary: Packages a production release APK for Android
-    cmds:
-      - task: android:package
-

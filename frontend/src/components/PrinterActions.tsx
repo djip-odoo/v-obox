@@ -1,13 +1,13 @@
 import { useContext, useState } from "react";
 import { ToastContext } from "../contexts/ToastContext";
-import { main } from "../../wailsjs/go/models";
+import { Printer } from "../types/models";
 import { errorText } from "../error";
 import { usePINGate } from "../hooks/usePINGate";
 import { useClipboard } from "../hooks/useClipboard";
 import { backendService } from "../services/backend";
 
 interface PrinterActionsProps {
-  printer: main.Printer;
+  printer: Printer;
 }
 
 export default function PrinterActions({ printer }: PrinterActionsProps) {

@@ -1,14 +1,25 @@
 import { createContext, useContext, useEffect, useState } from "react";
-import { main } from "../../wailsjs/go/models";
-import { GetSessionToken } from "../../wailsjs/go/main/App";
+// @ts-ignore: Wails v3 generated JS bindings
+import * as WailsApp from "../../bindings/epos-proxy/app.js";
 import { setWailsToken } from "../api/authState";
 import { backendService } from "../services/backend";
 import { ApiAppVariable } from "../api/client";
+import { AppVariable } from "../types/models";
 
 export function detectWails(): boolean {
-  return (
-    typeof window !== "undefined" &&
-    !!(window as unknown as Record<string, unknown>)["go"]
+  if (typeof window === "undefined") return false;
+  const w = window as unknown as Record<string, unknown>;
+  const chrome = w["chrome"] as Record<string, unknown> | undefined;
+  const webview = chrome?.["webview"] as Record<string, unknown> | undefined;
+  const webkit = w["webkit"] as Record<string, unknown> | undefined;
+  const msgHandlers = webkit?.["messageHandlers"] as Record<string, unknown> | undefined;
+  const wails = w["wails"] as Record<string, unknown> | undefined;
+
+  return Boolean(
+    webview?.["postMessage"] ||
+    (msgHandlers?.["external"] as Record<string, unknown> | undefined)?.["postMessage"] ||
+    (msgHandlers?.["wails"] as Record<string, unknown> | undefined)?.["postMessage"] ||
+    wails?.["invoke"]
   );
 }
 
@@ -20,7 +31,7 @@ export type AppContextType = {
     isWails: boolean;
     ready: boolean;
     serverURL: string | null;
-    app: main.AppVariable | ApiAppVariable | null;
+    app: AppVariable | ApiAppVariable | null;
     os: string | null;
     isWindows: boolean;
     isMac: boolean;
@@ -43,8 +54,8 @@ interface AppContextWrapperProps {
 export const AppContextWrapper = ({ children }: AppContextWrapperProps) => {
   const isWails = detectWails();
   const [ready, setReady] = useState(!isWails);
-  const [app, setApp] = useState<main.AppVariable | ApiAppVariable | null>(null);
-  const [serverURL, setServerURL] = useState<string | null>(
+  const [app, setApp] = useState<AppVariable | ApiAppVariable | null>(null);
+  const [serverURL] = useState<string | null>(
     isWails ? null : typeof window !== "undefined" ? window.location.origin : null,
   );
 
@@ -66,14 +77,14 @@ export const AppContextWrapper = ({ children }: AppContextWrapperProps) => {
   useEffect(() => {
     if (!isWails) return;
 
-    GetSessionToken()
-      .then((token) => {
+    WailsApp.GetSessionToken()
+      .then((token: string) => {
         if (token) {
           setWailsToken(token);
         }
         setReady(true);
       })
-      .catch((err) => {
+      .catch((err: unknown) => {
         console.error("Failed to get Wails session token:", err);
         setReady(true);
       });

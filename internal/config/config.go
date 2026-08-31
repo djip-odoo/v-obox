@@ -45,16 +45,27 @@ type Manager struct {
 	Data AppConfig
 }
 
-func NewManager() (*Manager, error) {
+func getBaseConfigDir() string {
 	base, err := os.UserConfigDir()
-	if err != nil {
-		return nil, fmt.Errorf("cannot locate user config dir: %w", err)
+	if err == nil && base != "" {
+		return base
 	}
+	if filesDir := os.Getenv("FILES_DIR"); filesDir != "" {
+		return filesDir
+	}
+	if home := os.Getenv("HOME"); home != "" {
+		return home
+	}
+	if _, err := os.Stat("/data/data/com.wails.app/files"); err == nil {
+		return "/data/data/com.wails.app/files"
+	}
+	return os.TempDir()
+}
 
+func NewManager() (*Manager, error) {
+	base := getBaseConfigDir()
 	dir := filepath.Join(base, AppName)
-	if err := os.MkdirAll(dir, 0755); err != nil {
-		return nil, fmt.Errorf("cannot create config dir: %w", err)
-	}
+	_ = os.MkdirAll(dir, 0755)
 
 	return &Manager{
 		path: filepath.Join(dir, "config.json"),

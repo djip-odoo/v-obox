@@ -112,7 +112,6 @@ public class WailsBridge {
 
     // Native methods - implemented in Go
     private static native void nativeInit(WailsBridge bridge);
-    private static native void nativeInitPrinterBridge(WailsBridge bridge);
     private static native void nativeShutdown();
     private static native void nativeOnStart();
     private static native void nativeOnResume();
@@ -144,7 +143,6 @@ public class WailsBridge {
         }
         try {
             nativeInit(this);
-            nativeInitPrinterBridge(this);
             initialized = true;
             Log.i(TAG, "Wails bridge initialized");
         } catch (Exception e) {

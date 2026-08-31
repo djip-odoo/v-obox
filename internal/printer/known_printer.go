@@ -1,3 +1,5 @@
+//go:build !android
+
 package printer
 
 import (
@@ -5,14 +7,6 @@ import (
 	"strings"
 
 	"github.com/google/gousb"
-)
-
-// Type is what a printer produces, which decides how job data is framed.
-type Type string
-
-const (
-	TypeReceipt Type = "receipt"
-	TypeLabel   Type = "label"
 )
 
 // Some thermal printers do not expose the standard USB printer class (0x07)
