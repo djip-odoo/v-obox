@@ -270,6 +270,16 @@ func (s *Server) handleSetWebViewEnabled(c fiber.Ctx) error {
 	return c.JSON(fiber.Map{"ok": true})
 }
 
+func (s *Server) handleReloadWebView(c fiber.Ctx) error {
+	s.mu.RLock()
+	cb := s.onKioskReload
+	s.mu.RUnlock()
+	if cb != nil {
+		cb()
+	}
+	return c.JSON(fiber.Map{"ok": true})
+}
+
 // ── Privileged print-test / cash-drawer routes ────────────────────────────────
 
 func (s *Server) handleTestPrint(c fiber.Ctx) error {

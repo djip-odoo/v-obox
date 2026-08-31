@@ -312,4 +312,17 @@ func TestServer_AuthAndPrivilegedRoutes(t *testing.T) {
 	testutil.ExpectedNoError(t, err)
 	testutil.ExpectedEqual(t, respBearer.StatusCode, http.StatusOK)
 	testutil.ExpectedTrue(t, cfg.GetWebViewEnabled())
+
+	// 6. Reload kiosk callback with Bearer token
+	reloadCalled := false
+	s.SetKioskReloadCallback(func() {
+		reloadCalled = true
+	})
+
+	reqReload := httptest.NewRequest("POST", "/api/webview/reload", nil)
+	reqReload.Header.Set("Authorization", "Bearer "+token)
+	respReload, err := s.app.Test(reqReload)
+	testutil.ExpectedNoError(t, err)
+	testutil.ExpectedEqual(t, respReload.StatusCode, http.StatusOK)
+	testutil.ExpectedTrue(t, reloadCalled)
 }

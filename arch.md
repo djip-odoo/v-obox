@@ -167,6 +167,7 @@ The application starts an embedded **Fiber v3** server on a dynamically resolved
 | `POST` | `/api/printers/:printerId/cash-drawer` | **Yes** | Send cash drawer kick pulse |
 | `POST` | `/api/webview/url` | **Yes** | Update Kiosk target URL |
 | `POST` | `/api/webview/enabled` | **Yes** | Enable or disable Desktop Kiosk mode remotely |
+| `POST` | `/api/webview/reload` | **Yes** | Broadcast reload event to active desktop kiosk screen |
 
 #### Authentication Mechanism (`RequireAuth`)
 - **Desktop Wails App**: On startup, Go generates a cryptographically secure UUID `sessionToken`. Wails sends this token via header `X-Wails-Token`. It is trusted unconditionally without prompting the user.

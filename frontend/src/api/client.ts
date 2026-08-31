@@ -214,3 +214,7 @@ export function apiCashDrawer(printerId: string): Promise<{ ok: boolean }> {
     true,
   );
 }
+
+export function apiReloadKiosk(): Promise<{ ok: boolean }> {
+  return apiPost<{ ok: boolean }>("/api/webview/reload", {}, true);
+}

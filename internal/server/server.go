@@ -40,6 +40,7 @@ type Server struct {
 	sessions        map[string]bool // active PIN-auth session tokens (remote clients)
 	onKioskChanged  func(enabled bool)
 	onConfigChanged func()
+	onKioskReload   func()
 }
 
 // SetKioskCallback registers a callback invoked when kiosk enabled status changes via HTTP API.
@@ -54,6 +55,13 @@ func (s *Server) SetConfigCallback(cb func()) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.onConfigChanged = cb
+}
+
+// SetKioskReloadCallback registers a callback invoked when kiosk reload is requested via HTTP API.
+func (s *Server) SetKioskReloadCallback(cb func()) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.onKioskReload = cb
 }
 
 // SetSessionToken registers the trusted Wails session token.
@@ -145,6 +153,7 @@ func New(port int, mgr *printer.Manager, cfg *config.Manager, distFS fs.FS) *Ser
 	app.Delete("/api/printers/lan", srv.requireAuth, srv.handleRemoveLANPrinter)
 	app.Post("/api/webview/url", srv.requireAuth, srv.handleSetWebViewURL)
 	app.Post("/api/webview/enabled", srv.requireAuth, srv.handleSetWebViewEnabled)
+	app.Post("/api/webview/reload", srv.requireAuth, srv.handleReloadWebView)
 
 	// Test-print / cash-drawer via proxy — privileged so random remote callers
 	// can't trigger prints, while Odoo POS continues to use the open /p/…

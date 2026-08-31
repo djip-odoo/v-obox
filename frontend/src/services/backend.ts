@@ -36,6 +36,7 @@ import {
   ApiPrintersResponse,
   ApiTroubleshootInfo,
   ApiWebViewConfig,
+  apiReloadKiosk,
 } from "../api/client";
 import { executePrint } from "../functions/executePrint";
 import { main } from "../../wailsjs/go/models";
@@ -66,6 +67,7 @@ export interface IBackendService {
   setWebViewPIN(pin: string): Promise<void>;
   validatePIN(pin: string): Promise<boolean>;
   setWindowFullscreen(fullscreen: boolean): Promise<void>;
+  reloadKiosk(): Promise<void>;
 }
 
 class WailsBackendService implements IBackendService {
@@ -148,6 +150,14 @@ class WailsBackendService implements IBackendService {
   setWindowFullscreen(fullscreen: boolean): Promise<void> {
     return SetWindowFullscreen(fullscreen);
   }
+
+  reloadKiosk(): Promise<void> {
+    const wailsApp = (window as unknown as { go?: { main?: { App?: { ReloadKiosk?: () => Promise<void> } } } })?.go?.main?.App;
+    if (wailsApp?.ReloadKiosk) {
+      return wailsApp.ReloadKiosk();
+    }
+    return Promise.resolve();
+  }
 }
 
 class RemoteBackendService implements IBackendService {
@@ -224,6 +234,10 @@ class RemoteBackendService implements IBackendService {
 
   setWindowFullscreen(): Promise<void> {
     return Promise.resolve();
+  }
+
+  async reloadKiosk(): Promise<void> {
+    await apiReloadKiosk();
   }
 }
 

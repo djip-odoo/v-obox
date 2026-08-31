@@ -170,6 +170,11 @@ func (a *App) startup(ctx context.Context) {
 			wailsruntime.EventsEmit(a.ctx, "webview-config-changed")
 		}
 	})
+	a.webserver.SetKioskReloadCallback(func() {
+		if a.ctx != nil {
+			wailsruntime.EventsEmit(a.ctx, "kiosk-reload")
+		}
+	})
 }
 
 func (a *App) shutdown(ctx context.Context) {
@@ -337,6 +342,13 @@ func (a *App) SetWindowFullscreen(fullscreen bool) {
 			wailsruntime.MenuSetApplicationMenu(a.ctx, a.appMenu)
 			wailsruntime.MenuUpdateApplicationMenu(a.ctx)
 		}
+	}
+}
+
+// ReloadKiosk broadcasts a kiosk-reload event to reload the active kiosk iframe.
+func (a *App) ReloadKiosk() {
+	if a.ctx != nil {
+		wailsruntime.EventsEmit(a.ctx, "kiosk-reload")
 	}
 }
 

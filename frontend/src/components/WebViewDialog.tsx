@@ -202,19 +202,24 @@ export default function WebViewDialog() {
     }
   };
 
-  const handleReload = () => {
+  const handleReload = async () => {
     setReloading(true);
 
-    actions.reloadKiosk();
-
-    setTimeout(() => {
-      setReloading(false);
-    }, 600);
-
-    toastContext.actions.showToast(
-      "Kiosk view reloaded",
-      "success"
-    );
+    try {
+      const res = await gate(async () => {
+        await actions.reloadKiosk();
+        return true;
+      });
+      if (res) {
+        toastContext.actions.showToast("Kiosk view reloaded", "success");
+      }
+    } catch {
+      toastContext.actions.showToast("Failed to reload kiosk", "danger");
+    } finally {
+      setTimeout(() => {
+        setReloading(false);
+      }, 600);
+    }
   };
 
   const cleanup = () => {

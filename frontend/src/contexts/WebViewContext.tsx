@@ -100,9 +100,14 @@ export const WebViewContextWrapper = ({
       }
     });
 
+    const unsubReload = EventsOn("kiosk-reload", () => {
+      setReloadNonce((n) => n + 1);
+    });
+
     return () => {
       unsubKiosk();
       unsubConfig();
+      unsubReload();
     };
   }, [isWails]);
 
@@ -138,8 +143,13 @@ export const WebViewContextWrapper = ({
     await toggleEnabled(false);
   };
 
-  const reloadKiosk = () => {
+  const reloadKiosk = async () => {
     setReloadNonce((n) => n + 1);
+    try {
+      await backendService.reloadKiosk();
+    } catch (err) {
+      console.error("Failed to trigger kiosk reload:", err);
+    }
   };
 
   const validatePIN = async (pin: string): Promise<boolean> => {
