@@ -13,18 +13,26 @@ var log = logrus.New()
 var logDir string
 
 func getBaseDir() string {
+	if filesDir := os.Getenv("FILES_DIR"); filesDir != "" {
+		return filesDir
+	}
 	dir, err := os.UserConfigDir()
 	if err == nil && dir != "" {
 		return dir
 	}
-	if filesDir := os.Getenv("FILES_DIR"); filesDir != "" {
-		return filesDir
-	}
 	if home := os.Getenv("HOME"); home != "" {
 		return home
 	}
-	if _, err := os.Stat("/data/data/com.wails.app/files"); err == nil {
-		return "/data/data/com.wails.app/files"
+	candidates := []string{
+		"/data/user/0/com.wails.app/files",
+		"/data/data/com.wails.app/files",
+		"/data/user/0/com.wails.app/cache",
+		"/data/data/com.wails.app/cache",
+	}
+	for _, c := range candidates {
+		if fi, err := os.Stat(c); err == nil && fi.IsDir() {
+			return c
+		}
 	}
 	return os.TempDir()
 }

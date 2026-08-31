@@ -38,6 +38,7 @@ pnpm-lock.yaml
 .npm/
 .eslintcache
 .vite/
+frontend/bindings
 
 # ─── Android Build Artifacts ─────────────────────────────────────────────────
 .gradle/

@@ -1,6 +1,7 @@
 package com.wails.app;
 
 import android.app.Activity;
+import java.io.File;
 import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
@@ -146,6 +147,23 @@ public class WailsBridge {
             return;
         }
         try {
+            if (activity != null) {
+                File filesDir = activity.getFilesDir();
+                if (filesDir != null) {
+                    if (!filesDir.exists()) filesDir.mkdirs();
+                    try {
+                        android.system.Os.setenv("FILES_DIR", filesDir.getAbsolutePath(), true);
+                        android.system.Os.setenv("HOME", filesDir.getAbsolutePath(), true);
+                    } catch (Exception ignored) {}
+                }
+                File cacheDir = activity.getCacheDir();
+                if (cacheDir != null) {
+                    if (!cacheDir.exists()) cacheDir.mkdirs();
+                    try {
+                        android.system.Os.setenv("TMPDIR", cacheDir.getAbsolutePath(), true);
+                    } catch (Exception ignored) {}
+                }
+            }
             nativeInit(this);
             initialized = true;
             Log.i(TAG, "Wails bridge initialized");

@@ -46,18 +46,26 @@ type Manager struct {
 }
 
 func getBaseConfigDir() string {
+	if filesDir := os.Getenv("FILES_DIR"); filesDir != "" {
+		return filesDir
+	}
 	base, err := os.UserConfigDir()
 	if err == nil && base != "" {
 		return base
 	}
-	if filesDir := os.Getenv("FILES_DIR"); filesDir != "" {
-		return filesDir
-	}
 	if home := os.Getenv("HOME"); home != "" {
 		return home
 	}
-	if _, err := os.Stat("/data/data/com.wails.app/files"); err == nil {
-		return "/data/data/com.wails.app/files"
+	candidates := []string{
+		"/data/user/0/com.wails.app/files",
+		"/data/data/com.wails.app/files",
+		"/data/user/0/com.wails.app/cache",
+		"/data/data/com.wails.app/cache",
+	}
+	for _, c := range candidates {
+		if fi, err := os.Stat(c); err == nil && fi.IsDir() {
+			return c
+		}
 	}
 	return os.TempDir()
 }
@@ -98,6 +106,10 @@ func (cm *Manager) Save() error {
 }
 
 func (cm *Manager) saveLocked() error {
+	dir := filepath.Dir(cm.path)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return fmt.Errorf("config dir error: %w", err)
+	}
 	data, err := json.MarshalIndent(cm.Data, "", "  ")
 	if err != nil {
 		return fmt.Errorf("config marshal error: %w", err)

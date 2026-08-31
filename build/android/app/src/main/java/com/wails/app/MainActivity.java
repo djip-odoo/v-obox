@@ -92,6 +92,21 @@ public class MainActivity extends AppCompatActivity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+
+        try {
+            File filesDir = getFilesDir();
+            if (filesDir != null) {
+                if (!filesDir.exists()) filesDir.mkdirs();
+                android.system.Os.setenv("FILES_DIR", filesDir.getAbsolutePath(), true);
+                android.system.Os.setenv("HOME", filesDir.getAbsolutePath(), true);
+            }
+            File cacheDir = getCacheDir();
+            if (cacheDir != null) {
+                if (!cacheDir.exists()) cacheDir.mkdirs();
+                android.system.Os.setenv("TMPDIR", cacheDir.getAbsolutePath(), true);
+            }
+        } catch (Exception ignored) {}
+
         setContentView(R.layout.activity_main);
 
         // Initialize the native Go library
