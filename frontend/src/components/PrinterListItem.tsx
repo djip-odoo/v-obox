@@ -1,9 +1,11 @@
 import { main } from "../../wailsjs/go/models";
 import { PrinterContext } from "../contexts/PrinterContext";
+import { RuntimeContext } from "../contexts/RuntimeContext";
 import { useContext } from "react";
 import PrinterActions from "./PrinterActions";
-import StepDialog from "./StepDialog";
+import LibusbFixDialog from "./LibusbFixDialog";
 import CloseButton from "./CloseButton";
+import { usePINGate } from "../hooks/usePINGate";
 
 type PrinterListItemProps =
   | {
@@ -20,6 +22,8 @@ export default function PrinterListItem({
   isOnline,
 }: PrinterListItemProps) {
   const printerContext = useContext(PrinterContext);
+  const { isWails } = useContext(RuntimeContext);
+  const gate = usePINGate();
 
   const getPrinterStatusClass = (printer: main.Printer) => {
     if (!printer.isLAN) {
@@ -44,6 +48,18 @@ export default function PrinterListItem({
     return error.toLowerCase().includes("libusb");
   };
 
+  const handleRemoveLAN = async (p: main.Printer) => {
+    await gate(async () => {
+      if (!isWails) {
+        const confirmed = window.confirm(
+          `Are you sure you want to remove the printer at ${p.lanIp}?`,
+        );
+        if (!confirmed) return;
+      }
+      await printerContext.actions.removeLanPrinter(p);
+    });
+  };
+
   return (
     <>
       {isOnline ? (
@@ -60,11 +76,11 @@ export default function PrinterListItem({
             </span>
             {printer.isLAN && (
               <CloseButton
-                onClick={() => printerContext.actions.removeLanPrinter(printer)}
+                onClick={() => handleRemoveLAN(printer)}
               />
             )}
           </div>
-          <div className="text-slate-600 mt-2 text-sm break-all">
+          <div className="text-gray-600 mt-2 text-sm break-all">
             {printer.ip}
           </div>
           <PrinterActions printer={printer} />
@@ -83,9 +99,7 @@ export default function PrinterListItem({
           <div className="text-danger mt-1 text-wrap">
             Unable to communicate with this printer: {printer.errorMsg}
           </div>
-          {hasLibUsbErrorFix(printer.errorMsg) && (
-            <StepDialog printerName={printer.name} />
-          )}
+          {hasLibUsbErrorFix(printer.errorMsg) && <LibusbFixDialog printerName={printer.name} />}
         </li>
       )}
     </>

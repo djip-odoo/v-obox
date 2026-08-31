@@ -3,30 +3,43 @@ import { createPortal } from "react-dom";
 import { useMountTransition } from "../hooks/useMountTransition";
 import CloseButton from "./CloseButton";
 
+export type ActionType = "primary" | "secondary" | "danger";
+
+export interface DialogAction {
+  name: string;
+  label: string;
+  onClick?: (helpers: { close: () => void }) => void | boolean | Promise<boolean | void>;
+  disabled?: boolean;
+  variant?: ActionType;
+  className?: string;
+}
+
 interface DialogProps {
   title: string;
-  validateText?: string;
   openButton?: React.ReactNode;
   children: React.ReactNode;
-  isValidateDisabled?: boolean;
-  validateCallback?: () => Promise<boolean>;
+  actions?: DialogAction[];
   onClose?: () => void;
   onOpen?: () => void;
+  showTitleDivider?: boolean;
+  /** Bump this value (e.g. a counter) to open the dialog programmatically, without an openButton. */
+  openSignal?: number;
 }
 
 export default function Dialog({
   title,
   children,
   openButton,
-  validateText,
-  isValidateDisabled,
-  validateCallback,
+  actions = [],
   onClose,
   onOpen,
+  showTitleDivider = false,
+  openSignal,
 }: DialogProps) {
   const [isOpen, setIsOpen] = useState(false);
-  const [isLoading, setIsLoading] = useState(false);
+  const [loadingAction, setLoadingAction] = useState<string | null>(null);
   const { mounted } = useMountTransition(isOpen);
+  const previousOpenSignal = useRef(openSignal);
 
   const close = () => {
     setIsOpen(false);
@@ -38,27 +51,37 @@ export default function Dialog({
     onOpen?.();
   };
 
-  const isValidating = useRef(false);
+  useEffect(() => {
+    if (openSignal === undefined || openSignal === previousOpenSignal.current) {
+      return;
+    }
 
-  const validate = async () => {
-    if (!validateCallback) {
+    previousOpenSignal.current = openSignal;
+    open();
+  }, [openSignal]);
+
+  const isExecuting = useRef(false);
+
+  const handleAction = async (action: DialogAction) => {
+    if (action.disabled || isExecuting.current) {
+      return;
+    }
+
+    if (!action.onClick) {
       close();
       return;
     }
 
-    if (isValidating.current) {
-      return;
-    }
-
-    isValidating.current = true;
-    setIsLoading(true);
+    isExecuting.current = true;
+    setLoadingAction(action.name);
     try {
-      if (await validateCallback()) {
+      const result = await action.onClick({ close });
+      if (result !== false) {
         close();
       }
     } finally {
-      isValidating.current = false;
-      setIsLoading(false);
+      isExecuting.current = false;
+      setLoadingAction(null);
     }
   };
 
@@ -81,8 +104,9 @@ export default function Dialog({
         return;
       }
 
-      if (validateText && !isValidateDisabled && !isLoading) {
-        validate();
+      const primaryAction = actions.find((action) => !action.disabled && action.variant !== "secondary");
+      if (primaryAction && !isExecuting.current) {
+        handleAction(primaryAction);
       }
     };
 
@@ -90,54 +114,71 @@ export default function Dialog({
     return () => {
       window.removeEventListener("keydown", handleKeyDown);
     };
-  }, [
-    isOpen,
-    isLoading,
-    isValidateDisabled,
-    validateText,
-    validateCallback,
-    onClose,
-  ]);
+  }, [isOpen, actions, onClose]);
 
   return (
     <>
-      {openButton && (
-        <div className="mt-6 text-center">
-          <div onClick={() => open()}>{openButton}</div>
-        </div>
-      )}
-
+      {openButton && <div onClick={() => open()} className="w-full">{openButton}</div>}
       {mounted &&
         createPortal(
           <div
-            className={`fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4 transition ${
+            className={`fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 transition ${
               isOpen
                 ? "opacity-100 duration-200 ease-out"
                 : "opacity-0 duration-150 ease-in"
             }`}
           >
             <div
-              className="absolute inset-0 bg-black/75"
+              className="absolute inset-0 bg-black/70 backdrop-blur-xs"
               onClick={() => close()}
             />
 
-            <div className="relative bg-white rounded-2xl w-full max-w-sm shadow-xl overflow-hidden p-6">
-              <div className="flex items-center justify-between mb-4">
-                <div className="text-lg font-medium">{title}</div>
+            <div
+              className={`relative bg-white rounded-t-2xl sm:rounded-2xl w-full max-w-full sm:max-w-md max-h-[92vh] sm:max-h-[calc(100vh-2rem)] shadow-2xl flex flex-col overflow-hidden transition-transform ${
+                isOpen ? "translate-y-0" : "translate-y-4 sm:translate-y-0"
+              }`}
+            >
+              {/* Header (fixed at top) */}
+              <div
+                className={`shrink-0 flex items-center justify-between px-4 sm:px-6 pt-4 sm:pt-5 pb-3 ${
+                  showTitleDivider ? "border-b border-gray-200" : ""
+                }`}
+              >
+                <div className="text-base sm:text-lg font-semibold text-gray-800">{title}</div>
                 <CloseButton onClick={() => close()} />
               </div>
-              <div>{children}</div>
-              <div className="">
-                {validateText && (
-                  <button
-                    disabled={isLoading || isValidateDisabled === true}
-                    className="w-full border rounded-lg px-4 py-2 cursor-pointer text-sm bg-odoo text-white hover:bg-odoo-dark disabled:opacity-50 disabled:cursor-not-allowed"
-                    onClick={() => validate()}
-                  >
-                    {isLoading ? "Loading..." : validateText}
-                  </button>
-                )}
+
+              {/* Scrollable Body */}
+              <div className="flex-1 overflow-y-auto overflow-x-hidden px-4 sm:px-6 py-2">
+                {children}
               </div>
+
+              {/* Action Buttons (fixed to bottom) */}
+              {actions.length > 0 && (
+                <div className="shrink-0 flex items-center gap-2 px-4 sm:px-6 py-3 sm:py-3.5 border-t border-gray-200/80 bg-gray-50/95 sm:rounded-b-2xl">
+                  {actions.map((action) => {
+                    const isActionLoading = loadingAction === action.name;
+                    const defaultVariantClass =
+                      action.variant === "secondary"
+                        ? "border border-gray-300 text-gray-700 bg-white hover:bg-gray-50"
+                        : action.variant === "danger"
+                          ? "border border-transparent bg-danger text-white hover:opacity-90"
+                          : "border border-transparent bg-odoo text-white hover:bg-odoo-dark";
+
+                    return (
+                      <button
+                        key={action.name}
+                        type="button"
+                        disabled={Boolean(action.disabled) || isActionLoading || Boolean(loadingAction)}
+                        className={action.className ?? `flex-1 rounded-lg px-3 sm:px-4 py-2 cursor-pointer text-xs sm:text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${defaultVariantClass}`}
+                        onClick={() => handleAction(action)}
+                      >
+                        {isActionLoading ? "Loading..." : action.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           </div>,
           document.body,

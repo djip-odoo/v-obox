@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"epos-proxy/internal/config"
 	"epos-proxy/internal/printer"
 	"epos-proxy/internal/testutil"
 )
@@ -16,7 +17,7 @@ import (
 func TestServer_Lifecycle(t *testing.T) {
 	port := testutil.GetFreePort(t)
 	mgr := printer.NewManager()
-	s := New(port, mgr)
+	s := New(port, mgr, nil, nil)
 	defer s.Stop()
 
 	testutil.ExpectedTrue(t, s.Running(), "Expected server to be running after New()")
@@ -37,7 +38,7 @@ func TestPrintData_ValidXML_Success(t *testing.T) {
 
 	port := testutil.GetFreePort(t)
 	mgr := printer.NewManager()
-	s := New(port, mgr)
+	s := New(port, mgr, nil, nil)
 	defer s.Stop()
 
 	printerID := printer.EncodeLANPrinterID("127.0.0.1")
@@ -59,7 +60,7 @@ func TestPrintData_ValidXML_Success(t *testing.T) {
 func TestPrintData_SchemaError(t *testing.T) {
 	port := testutil.GetFreePort(t)
 	mgr := printer.NewManager()
-	s := New(port, mgr)
+	s := New(port, mgr, nil, nil)
 	defer s.Stop()
 
 	invalidPayload := `<invalid>not-an-epos-print</invalid>`
@@ -79,7 +80,7 @@ func TestPrintData_SchemaError(t *testing.T) {
 func TestPrintData_UnreachablePrinter_EX_BADPORT(t *testing.T) {
 	port := testutil.GetFreePort(t)
 	mgr := printer.NewManager()
-	s := New(port, mgr)
+	s := New(port, mgr, nil, nil)
 	defer s.Stop()
 
 	// Use a non-existent USB printer serial that cannot be found
@@ -111,7 +112,7 @@ func TestPrintLabel_Success(t *testing.T) {
 
 	port := testutil.GetFreePort(t)
 	mgr := printer.NewManager()
-	s := New(port, mgr)
+	s := New(port, mgr, nil, nil)
 	defer s.Stop()
 
 	printerID := printer.EncodeLANPrinterID("127.0.0.1")
@@ -128,7 +129,7 @@ func TestPrintLabel_Success(t *testing.T) {
 func TestPrintLabel_EmptyBody_BadRequest(t *testing.T) {
 	port := testutil.GetFreePort(t)
 	mgr := printer.NewManager()
-	s := New(port, mgr)
+	s := New(port, mgr, nil, nil)
 	defer s.Stop()
 
 	req := httptest.NewRequest("POST", "/p/any-printer/pstprnt", bytes.NewReader([]byte{}))
@@ -140,7 +141,7 @@ func TestPrintLabel_EmptyBody_BadRequest(t *testing.T) {
 func TestPrintLabel_UnreachablePrinter_ServerError(t *testing.T) {
 	port := testutil.GetFreePort(t)
 	mgr := printer.NewManager()
-	s := New(port, mgr)
+	s := New(port, mgr, nil, nil)
 	defer s.Stop()
 
 	printerID := "czpOT05fRVhJU1RFTlRfU0VSSUFMCg"
@@ -157,7 +158,7 @@ func TestPrintLabel_UnreachablePrinter_ServerError(t *testing.T) {
 func TestCORSHeaders(t *testing.T) {
 	port := testutil.GetFreePort(t)
 	mgr := printer.NewManager()
-	s := New(port, mgr)
+	s := New(port, mgr, nil, nil)
 	defer s.Stop()
 
 	req := httptest.NewRequest("OPTIONS", "/cgi-bin/epos/service.cgi", nil)
@@ -198,7 +199,7 @@ func TestPrintData_AutoSelectRoute(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			port := testutil.GetFreePort(t)
 			mgr := printer.NewManager()
-			s := New(port, mgr)
+			s := New(port, mgr, nil, nil)
 			defer s.Stop()
 
 			req := httptest.NewRequest("POST", "/cgi-bin/epos/service.cgi", bytes.NewReader([]byte(tc.payload)))
@@ -215,4 +216,100 @@ func TestPrintData_AutoSelectRoute(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestServer_APIRoutes_ReadOnly(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	cfg, err := config.NewManager()
+	testutil.ExpectedNoError(t, err)
+
+	port := testutil.GetFreePort(t)
+	mgr := printer.NewManager()
+	s := New(port, mgr, cfg, nil)
+	defer s.Stop()
+
+	// 1. GET /api/app
+	reqApp := httptest.NewRequest("GET", "/api/app", nil)
+	respApp, err := s.app.Test(reqApp)
+	testutil.ExpectedNoError(t, err)
+	testutil.ExpectedEqual(t, respApp.StatusCode, http.StatusOK)
+
+	// 2. GET /api/printers
+	reqPrinters := httptest.NewRequest("GET", "/api/printers", nil)
+	respPrinters, err := s.app.Test(reqPrinters)
+	testutil.ExpectedNoError(t, err)
+	testutil.ExpectedEqual(t, respPrinters.StatusCode, http.StatusOK)
+
+	// 3. GET /api/webview
+	reqWebView := httptest.NewRequest("GET", "/api/webview", nil)
+	respWebView, err := s.app.Test(reqWebView)
+	testutil.ExpectedNoError(t, err)
+	testutil.ExpectedEqual(t, respWebView.StatusCode, http.StatusOK)
+
+	// 4. GET /api/troubleshoot
+	reqTrouble := httptest.NewRequest("GET", "/api/troubleshoot", nil)
+	respTrouble, err := s.app.Test(reqTrouble)
+	testutil.ExpectedNoError(t, err)
+	testutil.ExpectedEqual(t, respTrouble.StatusCode, http.StatusOK)
+}
+
+func TestServer_AuthAndPrivilegedRoutes(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	cfg, err := config.NewManager()
+	testutil.ExpectedNoError(t, err)
+	err = cfg.SetWebViewPIN("1234")
+	testutil.ExpectedNoError(t, err)
+
+	port := testutil.GetFreePort(t)
+	mgr := printer.NewManager()
+	s := New(port, mgr, cfg, nil)
+	defer s.Stop()
+
+	wailsToken := "trusted-wails-token-xyz"
+	s.SetSessionToken(wailsToken)
+
+	// 1. Privileged call without auth -> 401 Unauthorized
+	reqUnauth := httptest.NewRequest("POST", "/api/webview/url", bytes.NewReader([]byte(`{"url":"https://example.com"}`)))
+	reqUnauth.Header.Set("Content-Type", "application/json")
+	respUnauth, err := s.app.Test(reqUnauth)
+	testutil.ExpectedNoError(t, err)
+	testutil.ExpectedEqual(t, respUnauth.StatusCode, http.StatusUnauthorized)
+
+	// 2. Privileged call with Wails Token -> 200 OK
+	reqWails := httptest.NewRequest("POST", "/api/webview/url", bytes.NewReader([]byte(`{"url":"https://example.com"}`)))
+	reqWails.Header.Set("Content-Type", "application/json")
+	reqWails.Header.Set("X-Wails-Token", wailsToken)
+	respWails, err := s.app.Test(reqWails)
+	testutil.ExpectedNoError(t, err)
+	testutil.ExpectedEqual(t, respWails.StatusCode, http.StatusOK)
+	testutil.ExpectedEqual(t, cfg.GetWebViewURL(), "https://example.com")
+
+	// 3. Auth session: invalid PIN -> 401
+	reqAuthBad := httptest.NewRequest("POST", "/api/auth/session", bytes.NewReader([]byte(`{"pin":"0000"}`)))
+	reqAuthBad.Header.Set("Content-Type", "application/json")
+	respAuthBad, err := s.app.Test(reqAuthBad)
+	testutil.ExpectedNoError(t, err)
+	testutil.ExpectedEqual(t, respAuthBad.StatusCode, http.StatusUnauthorized)
+
+	// 4. Auth session: valid PIN -> 200 and return token
+	reqAuthGood := httptest.NewRequest("POST", "/api/auth/session", bytes.NewReader([]byte(`{"pin":"1234"}`)))
+	reqAuthGood.Header.Set("Content-Type", "application/json")
+	respAuthGood, err := s.app.Test(reqAuthGood)
+	testutil.ExpectedNoError(t, err)
+	testutil.ExpectedEqual(t, respAuthGood.StatusCode, http.StatusOK)
+
+	bodyAuth, _ := io.ReadAll(respAuthGood.Body)
+	testutil.ExpectedContains(t, string(bodyAuth), `"token":`)
+
+	// 5. Privileged call with Bearer token from session
+	token, ok := s.CreatePINSession("1234")
+	testutil.ExpectedTrue(t, ok)
+
+	reqBearer := httptest.NewRequest("POST", "/api/webview/enabled", bytes.NewReader([]byte(`{"enabled":true}`)))
+	reqBearer.Header.Set("Content-Type", "application/json")
+	reqBearer.Header.Set("Authorization", "Bearer "+token)
+	respBearer, err := s.app.Test(reqBearer)
+	testutil.ExpectedNoError(t, err)
+	testutil.ExpectedEqual(t, respBearer.StatusCode, http.StatusOK)
+	testutil.ExpectedTrue(t, cfg.GetWebViewEnabled())
 }

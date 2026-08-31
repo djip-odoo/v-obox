@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"io/fs"
 	"os"
 	"runtime"
 	"time"
@@ -12,8 +13,11 @@ import (
 	"epos-proxy/internal/printer"
 	"epos-proxy/internal/server"
 	"epos-proxy/internal/util"
+	"epos-proxy/override/menubar"
 
 	autostart "github.com/emersion/go-autostart"
+	"github.com/google/uuid"
+	"github.com/wailsapp/wails/v2/pkg/menu"
 	wailsruntime "github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
@@ -44,6 +48,8 @@ type App struct {
 	printerManager *printer.Manager
 	autoStart      *autostart.App
 	dialogs        dialoger
+	appMenu        *menu.Menu // stored so kiosk mode can hide/restore the menu bar
+	sessionToken   string     // trusted Wails-origin token set once in startup()
 }
 
 // dlg returns the dialog backend, defaulting to the Wails runtime so an App
@@ -85,8 +91,14 @@ type UnavailablePrinter struct {
 
 type AppVariable struct {
 	ServerRunning bool   `json:"serverRunning"`
-	DefaultIp     string `json:"defaultIp"`
 	Os            string `json:"os"`
+}
+
+// WebViewConfig is the public view of kiosk settings (PIN is never exposed).
+type WebViewConfig struct {
+	URL     string `json:"url"`
+	Enabled bool   `json:"enabled"`
+	HasPIN  bool   `json:"hasPIN"`
 }
 
 type Printers struct {
@@ -106,13 +118,6 @@ func NewApp() *App {
 	a.printerManager = printer.NewManager()
 	a.dialogs = runtimeDialogs{}
 
-	return a
-}
-
-func (a *App) startup(ctx context.Context) {
-	a.ctx = ctx
-	logger.Debugf("Application startup")
-
 	cfg, err := config.NewManager()
 	if err != nil {
 		logger.Fatalf("Config initialization failed: %v", err)
@@ -122,16 +127,49 @@ func (a *App) startup(ctx context.Context) {
 		logger.Warnf("Config load warning: %v", err)
 	}
 
-	logger.Debugf("Config loaded from %s", cfg.Path())
-
 	a.config = cfg
 
-	port, err := cfg.ResolvePort()
+	return a
+}
+
+func (a *App) startup(ctx context.Context) {
+	a.ctx = ctx
+	logger.Debugf("Application startup")
+	logger.Debugf("Config loaded from %s", a.config.Path())
+
+	port, err := a.config.ResolvePort()
 	if err != nil {
 		logger.Warn("Unable to resolve port, using default")
 	}
 
-	a.webserver = server.New(port, a.printerManager)
+	// Build a sub-FS rooted at frontend/dist for the embedded SPA.
+	var distFS fs.FS
+	subFS, fsErr := fs.Sub(assets, "frontend/dist")
+	if fsErr != nil {
+		logger.Warnf("Could not create distFS sub: %v", fsErr)
+	} else {
+		distFS = subFS
+	}
+
+	a.webserver = server.New(port, a.printerManager, a.config, distFS)
+
+	// Generate a unique session token that identifies requests from this
+	// trusted Wails process. The remote webview never has this token.
+	token := uuid.New().String()
+	a.sessionToken = token
+	a.webserver.SetSessionToken(token)
+
+	// Notify the desktop frontend when kiosk status or config is modified remotely
+	a.webserver.SetKioskCallback(func(enabled bool) {
+		if a.ctx != nil {
+			wailsruntime.EventsEmit(a.ctx, "kiosk-state-changed", enabled)
+		}
+	})
+	a.webserver.SetConfigCallback(func() {
+		if a.ctx != nil {
+			wailsruntime.EventsEmit(a.ctx, "webview-config-changed")
+		}
+	})
 }
 
 func (a *App) shutdown(ctx context.Context) {
@@ -146,14 +184,20 @@ func (a *App) AppVariable() AppVariable {
 	return AppVariable{
 		Os:            runtime.GOOS,
 		ServerRunning: a.webserver.Running(),
-		DefaultIp:     fmt.Sprintf("127.0.0.1:%d", a.webserver.Port),
 	}
 }
 
-func (a *App) GetPrinterIp(id string) string {
-	ip := fmt.Sprintf("127.0.0.1:%d/p/%s", a.webserver.Port, id)
-	logger.Debugf("Generated printer endpoint: %s", ip)
-	return ip
+// GetSessionToken returns the per-launch session token that identifies HTTP
+// requests from this trusted Wails process. Called once by the frontend on
+// startup; the token is never embedded in the built JS bundle.
+func (a *App) GetSessionToken() string {
+	return a.sessionToken
+}
+
+func (a *App) GetPrinterUrl(id string) string {
+	url := fmt.Sprintf("%s:%d/p/%s", util.GetLocalIP(a.config.IsNetworkPrintingEnabled()), a.webserver.Port, id)
+	logger.Debugf("Generated printer endpoint: %s", url)
+	return url
 }
 
 func (a *App) Printers() Printers {
@@ -165,7 +209,6 @@ func (a *App) Printers() Printers {
 
 	printerInfos, err := printer.ListUSBPrinters()
 	errorMsg := ""
-
 	if err == nil {
 
 		logger.Debugf("Detected %d available USB printers", len(printerInfos.Available))
@@ -174,7 +217,7 @@ func (a *App) Printers() Printers {
 			printers = append(printers, Printer{
 				Id:     info.Id,
 				Name:   info.Name,
-				Ip:     a.GetPrinterIp(info.Id),
+				Ip:     a.GetPrinterUrl(info.Id),
 				Online: true,
 				Type:   string(info.Type),
 			})
@@ -199,7 +242,7 @@ func (a *App) Printers() Printers {
 		printers = append(printers, Printer{
 			Id:    info.Id,
 			Name:  fmt.Sprintf("Network - %s", info.IP),
-			Ip:    a.GetPrinterIp(info.Id),
+			Ip:    a.GetPrinterUrl(info.Id),
 			IsLAN: true,
 			LANIp: info.IP,
 			Type:  string(printer.TypeReceipt),
@@ -214,7 +257,6 @@ func (a *App) Printers() Printers {
 }
 
 func (a *App) AddLANPrinter(ip string) error {
-
 	logger.Debugf("Adding LAN printer: %s", ip)
 
 	ip, err := printer.ValidateIPAddress(ip)
@@ -231,12 +273,74 @@ func (a *App) AddLANPrinter(ip string) error {
 	}
 
 	logger.Debugf("LAN printer added successfully: %s", ip)
-
 	return nil
 }
 
-func (a *App) ConfirmRemoveLANPrinter(ip string) (bool, error) {
+// ─── WebView / Kiosk ──────────────────────────────────────────────────────────
 
+// GetWebViewConfig returns the public kiosk configuration (URL, enabled flag,
+// and whether a PIN has been set). The PIN itself is never returned.
+func (a *App) GetWebViewConfig() WebViewConfig {
+	return WebViewConfig{
+		URL:     a.config.GetWebViewURL(),
+		Enabled: a.config.GetWebViewEnabled(),
+		HasPIN:  a.config.HasWebViewPIN(),
+	}
+}
+
+// SetWebViewURL persists the kiosk URL.
+func (a *App) SetWebViewURL(url string) error {
+	logger.Debugf("Setting WebView URL")
+	return a.config.SetWebViewURL(url)
+}
+
+// SetWebViewPIN validates and persists the 4-digit kiosk PIN.
+func (a *App) SetWebViewPIN(pin string) error {
+	logger.Debug("Setting WebView PIN")
+	return a.config.SetWebViewPIN(pin)
+}
+
+// ValidateWebViewPIN returns true when pin matches the stored PIN.
+// The incoming value is compared but never logged.
+func (a *App) ValidateWebViewPIN(pin string) bool {
+	return a.config.CheckWebViewPIN(pin)
+}
+
+// SetWebViewEnabled persists the kiosk-enabled flag.
+func (a *App) SetWebViewEnabled(v bool) error {
+	logger.Debugf("Setting WebView enabled: %v", v)
+	return a.config.SetWebViewEnabled(v)
+}
+
+// SetWindowFullscreen puts the main Wails window into or out of fullscreen
+// and hides/restores the native menu bar accordingly.
+func (a *App) SetWindowFullscreen(fullscreen bool) {
+	if a.ctx == nil {
+		return
+	}
+	if fullscreen {
+		wailsruntime.WindowFullscreen(a.ctx)
+		// Hide the native menu bar in kiosk mode
+		menubar.SetNativeMenubarVisible(false)
+		if runtime.GOOS != "linux" {
+			wailsruntime.MenuSetApplicationMenu(a.ctx, menu.NewMenu())
+			wailsruntime.MenuUpdateApplicationMenu(a.ctx)
+		}
+	} else {
+		wailsruntime.WindowUnfullscreen(a.ctx)
+		// Restore the menu bar when leaving kiosk mode
+		menubar.SetNativeMenubarVisible(true)
+		if runtime.GOOS != "linux" {
+			if a.appMenu == nil {
+				a.appMenu = createMenu(a)
+			}
+			wailsruntime.MenuSetApplicationMenu(a.ctx, a.appMenu)
+			wailsruntime.MenuUpdateApplicationMenu(a.ctx)
+		}
+	}
+}
+
+func (a *App) ConfirmRemoveLANPrinter(ip string) (bool, error) {
 	logger.Debugf("Remove LAN printer requested: %s", ip)
 
 	result, err := a.dlg().Message(a.ctx, wailsruntime.MessageDialogOptions{
@@ -327,4 +431,38 @@ func (a *App) DisableAutostart() error {
 	}
 
 	return nil
+}
+
+func (a *App) SetNetworkPrintingEnabled(enabled bool) error {
+	logger.Infof("Setting network printing enabled: %v", enabled)
+	return a.config.SetNetworkPrintingEnabled(enabled)
+}
+
+func (a *App) IsNetworkPrintingEnabled() bool {
+	if a.config == nil {
+		return false
+	}
+	return a.config.IsNetworkPrintingEnabled()
+}
+
+type TroubleshootInfo struct {
+	ActiveFirewall string `json:"activeFirewall"`
+	FirewallZone   string `json:"firewallZone"`
+	Port           int    `json:"port"`
+	Subnet         string `json:"subnet"`
+	LocalIP        string `json:"localIp"`
+	ExecPath       string `json:"execPath"`
+}
+
+func (a *App) GetTroubleshootInfo() TroubleshootInfo {
+	netInfo := util.GetNetworkInfo()
+	execPath, _ := os.Executable()
+	return TroubleshootInfo{
+		ActiveFirewall: netInfo.ActiveFirewall,
+		FirewallZone:   netInfo.Zone,
+		Port:           a.config.GetPort(),
+		Subnet:         netInfo.Subnet,
+		LocalIP:        netInfo.IP,
+		ExecPath:       execPath,
+	}
 }

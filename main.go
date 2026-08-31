@@ -43,13 +43,16 @@ func main() {
 		}
 	}
 
+	appMenu := createMenu(app)
+	app.appMenu = appMenu
+
 	err := wails.Run(&options.App{
 		Title:                    "ePOS Proxy",
 		Width:                    800,
 		Height:                   600,
 		MinWidth:                 700,
 		MinHeight:                500,
-		Menu:                     createMenu(app),
+		Menu:                     appMenu,
 		EnableDefaultContextMenu: true,
 		WindowStartState:         windowStartState,
 		AssetServer: &assetserver.Options{

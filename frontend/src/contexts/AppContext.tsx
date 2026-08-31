@@ -1,11 +1,13 @@
-import { createContext, useEffect, useState } from "react";
+import { createContext, useContext, useEffect, useState } from "react";
 import { main } from "../../wailsjs/go/models";
 import { AppVariable } from "../../wailsjs/go/main/App";
+import { apiGetAppVariable } from "../api/client";
+import { RuntimeContext } from "./RuntimeContext";
 
 const RETRY_INTERVAL = 5000;
 
 type AppContextType = {
-  setters: {};
+  setters: Record<string, never>;
   data: {
     os: string | null;
     app: main.AppVariable | null;
@@ -13,9 +15,8 @@ type AppContextType = {
     isMac: boolean;
     isLinux: boolean;
     serverIsRunning: boolean;
-    defaultIp: string | null;
   };
-  actions: {};
+  actions: Record<string, never>;
 };
 
 export const AppContext = createContext({} as AppContextType);
@@ -25,6 +26,7 @@ interface AppContextWrapper {
 }
 
 export const AppContextWrapper = ({ children }: AppContextWrapper) => {
+  const { isWails } = useContext(RuntimeContext);
   const [app, setApp] = useState<main.AppVariable | null>(null);
 
   const os = app?.os || null;
@@ -35,10 +37,9 @@ export const AppContextWrapper = ({ children }: AppContextWrapper) => {
     isMac: os === "darwin",
     isLinux: os === "linux",
     serverIsRunning: app?.serverRunning ?? false,
-    defaultIp: app?.defaultIp ?? null,
   };
-  const setters = {};
-  const actions = {};
+  const setters = {} as Record<string, never>;
+  const actions = {} as Record<string, never>;
 
   useEffect(() => {
     let cancelled = false;
@@ -46,12 +47,13 @@ export const AppContextWrapper = ({ children }: AppContextWrapper) => {
 
     const fetchAppContext = async () => {
       try {
-        const variables = await AppVariable();
-        if (cancelled) {
-          return;
-        }
+        // Wails: use the Go binding; Remote: use the HTTP API
+        const variables = isWails
+          ? await AppVariable()
+          : await apiGetAppVariable();
 
-        setApp(variables);
+        if (cancelled) return;
+        setApp(variables as main.AppVariable);
       } catch (error) {
         console.error("Failed to fetch app context:", error);
         if (!cancelled) {
@@ -64,11 +66,9 @@ export const AppContextWrapper = ({ children }: AppContextWrapper) => {
 
     return () => {
       cancelled = true;
-      if (retryId !== null) {
-        clearTimeout(retryId);
-      }
+      if (retryId !== null) clearTimeout(retryId);
     };
-  }, []);
+  }, [isWails]);
 
   return (
     <AppContext.Provider value={{ data, setters, actions }}>
