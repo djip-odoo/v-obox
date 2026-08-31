@@ -1,8 +1,6 @@
-import { createContext, useContext, useEffect, useState } from "react";
+import { createContext, useEffect, useState } from "react";
 import { main } from "../../wailsjs/go/models";
-import { AppVariable } from "../../wailsjs/go/main/App";
-import { apiGetAppVariable } from "../api/client";
-import { RuntimeContext } from "./RuntimeContext";
+import { backendService } from "../services/backend";
 
 const RETRY_INTERVAL = 5000;
 
@@ -26,7 +24,6 @@ interface AppContextWrapper {
 }
 
 export const AppContextWrapper = ({ children }: AppContextWrapper) => {
-  const { isWails } = useContext(RuntimeContext);
   const [app, setApp] = useState<main.AppVariable | null>(null);
 
   const os = app?.os || null;
@@ -47,10 +44,7 @@ export const AppContextWrapper = ({ children }: AppContextWrapper) => {
 
     const fetchAppContext = async () => {
       try {
-        // Wails: use the Go binding; Remote: use the HTTP API
-        const variables = isWails
-          ? await AppVariable()
-          : await apiGetAppVariable();
+        const variables = await backendService.getAppVariable();
 
         if (cancelled) return;
         setApp(variables as main.AppVariable);
@@ -68,7 +62,7 @@ export const AppContextWrapper = ({ children }: AppContextWrapper) => {
       cancelled = true;
       if (retryId !== null) clearTimeout(retryId);
     };
-  }, [isWails]);
+  }, []);
 
   return (
     <AppContext.Provider value={{ data, setters, actions }}>

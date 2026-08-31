@@ -105,6 +105,9 @@ epos-proxy/
     │   ├── App.tsx             # Root component with context wrappers and main responsive layout
     │   ├── main.tsx            # React DOM root entry
     │   │
+    │   ├── services/           # Unified Runtime Backend Driver / Middleware
+    │   │   └── backend.ts      # IBackendService adapter resolving methods per runtime (Wails vs Remote)
+    │   │
     │   ├── api/                # API client layer for Remote Webview
     │   │   ├── authState.ts    # Token storage singleton (Wails token vs sessionStorage Bearer token)
     │   │   └── client.ts       # Type-safe fetch wrappers mirroring Wails Go bindings

@@ -6,22 +6,9 @@ import {
   useRef,
   useState,
 } from "react";
-import {
-  GetWebViewConfig,
-  SetWebViewEnabled,
-  SetWebViewPIN,
-  SetWebViewURL,
-  SetWindowFullscreen,
-  ValidateWebViewPIN,
-} from "../../wailsjs/go/main/App";
 import { EventsOn } from "../../wailsjs/runtime/runtime";
-import {
-  apiCreatePINSession,
-  apiGetWebViewConfig,
-  apiSetWebViewEnabled,
-  apiSetWebViewURL,
-} from "../api/client";
 import { RuntimeContext } from "./RuntimeContext";
+import { backendService } from "../services/backend";
 
 export type WebViewConfig = {
   url: string;
@@ -64,28 +51,26 @@ export const WebViewContextWrapper = ({
 
   const refresh = useCallback(async () => {
     try {
-      const cfg = isWails
-        ? await GetWebViewConfig()
-        : await apiGetWebViewConfig();
+      const cfg = await backendService.getWebViewConfig();
       setConfig(cfg);
 
       // Auto-activate kiosk ONCE on desktop initial startup if enabled in config
       if (
         !initialStartupChecked.current &&
-        isWails &&
+        backendService.isWails &&
         cfg.enabled &&
         cfg.url
       ) {
         initialStartupChecked.current = true;
         setIsKioskActive(true);
-        await SetWindowFullscreen(true);
+        await backendService.setWindowFullscreen(true);
       } else {
         initialStartupChecked.current = true;
       }
     } catch (err) {
       console.error("Failed to fetch WebView config:", err);
     }
-  }, [isWails]);
+  }, []);
 
   useEffect(() => {
     refresh();
@@ -96,15 +81,10 @@ export const WebViewContextWrapper = ({
     if (!isWails) return;
 
     const unsubKiosk = EventsOn("kiosk-state-changed", async (enabled: boolean) => {
-      if (enabled) {
-        setIsKioskActive(true);
-        await SetWindowFullscreen(true);
-      } else {
-        setIsKioskActive(false);
-        await SetWindowFullscreen(false);
-      }
+      setIsKioskActive(enabled);
+      await backendService.setWindowFullscreen(enabled);
       try {
-        const cfg = await GetWebViewConfig();
+        const cfg = await backendService.getWebViewConfig();
         setConfig(cfg);
       } catch {
         /* ignore */
@@ -113,7 +93,7 @@ export const WebViewContextWrapper = ({
 
     const unsubConfig = EventsOn("webview-config-changed", async () => {
       try {
-        const cfg = await GetWebViewConfig();
+        const cfg = await backendService.getWebViewConfig();
         setConfig(cfg);
       } catch {
         /* ignore */
@@ -129,42 +109,25 @@ export const WebViewContextWrapper = ({
   // ── Actions ────────────────────────────────────────────────────────────────
 
   const saveURL = async (url: string) => {
-    if (isWails) {
-      await SetWebViewURL(url);
-    } else {
-      await apiSetWebViewURL(url);
-    }
-    const cfg = isWails
-      ? await GetWebViewConfig()
-      : await apiGetWebViewConfig();
+    await backendService.setWebViewURL(url);
+    const cfg = await backendService.getWebViewConfig();
     setConfig(cfg);
   };
 
   const savePIN = async (pin: string) => {
-    if (isWails) {
-      await SetWebViewPIN(pin);
-      const cfg = await GetWebViewConfig();
-      setConfig(cfg);
-    }
+    await backendService.setWebViewPIN(pin);
+    const cfg = await backendService.getWebViewConfig();
+    setConfig(cfg);
   };
 
   const toggleEnabled = async (v: boolean) => {
-    if (isWails) {
-      await SetWebViewEnabled(v);
-      if (v) {
-        setIsKioskActive(true);
-        await SetWindowFullscreen(true);
-      } else {
-        setIsKioskActive(false);
-        await SetWindowFullscreen(false);
-      }
-      const cfg = await GetWebViewConfig();
-      setConfig(cfg);
-    } else {
-      await apiSetWebViewEnabled(v);
-      const cfg = await apiGetWebViewConfig();
-      setConfig(cfg);
+    await backendService.setWebViewEnabled(v);
+    if (backendService.isWails) {
+      setIsKioskActive(v);
+      await backendService.setWindowFullscreen(v);
     }
+    const cfg = await backendService.getWebViewConfig();
+    setConfig(cfg);
   };
 
   const enterKiosk = async () => {
@@ -180,10 +143,7 @@ export const WebViewContextWrapper = ({
   };
 
   const validatePIN = async (pin: string): Promise<boolean> => {
-    if (isWails) {
-      return ValidateWebViewPIN(pin);
-    }
-    return apiCreatePINSession(pin);
+    return backendService.validatePIN(pin);
   };
 
   return (

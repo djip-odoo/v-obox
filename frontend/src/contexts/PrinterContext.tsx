@@ -1,10 +1,4 @@
 import { main } from "../../wailsjs/go/models";
-import {
-  AddLANPrinter,
-  CheckLANPrinterStatus,
-  IsNetworkPrintingEnabled,
-  Printers,
-} from "../../wailsjs/go/main/App";
 import { EventsOn } from "../../wailsjs/runtime/runtime";
 
 import {
@@ -15,14 +9,8 @@ import {
   useRef,
   useState,
 } from "react";
-import {
-  apiAddLANPrinter,
-  apiGetLANPrinterStatus,
-  apiGetPrinters,
-  ApiPrintersResponse,
-  apiRemoveLANPrinter,
-} from "../api/client";
 import { RuntimeContext } from "./RuntimeContext";
+import { backendService } from "../services/backend";
 
 const POLL_INTERVAL = 5000;
 const FETCH_ERROR = "Failed to retrieve printer status. Please try again.";
@@ -65,43 +53,29 @@ export const PrinterContextWrapper = ({ children }: PrinterContextWrapper) => {
   const statusChecksInFlight = useRef(0);
   const pendingLanChecks = useRef<Set<string>>(new Set());
 
-  const checkLanPrinterStatus = useCallback(
-    async (ip: string) => {
-      if (pendingLanChecks.current.has(ip)) return;
-      pendingLanChecks.current.add(ip);
-      setLanStatus((prev) =>
-        prev[ip] === undefined ? { ...prev, [ip]: "loading" } : prev,
-      );
-      try {
-        let online: boolean;
-        if (isWails) {
-          online = await CheckLANPrinterStatus(ip);
-        } else {
-          const result = await apiGetLANPrinterStatus(ip);
-          online = result.online;
-        }
-        setLanStatus((prev) => ({ ...prev, [ip]: online ? "online" : "offline" }));
-      } catch (error) {
-        console.error(`Failed to check LAN printer status for ${ip}:`, error);
-      } finally {
-        pendingLanChecks.current.delete(ip);
-      }
-    },
-    [isWails],
-  );
+  const checkLanPrinterStatus = useCallback(async (ip: string) => {
+    if (pendingLanChecks.current.has(ip)) return;
+    pendingLanChecks.current.add(ip);
+    setLanStatus((prev) =>
+      prev[ip] === undefined ? { ...prev, [ip]: "loading" } : prev,
+    );
+    try {
+      const result = await backendService.checkLANPrinterStatus(ip);
+      setLanStatus((prev) => ({ ...prev, [ip]: result.online ? "online" : "offline" }));
+    } catch (error) {
+      console.error(`Failed to check LAN printer status for ${ip}:`, error);
+    } finally {
+      pendingLanChecks.current.delete(ip);
+    }
+  }, []);
 
   const checkAppStatus = useCallback(
     async (force = false) => {
       if (statusChecksInFlight.current > 0 && !force) return;
       statusChecksInFlight.current++;
       try {
-        let data: main.Printers;
-        if (isWails) {
-          data = await Printers();
-        } else {
-          data = (await apiGetPrinters()) as unknown as main.Printers;
-        }
-        setPrinters(data as main.Printers);
+        const data = (await backendService.getPrinters()) as unknown as main.Printers;
+        setPrinters(data);
         setFetchError(null);
         for (const printer of data.printers) {
           if (printer.isLAN && printer.lanIp) {
@@ -115,19 +89,18 @@ export const PrinterContextWrapper = ({ children }: PrinterContextWrapper) => {
         statusChecksInFlight.current--;
       }
     },
-    [isWails, checkLanPrinterStatus],
+    [checkLanPrinterStatus],
   );
 
-  // Remote context: remove LAN printer via HTTP API without a native dialog.
-  // The UI shows its own confirmation (handled in PrinterListItem).
-  const removeLanPrinterRemote = async (
+  const removeLanPrinter = async (
     printer: main.Printer,
   ): Promise<ActionStatus> => {
     if (!printer.isLAN || !printer.lanIp) {
       return { status: false, message: "Cannot remove a non-LAN printer" };
     }
     try {
-      await apiRemoveLANPrinter(printer.lanIp);
+      const confirmed = await backendService.removeLANPrinter(printer.lanIp);
+      if (!confirmed) throw new Error("User cancelled the removal");
       await checkAppStatus(true);
       return {
         status: true,
@@ -141,45 +114,9 @@ export const PrinterContextWrapper = ({ children }: PrinterContextWrapper) => {
     }
   };
 
-  // Wails context: uses native confirmation dialog (existing behaviour).
-  const removeLanPrinterWails = async (
-    printer: main.Printer,
-  ): Promise<ActionStatus> => {
-    if (!printer.isLAN || !printer.lanIp) {
-      return { status: false, message: "Cannot remove a non-LAN printer" };
-    }
-    try {
-      // Import dynamically to avoid errors in remote context where ConfirmRemoveLANPrinter
-      // binding would not be available.
-      const { ConfirmRemoveLANPrinter } = await import(
-        "../../wailsjs/go/main/App"
-      );
-      const confirmed = await ConfirmRemoveLANPrinter(printer.lanIp);
-      if (!confirmed) throw new Error("User cancelled the removal");
-      await checkAppStatus(true);
-      return {
-        status: true,
-        message: `Successfully removed LAN printer with IP ${printer.lanIp}`,
-      };
-    } catch (error) {
-      return {
-        status: false,
-        message: `Failed to remove LAN printer with IP ${printer.lanIp}: ${error}`,
-      };
-    }
-  };
-
-  const removeLanPrinter = isWails
-    ? removeLanPrinterWails
-    : removeLanPrinterRemote;
-
   const addLanPrinter = async (ip: string): Promise<ActionStatus> => {
     try {
-      if (isWails) {
-        await AddLANPrinter(ip);
-      } else {
-        await apiAddLANPrinter(ip);
-      }
+      await backendService.addLANPrinter(ip);
       await checkAppStatus(true);
       return { status: true, message: `Successfully added LAN printer with IP ${ip}` };
     } catch (error) {
@@ -223,16 +160,15 @@ export const PrinterContextWrapper = ({ children }: PrinterContextWrapper) => {
     };
   }, [checkAppStatus]);
 
-  // Network printing state — Wails only (excluded from remote webview)
+  // Network printing state
   const loadNetworkPrintingStatus = useCallback(async () => {
-    if (!isWails) return; // not exposed in remote webview
     try {
-      const enabled = await IsNetworkPrintingEnabled();
+      const enabled = await backendService.getNetworkPrintingEnabled();
       setNetworkPrintingEnabledState(enabled);
     } catch (err) {
       console.error("Failed to load network printing status", err);
     }
-  }, [isWails]);
+  }, []);
 
   useEffect(() => {
     loadNetworkPrintingStatus();

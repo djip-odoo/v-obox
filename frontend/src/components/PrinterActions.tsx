@@ -1,12 +1,10 @@
 import { useContext, useState } from "react";
 import { ToastContext } from "../contexts/ToastContext";
-import { RuntimeContext } from "../contexts/RuntimeContext";
 import { main } from "../../wailsjs/go/models";
 import { errorText } from "../error";
-import { executePrint } from "../functions/executePrint";
-import { apiCashDrawer, apiTestPrint } from "../api/client";
 import { usePINGate } from "../hooks/usePINGate";
 import { useClipboard } from "../hooks/useClipboard";
+import { backendService } from "../services/backend";
 
 interface PrinterActionsProps {
   printer: main.Printer;
@@ -14,7 +12,6 @@ interface PrinterActionsProps {
 
 export default function PrinterActions({ printer }: PrinterActionsProps) {
   const toastContext = useContext(ToastContext);
-  const { isWails } = useContext(RuntimeContext);
   const gate = usePINGate();
   const [isTestPrinting, setIsTestPrinting] = useState(false);
   const [isCashDrawerOpening, setIsCashDrawerOpening] = useState(false);
@@ -28,11 +25,7 @@ export default function PrinterActions({ printer }: PrinterActionsProps) {
     setIsTestPrinting(true);
     try {
       const res = await gate(async () => {
-        if (isWails) {
-          await executePrint(printer);
-        } else {
-          await apiTestPrint(printer.id);
-        }
+        await backendService.testPrint(printer);
         return true;
       });
       if (res) {
@@ -55,11 +48,7 @@ export default function PrinterActions({ printer }: PrinterActionsProps) {
     setIsCashDrawerOpening(true);
     try {
       const res = await gate(async () => {
-        if (isWails) {
-          await executePrint(printer, true);
-        } else {
-          await apiCashDrawer(printer.id);
-        }
+        await backendService.openCashDrawer(printer);
         return true;
       });
       if (res) {
