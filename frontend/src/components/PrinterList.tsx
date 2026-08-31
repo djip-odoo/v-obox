@@ -3,6 +3,7 @@ import NetworkIpDialog from "./NetworkIpDialog";
 import PrinterListItem from "./PrinterListItem";
 import { PrinterContext } from "../contexts/PrinterContext";
 import WebViewDialog from "./WebViewDialog";
+import QuitAppButton from "./QuitAppButton";
 
 export default function PrinterList() {
   const printerContext = useContext(PrinterContext);
@@ -65,6 +66,7 @@ export default function PrinterList() {
       <div className="mt-4 sm:mt-6 w-full flex flex-col gap-3 max-w-full sm:max-w-md md:max-w-lg lg:max-w-xl">
         <NetworkIpDialog />
         <WebViewDialog />
+        <QuitAppButton />
       </div>
     </>
   );

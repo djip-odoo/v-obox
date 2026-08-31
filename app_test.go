@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -15,27 +14,36 @@ import (
 	"epos-proxy/internal/testutil"
 	"epos-proxy/internal/util"
 
-	wailsruntime "github.com/wailsapp/wails/v2/pkg/runtime"
+	"github.com/wailsapp/wails/v3/pkg/application"
 )
+
+type fakeDialogMsg struct {
+	Title   string
+	Message string
+}
 
 // fakeDialogs is a dialoger that returns canned responses and records every
 // invocation, so dialog-driven code paths can be tested without Wails.
 type fakeDialogs struct {
-	messageResult string
-	messageErr    error
-	savePath      string
-	saveErr       error
+	questionResult bool
+	savePath       string
+	saveErr        error
 
-	messages []wailsruntime.MessageDialogOptions
-	saves    []wailsruntime.SaveDialogOptions
+	errors    []fakeDialogMsg
+	questions []fakeDialogMsg
+	saves     []*application.SaveFileDialogOptions
 }
 
-func (f *fakeDialogs) Message(_ context.Context, opts wailsruntime.MessageDialogOptions) (string, error) {
-	f.messages = append(f.messages, opts)
-	return f.messageResult, f.messageErr
+func (f *fakeDialogs) Error(title, message string) {
+	f.errors = append(f.errors, fakeDialogMsg{Title: title, Message: message})
 }
 
-func (f *fakeDialogs) SaveFile(_ context.Context, opts wailsruntime.SaveDialogOptions) (string, error) {
+func (f *fakeDialogs) Question(title, message string) bool {
+	f.questions = append(f.questions, fakeDialogMsg{Title: title, Message: message})
+	return f.questionResult
+}
+
+func (f *fakeDialogs) SaveFile(opts *application.SaveFileDialogOptions) (string, error) {
 	f.saves = append(f.saves, opts)
 	return f.savePath, f.saveErr
 }
@@ -137,15 +145,11 @@ func TestApp_ConfirmRemoveLANPrinter(t *testing.T) {
 
 	tests := []struct {
 		name          string
-		dialogResult  string
-		dialogErr     error
+		dialogResult  bool
 		expectRemoved bool
-		expectErr     bool
 	}{
-		{name: "confirm removes printer", dialogResult: "Confirm", expectRemoved: true},
-		{name: "linux yes button removes printer", dialogResult: "Yes", expectRemoved: true},
-		{name: "cancel keeps printer", dialogResult: "Cancel"},
-		{name: "dialog error keeps printer", dialogErr: errors.New("no display"), expectErr: true},
+		{name: "confirm removes printer", dialogResult: true, expectRemoved: true},
+		{name: "cancel keeps printer", dialogResult: false},
 	}
 
 	for _, tc := range tests {
@@ -156,16 +160,11 @@ func TestApp_ConfirmRemoveLANPrinter(t *testing.T) {
 			testutil.ExpectedNoError(t, err)
 			testutil.ExpectedNoError(t, cfg.AddLanEposPrinter(ip))
 
-			dialogs := &fakeDialogs{messageResult: tc.dialogResult, messageErr: tc.dialogErr}
+			dialogs := &fakeDialogs{questionResult: tc.dialogResult}
 			app := &App{config: cfg, dialogs: dialogs}
 
 			removed, err := app.ConfirmRemoveLANPrinter(ip)
-
-			if tc.expectErr {
-				testutil.ExpectedError(t, err)
-			} else {
-				testutil.ExpectedNoError(t, err)
-			}
+			testutil.ExpectedNoError(t, err)
 			testutil.ExpectedEqual(t, removed, tc.expectRemoved)
 
 			// The printer must survive unless the user actually confirmed.
@@ -176,8 +175,8 @@ func TestApp_ConfirmRemoveLANPrinter(t *testing.T) {
 			testutil.ExpectedLen(t, cfg.GetLANPrinters(), expectedRemaining)
 
 			// Exactly one confirmation dialog is shown, and it names the printer.
-			testutil.ExpectedLen(t, dialogs.messages, 1)
-			testutil.ExpectedContains(t, dialogs.messages[0].Message, ip)
+			testutil.ExpectedLen(t, dialogs.questions, 1)
+			testutil.ExpectedContains(t, dialogs.questions[0].Message, ip)
 		})
 	}
 }
@@ -185,19 +184,16 @@ func TestApp_ConfirmRemoveLANPrinter(t *testing.T) {
 func TestApp_ConfirmQuit(t *testing.T) {
 	tests := []struct {
 		name         string
-		dialogResult string
-		dialogErr    error
+		dialogResult bool
 		expectQuit   bool
 	}{
-		{name: "quit button confirms", dialogResult: "Quit", expectQuit: true},
-		{name: "linux yes button confirms", dialogResult: "Yes", expectQuit: true},
-		{name: "cancel does not quit", dialogResult: "Cancel"},
-		{name: "dialog error does not quit", dialogErr: errors.New("no display")},
+		{name: "quit button confirms", dialogResult: true, expectQuit: true},
+		{name: "cancel does not quit", dialogResult: false},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			app := &App{dialogs: &fakeDialogs{messageResult: tc.dialogResult, messageErr: tc.dialogErr}}
+			app := &App{dialogs: &fakeDialogs{questionResult: tc.dialogResult}}
 			testutil.ExpectedEqual(t, app.ConfirmQuit(), tc.expectQuit)
 		})
 	}
@@ -228,8 +224,8 @@ func TestApp_DownloadLogs(t *testing.T) {
 		testutil.ExpectedTrue(t, info.Size() > 0, "expected a non-empty archive")
 
 		testutil.ExpectedLen(t, dialogs.saves, 1)
-		testutil.ExpectedContains(t, dialogs.saves[0].DefaultFilename, "epos-proxy-logs-")
-		testutil.ExpectedLen(t, dialogs.messages, 0)
+		testutil.ExpectedContains(t, dialogs.saves[0].Filename, "epos-proxy-logs-")
+		testutil.ExpectedLen(t, dialogs.errors, 0)
 	})
 
 	t.Run("cancelling the save dialog writes nothing", func(t *testing.T) {
@@ -242,7 +238,7 @@ func TestApp_DownloadLogs(t *testing.T) {
 		app.DownloadLogs()
 
 		// No archive attempted and, crucially, no error surfaced to the user.
-		testutil.ExpectedLen(t, dialogs.messages, 0)
+		testutil.ExpectedLen(t, dialogs.errors, 0)
 	})
 
 	t.Run("save dialog error is reported", func(t *testing.T) {
@@ -253,9 +249,8 @@ func TestApp_DownloadLogs(t *testing.T) {
 
 		app.DownloadLogs()
 
-		testutil.ExpectedLen(t, dialogs.messages, 1)
-		testutil.ExpectedEqual(t, dialogs.messages[0].Type, wailsruntime.ErrorDialog)
-		testutil.ExpectedContains(t, dialogs.messages[0].Message, "dialog unavailable")
+		testutil.ExpectedLen(t, dialogs.errors, 1)
+		testutil.ExpectedContains(t, dialogs.errors[0].Message, "dialog unavailable")
 	})
 
 	t.Run("zip failure is reported", func(t *testing.T) {
@@ -268,9 +263,8 @@ func TestApp_DownloadLogs(t *testing.T) {
 
 		app.DownloadLogs()
 
-		testutil.ExpectedLen(t, dialogs.messages, 1)
-		testutil.ExpectedEqual(t, dialogs.messages[0].Type, wailsruntime.ErrorDialog)
-		testutil.ExpectedContains(t, dialogs.messages[0].Message, "failed to create zip file")
+		testutil.ExpectedLen(t, dialogs.errors, 1)
+		testutil.ExpectedContains(t, dialogs.errors[0].Message, "failed to create zip file")
 	})
 }
 

@@ -1,0 +1,15 @@
+# Gradle files
+.gradle/
+build/
+app/build/
+local.properties
+
+# Compiled native libraries
+app/src/main/jniLibs/
+
+# Generated Go overlay and files
+gen/
+overlay.json
+
+# Task cache
+.task/

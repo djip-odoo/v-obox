@@ -1,5 +1,5 @@
 import { useContext, useEffect, useState } from "react";
-import { EventsOn } from "../../wailsjs/runtime/runtime";
+import { Events } from "@wailsio/runtime";
 import { AppContext } from "../contexts/AppContext";
 import PINModal from "./PINModal";
 
@@ -10,7 +10,7 @@ export default function SetPinDialog() {
   useEffect(() => {
     if (!isWails) return;
 
-    return EventsOn("open-set-pin-dialog", () => {
+    return Events.On("open-set-pin-dialog", () => {
       setIsOpen(true);
     });
   }, [isWails]);

@@ -1,23 +1,6 @@
 import { detectWails } from "../contexts/AppContext";
-import {
-  AddLANPrinter,
-  AppVariable,
-  CheckLANPrinterStatus,
-  ConfirmRemoveLANPrinter,
-  DisableAutostart,
-  EnableAutostart,
-  GetTroubleshootInfo,
-  GetWebViewConfig,
-  IsAutostartEnabled,
-  IsNetworkPrintingEnabled,
-  Printers,
-  SetNetworkPrintingEnabled,
-  SetWebViewEnabled,
-  SetWebViewPIN,
-  SetWebViewURL,
-  SetWindowFullscreen,
-  ValidateWebViewPIN,
-} from "../../wailsjs/go/main/App";
+// @ts-ignore: Wails v3 generated JS bindings
+import * as WailsApp from "../../bindings/epos-proxy/app.js";
 import {
   apiAddLANPrinter,
   apiCashDrawer,
@@ -39,124 +22,146 @@ import {
   apiReloadKiosk,
 } from "../api/client";
 import { executePrint } from "../functions/executePrint";
-import { main } from "../../wailsjs/go/models";
+import {
+  AppVariable,
+  Printer,
+  Printers,
+  TroubleshootInfo,
+  WebViewConfig,
+} from "../types/models";
 
 export interface IBackendService {
   readonly isWails: boolean;
 
   // App & System Info
-  getAppVariable(): Promise<main.AppVariable | ApiAppVariable>;
-  getTroubleshootInfo(): Promise<main.TroubleshootInfo | ApiTroubleshootInfo>;
+  getAppVariable(): Promise<AppVariable | ApiAppVariable>;
+  getTroubleshootInfo(): Promise<TroubleshootInfo | ApiTroubleshootInfo>;
   getNetworkPrintingEnabled(): Promise<boolean>;
   setNetworkPrintingEnabled(v: boolean): Promise<void>;
   getAutostart(): Promise<boolean>;
   setAutostart(v: boolean): Promise<void>;
 
   // Printers
-  getPrinters(): Promise<main.Printers | ApiPrintersResponse>;
+  getPrinters(): Promise<Printers | ApiPrintersResponse>;
   checkLANPrinterStatus(ip: string): Promise<{ online: boolean }>;
   addLANPrinter(ip: string): Promise<void>;
   removeLANPrinter(ip: string): Promise<boolean>;
-  testPrint(printer: main.Printer | ApiPrinter): Promise<void>;
-  openCashDrawer(printer: main.Printer | ApiPrinter): Promise<void>;
+  testPrint(printer: Printer | ApiPrinter): Promise<void>;
+  openCashDrawer(printer: Printer | ApiPrinter): Promise<void>;
 
   // Kiosk & Webview
-  getWebViewConfig(): Promise<main.WebViewConfig | ApiWebViewConfig>;
+  getWebViewConfig(): Promise<WebViewConfig | ApiWebViewConfig>;
   setWebViewURL(url: string): Promise<void>;
   setWebViewEnabled(enabled: boolean): Promise<void>;
   setWebViewPIN(pin: string): Promise<void>;
   validatePIN(pin: string): Promise<boolean>;
   setWindowFullscreen(fullscreen: boolean): Promise<void>;
   reloadKiosk(): Promise<void>;
+  quitApp(): Promise<void>;
 }
 
 class WailsBackendService implements IBackendService {
   readonly isWails = true;
 
-  getAppVariable(): Promise<main.AppVariable> {
-    return AppVariable();
+  async getAppVariable(): Promise<AppVariable> {
+    const res = await WailsApp.AppVariable();
+    return res as unknown as AppVariable;
   }
 
-  getTroubleshootInfo(): Promise<main.TroubleshootInfo> {
-    return GetTroubleshootInfo();
+  async getTroubleshootInfo(): Promise<TroubleshootInfo> {
+    const res = await WailsApp.GetTroubleshootInfo();
+    return res as unknown as TroubleshootInfo;
   }
 
-  getNetworkPrintingEnabled(): Promise<boolean> {
-    return IsNetworkPrintingEnabled();
+  async getNetworkPrintingEnabled(): Promise<boolean> {
+    return await WailsApp.IsNetworkPrintingEnabled();
   }
 
-  setNetworkPrintingEnabled(v: boolean): Promise<void> {
-    return SetNetworkPrintingEnabled(v);
+  async setNetworkPrintingEnabled(v: boolean): Promise<void> {
+    await WailsApp.SetNetworkPrintingEnabled(v);
   }
 
-  getAutostart(): Promise<boolean> {
-    return IsAutostartEnabled();
+  async getAutostart(): Promise<boolean> {
+    return await WailsApp.IsAutostartEnabled();
   }
 
   async setAutostart(v: boolean): Promise<void> {
     if (v) {
-      await EnableAutostart();
+      await WailsApp.EnableAutostart();
     } else {
-      await DisableAutostart();
+      await WailsApp.DisableAutostart();
     }
   }
 
-  getPrinters(): Promise<main.Printers> {
-    return Printers();
+  async getPrinters(): Promise<Printers> {
+    const p = await WailsApp.Printers();
+    return (p ?? { printers: [], unavailablePrinters: [], errorMsg: "" }) as unknown as Printers;
   }
 
   async checkLANPrinterStatus(ip: string): Promise<{ online: boolean }> {
-    const online = await CheckLANPrinterStatus(ip);
+    const online = await WailsApp.CheckLANPrinterStatus(ip);
     return { online: Boolean(online) };
   }
 
-  addLANPrinter(ip: string): Promise<void> {
-    return AddLANPrinter(ip);
+  async addLANPrinter(ip: string): Promise<void> {
+    await WailsApp.AddLANPrinter(ip);
   }
 
   async removeLANPrinter(ip: string): Promise<boolean> {
-    const confirmed = await ConfirmRemoveLANPrinter(ip);
+    const confirmed = await WailsApp.ConfirmRemoveLANPrinter(ip);
     return Boolean(confirmed);
   }
 
-  async testPrint(printer: main.Printer | ApiPrinter): Promise<void> {
-    await executePrint(printer as main.Printer);
+  async testPrint(printer: Printer | ApiPrinter): Promise<void> {
+    await executePrint(printer as Printer);
   }
 
-  async openCashDrawer(printer: main.Printer | ApiPrinter): Promise<void> {
-    await executePrint(printer as main.Printer, true);
+  async openCashDrawer(printer: Printer | ApiPrinter): Promise<void> {
+    await executePrint(printer as Printer, true);
   }
 
-  getWebViewConfig(): Promise<main.WebViewConfig> {
-    return GetWebViewConfig();
+  async getWebViewConfig(): Promise<WebViewConfig> {
+    const res = await WailsApp.GetWebViewConfig();
+    return res as unknown as WebViewConfig;
   }
 
-  setWebViewURL(url: string): Promise<void> {
-    return SetWebViewURL(url);
+  async setWebViewURL(url: string): Promise<void> {
+    await WailsApp.SetWebViewURL(url);
   }
 
-  setWebViewEnabled(enabled: boolean): Promise<void> {
-    return SetWebViewEnabled(enabled);
+  async setWebViewEnabled(enabled: boolean): Promise<void> {
+    await WailsApp.SetWebViewEnabled(enabled);
   }
 
-  setWebViewPIN(pin: string): Promise<void> {
-    return SetWebViewPIN(pin);
+  async setWebViewPIN(pin: string): Promise<void> {
+    await WailsApp.SetWebViewPIN(pin);
   }
 
-  validatePIN(pin: string): Promise<boolean> {
-    return ValidateWebViewPIN(pin);
+  async validatePIN(pin: string): Promise<boolean> {
+    return await WailsApp.ValidateWebViewPIN(pin);
   }
 
-  setWindowFullscreen(fullscreen: boolean): Promise<void> {
-    return SetWindowFullscreen(fullscreen);
-  }
-
-  reloadKiosk(): Promise<void> {
-    const wailsApp = (window as unknown as { go?: { main?: { App?: { ReloadKiosk?: () => Promise<void> } } } })?.go?.main?.App;
-    if (wailsApp?.ReloadKiosk) {
-      return wailsApp.ReloadKiosk();
+  async setWindowFullscreen(fullscreen: boolean): Promise<void> {
+    const w = window as unknown as Record<string, unknown>;
+    const wails = w["wails"] as Record<string, unknown> | undefined;
+    if (typeof wails?.["setFullscreen"] === "function") {
+      (wails["setFullscreen"] as (v: boolean) => void)(fullscreen);
     }
-    return Promise.resolve();
+    await WailsApp.SetWindowFullscreen(fullscreen);
+  }
+
+  async reloadKiosk(): Promise<void> {
+    await WailsApp.ReloadKiosk();
+  }
+
+  async quitApp(): Promise<void> {
+    const w = window as unknown as Record<string, unknown>;
+    const wails = w["wails"] as Record<string, unknown> | undefined;
+    if (typeof wails?.["quitApp"] === "function") {
+      (wails["quitApp"] as () => void)();
+      return;
+    }
+    await WailsApp.QuitApp();
   }
 }
 
@@ -204,11 +209,11 @@ class RemoteBackendService implements IBackendService {
     return true;
   }
 
-  async testPrint(printer: main.Printer | ApiPrinter): Promise<void> {
+  async testPrint(printer: Printer | ApiPrinter): Promise<void> {
     await apiTestPrint(printer.id);
   }
 
-  async openCashDrawer(printer: main.Printer | ApiPrinter): Promise<void> {
+  async openCashDrawer(printer: Printer | ApiPrinter): Promise<void> {
     await apiCashDrawer(printer.id);
   }
 
@@ -232,15 +237,68 @@ class RemoteBackendService implements IBackendService {
     return apiCreatePINSession(pin);
   }
 
-  setWindowFullscreen(): Promise<void> {
+  setWindowFullscreen(fullscreen: boolean): Promise<void> {
+    const w = window as unknown as Record<string, unknown>;
+    const wails = w["wails"] as Record<string, unknown> | undefined;
+    if (typeof wails?.["setFullscreen"] === "function") {
+      (wails["setFullscreen"] as (v: boolean) => void)(fullscreen);
+    }
     return Promise.resolve();
   }
 
   async reloadKiosk(): Promise<void> {
     await apiReloadKiosk();
   }
+
+  quitApp(): Promise<void> {
+    const w = window as unknown as Record<string, unknown>;
+    const wails = w["wails"] as Record<string, unknown> | undefined;
+    if (typeof wails?.["quitApp"] === "function") {
+      (wails["quitApp"] as () => void)();
+    }
+    return Promise.resolve();
+  }
 }
 
-export const backendService: IBackendService = detectWails()
-  ? new WailsBackendService()
-  : new RemoteBackendService();
+class DynamicBackendService implements IBackendService {
+  private readonly wails = new WailsBackendService();
+  private readonly remote = new RemoteBackendService();
+
+  private get active(): IBackendService {
+    return detectWails() ? this.wails : this.remote;
+  }
+
+  get isWails(): boolean {
+    return detectWails();
+  }
+
+  getAppVariable() { return this.active.getAppVariable(); }
+  getTroubleshootInfo() { return this.active.getTroubleshootInfo(); }
+  getNetworkPrintingEnabled() { return this.active.getNetworkPrintingEnabled(); }
+  setNetworkPrintingEnabled(v: boolean) { return this.active.setNetworkPrintingEnabled(v); }
+  getAutostart() { return this.active.getAutostart(); }
+  setAutostart(v: boolean) { return this.active.setAutostart(v); }
+  getPrinters() { return this.active.getPrinters(); }
+  checkLANPrinterStatus(ip: string) { return this.active.checkLANPrinterStatus(ip); }
+  addLANPrinter(ip: string) { return this.active.addLANPrinter(ip); }
+  removeLANPrinter(ip: string) { return this.active.removeLANPrinter(ip); }
+  testPrint(printer: Printer | ApiPrinter) { return this.active.testPrint(printer); }
+  openCashDrawer(printer: Printer | ApiPrinter) { return this.active.openCashDrawer(printer); }
+  getWebViewConfig() { return this.active.getWebViewConfig(); }
+  setWebViewURL(url: string) { return this.active.setWebViewURL(url); }
+  setWebViewEnabled(enabled: boolean) { return this.active.setWebViewEnabled(enabled); }
+  setWebViewPIN(pin: string) { return this.active.setWebViewPIN(pin); }
+  validatePIN(pin: string) { return this.active.validatePIN(pin); }
+  setWindowFullscreen(fullscreen: boolean) {
+    const w = window as unknown as Record<string, unknown>;
+    const wails = w["wails"] as Record<string, unknown> | undefined;
+    if (typeof wails?.["setFullscreen"] === "function") {
+      (wails["setFullscreen"] as (v: boolean) => void)(fullscreen);
+    }
+    return this.active.setWindowFullscreen(fullscreen);
+  }
+  reloadKiosk() { return this.active.reloadKiosk(); }
+  quitApp() { return this.active.quitApp(); }
+}
+
+export const backendService: IBackendService = new DynamicBackendService();

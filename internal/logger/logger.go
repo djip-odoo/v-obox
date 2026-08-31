@@ -12,15 +12,27 @@ var log = logrus.New()
 
 var logDir string
 
-func InitLogger() {
+func getBaseDir() string {
 	dir, err := os.UserConfigDir()
-	if err != nil {
-		Fatalf("Failed to get user config dir: %v", err)
+	if err == nil && dir != "" {
+		return dir
 	}
+	if filesDir := os.Getenv("FILES_DIR"); filesDir != "" {
+		return filesDir
+	}
+	if home := os.Getenv("HOME"); home != "" {
+		return home
+	}
+	if _, err := os.Stat("/data/data/com.wails.app/files"); err == nil {
+		return "/data/data/com.wails.app/files"
+	}
+	return os.TempDir()
+}
+
+func InitLogger() {
+	dir := getBaseDir()
 	logDir = filepath.Join(dir, "EposProxy", "logs")
-	if err := os.MkdirAll(logDir, 0755); err != nil {
-		Fatalf("Failed to create log directory: %v", err)
-	}
+	_ = os.MkdirAll(logDir, 0755)
 
 	filename := filepath.Join(logDir, "epos-proxy.log")
 

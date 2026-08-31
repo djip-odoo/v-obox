@@ -1,13 +1,102 @@
-build/bin
-node_modules
-frontend/dist
+# ─── Go & Binaries ─────────────────────────────────────────────────────────────
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.a
+*.test
+*.out
+*.prof
+epos-proxy
+vendor/
 
-.DS_Store
+# ─── Build Outputs ────────────────────────────────────────────────────────────
+bin/
+build/bin/
+dist/
+*.apk
+*.aab
+*.msix
+*.appimage
+*.AppImage
+*.deb
+*.rpm
+*.dmg
+*.pkg
 
-.idea/
-
-/frontend/wailsjs/
-.vscode/
+# ─── Frontend & Node.js ───────────────────────────────────────────────────────
+node_modules/
+*/node_modules/
+frontend/dist/
+frontend/wailsjs/
+frontend/src/wailsjs/
 package.json.md5
 package-lock.json
+yarn.lock
+pnpm-lock.yaml
+.npm/
+.eslintcache
+.vite/
+
+# ─── Android Build Artifacts ─────────────────────────────────────────────────
+.gradle/
+build/android/.gradle/
+build/android/build/
+build/android/app/build/
+build/android/app/src/main/jniLibs/
+build/android/gen/
+build/android/overlay.json
+local.properties
+*.ap_
+*.dex
+
+# ─── Apple / iOS Build Artifacts ──────────────────────────────────────────────
+build/ios/build/
+DerivedData/
+*.xcuserdata/
+*.xcscmblueprint
+
+# ─── Task Runner & Caches ─────────────────────────────────────────────────────
+.task/
+.cache/
+
+# ─── Testing & Coverage ───────────────────────────────────────────────────────
 coverage.out
+coverage.html
+*.coverprofile
+
+# ─── Environment, Keys & Secrets ──────────────────────────────────────────────
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+*.keystore
+*.jks
+
+# ─── Logs & Temp ──────────────────────────────────────────────────────────────
+*.log
+logs/
+log/
+tmp/
+temp/
+
+# ─── IDE & Editors ────────────────────────────────────────────────────────────
+.idea/
+.vscode/
+.vs/
+*.swp
+*.swo
+*~
+*.iml
+
+# ─── OS Metadata ──────────────────────────────────────────────────────────────
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+Desktop.ini

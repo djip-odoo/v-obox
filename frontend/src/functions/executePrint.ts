@@ -1,9 +1,9 @@
-import { main } from "../../wailsjs/go/models";
+import { Printer } from "../types/models";
 import { sendLabelPrint } from "./sendLabelPrint";
 import { sendEposPrint } from "./sendEposPrint";
 
 export async function executePrint(
-  printer: main.Printer,
+  printer: Printer,
   openCashDrawer = false,
 ) {
   if (printer.type === "label") {

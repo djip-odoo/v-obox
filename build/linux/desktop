@@ -1,0 +1,13 @@
+[Desktop Entry]
+Version=1.0
+Name=ePOS Proxy
+Comment=Expose USB and network printers as HTTP endpoints
+# The Exec line includes %u to pass the URL to the application
+Exec=/usr/local/bin/epos-proxy %u
+Terminal=false
+Type=Application
+Icon=epos-proxy
+Categories=Utility;
+StartupWMClass=epos-proxy
+
+ 

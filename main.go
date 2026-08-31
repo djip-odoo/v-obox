@@ -1,28 +1,13 @@
-// NOTE: this block is currently INERT. cgo only honours a preamble that
-// immediately precedes the `import "C"` line; because "C" is imported inside
-// the grouped import block below, these flags have never been applied and
-// libusb is linked dynamically via gousb's pkg-config. Left as-is pending a
-// decision — activating it needs the include path corrected to
-// -I/opt/homebrew/opt/libusb/include for <libusb-1.0/libusb.h> to resolve.
-/*
-#cgo darwin CFLAGS:  -I/opt/homebrew/opt/libusb/include/libusb-1.0
-#cgo darwin LDFLAGS: /opt/homebrew/opt/libusb/lib/libusb-1.0.a -framework IOKit -framework CoreFoundation
-#include <libusb-1.0/libusb.h>
-*/
 package main
 
 import (
-	"C"
-	"context"
 	"embed"
 	"os"
+	"runtime"
 
 	"epos-proxy/internal/logger"
 
-	"github.com/wailsapp/wails/v2"
-	"github.com/wailsapp/wails/v2/pkg/options"
-	"github.com/wailsapp/wails/v2/pkg/options/assetserver"
-	wailsruntime "github.com/wailsapp/wails/v2/pkg/runtime"
+	"github.com/wailsapp/wails/v3/pkg/application"
 )
 
 //go:embed all:frontend/dist
@@ -32,59 +17,54 @@ func main() {
 	logger.InitLogger()
 	logger.Debugf("Starting ePOS Proxy")
 
-	app := NewApp()
+	appService := NewApp()
 
-	windowStartState := options.Normal
+	app := application.New(application.Options{
+		Name:        "ePOS Proxy",
+		Description: "Expose USB and network printers as HTTP endpoints",
+		Services: []application.Service{
+			application.NewService(appService),
+		},
+		Assets: application.AssetOptions{
+			Handler: application.AssetFileServerFS(assets),
+		},
+		Mac: application.MacOptions{
+			ApplicationShouldTerminateAfterLastWindowClosed: false,
+		},
+	})
+
+	appService.wailsApp = app
+
+	startState := application.WindowStateNormal
 	for _, arg := range os.Args[1:] {
 		if arg == "--minimized" {
 			logger.Debugf("Application started with --minimized flag")
-			windowStartState = options.Minimised
+			startState = application.WindowStateMinimised
 			break
 		}
 	}
 
-	appMenu := createMenu(app)
-	app.appMenu = appMenu
-
-	err := wails.Run(&options.App{
-		Title:                    "ePOS Proxy",
-		Width:                    800,
-		Height:                   600,
-		MinWidth:                 700,
-		MinHeight:                500,
-		Menu:                     appMenu,
-		EnableDefaultContextMenu: true,
-		WindowStartState:         windowStartState,
-		AssetServer: &assetserver.Options{
-			Assets: assets,
-		},
-		SingleInstanceLock: &options.SingleInstanceLock{
-			UniqueId: "epos-proxy-single-instance",
-			OnSecondInstanceLaunch: func(secondInstanceData options.SecondInstanceData) {
-				logger.Warn("Second instance detected, focusing existing window")
-				wailsruntime.WindowShow(app.ctx)
-				wailsruntime.WindowUnminimise(app.ctx)
-			},
-		},
-		OnBeforeClose: func(ctx context.Context) (prevent bool) {
-			if app.ConfirmQuit() {
-				logger.Infof("User confirmed quit")
-				return false
-			}
-
-			logger.Infof("Close requested, minimizing window instead of quitting")
-			wailsruntime.WindowMinimise(ctx)
-			return true
-		},
-		BackgroundColour: &options.RGBA{R: 255, G: 255, B: 255, A: 1},
-		OnStartup:        app.startup,
-		Bind: []interface{}{
-			app,
-		},
+	mainWindow := app.Window.NewWithOptions(application.WebviewWindowOptions{
+		Title:              "ePOS Proxy",
+		Width:              800,
+		Height:             600,
+		MinWidth:           700,
+		MinHeight:          500,
+		StartState:         startState,
+		BackgroundColour:   application.NewRGB(255, 255, 255),
+		URL:                "/",
+		UseApplicationMenu: true,
 	})
+	appService.mainWindow = mainWindow
 
-	if err != nil {
-		logger.Errorf("Application crashed: %v", err)
+	if runtime.GOOS != "android" {
+		appMenu := createMenu(app, appService)
+		app.Menu.Set(appMenu)
 	}
 
+	appService.startup()
+
+	if err := app.Run(); err != nil {
+		logger.Errorf("Application error: %v", err)
+	}
 }

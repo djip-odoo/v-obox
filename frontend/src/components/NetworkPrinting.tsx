@@ -1,8 +1,8 @@
 import { useContext, useEffect, useMemo, useState } from "react";
 import { PrinterContext } from "../contexts/PrinterContext";
 import StepDialog from "./StepDialog";
-import { GetTroubleshootInfo } from "../../wailsjs/go/main/App";
-import { main } from "../../wailsjs/go/models";
+import { backendService } from "../services/backend";
+import { TroubleshootInfo } from "../types/models";
 import { getLinuxSteps, getMacSteps, getWindowsSteps } from "../assets/data/troubleshootStep";
 import type { Step } from "../types";
 import { AppContext } from "../contexts/AppContext";
@@ -11,7 +11,7 @@ export default function NetworkPrinting() {
   const appContext = useContext(AppContext);
   const printerContext = useContext(PrinterContext);
   const [isLoadingInfo, setIsLoadingInfo] = useState(false);
-  const [info, setInfo] = useState<main.TroubleshootInfo | null>(null);
+  const [info, setInfo] = useState<TroubleshootInfo | null>(null);
 
   const enabled = printerContext.data.networkPrintingEnabled;
 
@@ -19,7 +19,7 @@ export default function NetworkPrinting() {
     if (!appContext.data.isWails) return;
     setIsLoadingInfo(true);
     try {
-      const data = await GetTroubleshootInfo();
+      const data = await backendService.getTroubleshootInfo();
       if (data) {
         setInfo(data);
       }
