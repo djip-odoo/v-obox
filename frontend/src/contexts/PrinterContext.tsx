@@ -9,7 +9,7 @@ import {
   useRef,
   useState,
 } from "react";
-import { RuntimeContext } from "./RuntimeContext";
+import { AppContext } from "./AppContext";
 import { backendService } from "../services/backend";
 
 const POLL_INTERVAL = 5000;
@@ -43,7 +43,7 @@ interface PrinterContextWrapper {
 }
 
 export const PrinterContextWrapper = ({ children }: PrinterContextWrapper) => {
-  const { isWails } = useContext(RuntimeContext);
+  const { data: { isWails } } = useContext(AppContext);
   const [printers, setPrinters] = useState<main.Printers | null>(null);
   const [lanStatus, setLanStatus] = useState<PrinterLanStatusByIp>({});
   const [fetchError, setFetchError] = useState<string | null>(null);

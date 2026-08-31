@@ -1,10 +1,10 @@
 import { useContext, useEffect, useState } from "react";
 import { EventsOn } from "../../wailsjs/runtime/runtime";
-import { RuntimeContext } from "../contexts/RuntimeContext";
+import { AppContext } from "../contexts/AppContext";
 import PINModal from "./PINModal";
 
 export default function SetPinDialog() {
-  const { isWails } = useContext(RuntimeContext);
+  const { data: { isWails } } = useContext(AppContext);
   const [isOpen, setIsOpen] = useState(false);
 
   useEffect(() => {

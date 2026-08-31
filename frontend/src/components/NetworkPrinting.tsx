@@ -6,19 +6,17 @@ import { main } from "../../wailsjs/go/models";
 import { getLinuxSteps, getMacSteps, getWindowsSteps } from "../assets/data/troubleshootStep";
 import type { Step } from "../types";
 import { AppContext } from "../contexts/AppContext";
-import { RuntimeContext } from "../contexts/RuntimeContext";
 
 export default function NetworkPrinting() {
-  const { isWails } = useContext(RuntimeContext);
-  const printerContext = useContext(PrinterContext);
   const appContext = useContext(AppContext);
+  const printerContext = useContext(PrinterContext);
   const [isLoadingInfo, setIsLoadingInfo] = useState(false);
   const [info, setInfo] = useState<main.TroubleshootInfo | null>(null);
 
   const enabled = printerContext.data.networkPrintingEnabled;
 
   const fetchInfo = async () => {
-    if (!isWails) return;
+    if (!appContext.data.isWails) return;
     setIsLoadingInfo(true);
     try {
       const data = await GetTroubleshootInfo();
@@ -33,10 +31,10 @@ export default function NetworkPrinting() {
   };
 
   useEffect(() => {
-    if (isWails && enabled) {
+    if (appContext.data.isWails && enabled) {
       fetchInfo();
     }
-  }, [isWails, enabled]);
+  }, [appContext.data.isWails, enabled]);
 
   const steps = useMemo<Step[]>(() => {
     if (!info) return [];
@@ -52,7 +50,7 @@ export default function NetworkPrinting() {
     return [];
   }, [info, appContext.data]);
 
-  if (!isWails || !enabled) {
+  if (!appContext.data.isWails || !enabled) {
     return null;
   }
 

@@ -1,6 +1,6 @@
 import { main } from "../../wailsjs/go/models";
 import { PrinterContext } from "../contexts/PrinterContext";
-import { RuntimeContext } from "../contexts/RuntimeContext";
+import { AppContext } from "../contexts/AppContext";
 import { useContext } from "react";
 import PrinterActions from "./PrinterActions";
 import LibusbFixDialog from "./LibusbFixDialog";
@@ -22,7 +22,7 @@ export default function PrinterListItem({
   isOnline,
 }: PrinterListItemProps) {
   const printerContext = useContext(PrinterContext);
-  const { isWails } = useContext(RuntimeContext);
+  const { data: { isWails } } = useContext(AppContext);
   const gate = usePINGate();
 
   const getPrinterStatusClass = (printer: main.Printer) => {

@@ -4,10 +4,10 @@ import { GetTroubleshootInfo } from "../../wailsjs/go/main/App";
 import { staticIpAdvice } from "../assets/data/troubleshootStep";
 import { renderFormattedText } from "../functions/renderFormattedText";
 import Dialog, { type ActionType } from "./Dialog";
-import { RuntimeContext } from "../contexts/RuntimeContext";
+import { AppContext } from "../contexts/AppContext";
 
 export default function NetworkPrintingEnabledDialog() {
-  const { isWails } = useContext(RuntimeContext);
+  const { data: { isWails } } = useContext(AppContext);
   const [openSignal, setOpenSignal] = useState(0);
   const [localIp, setLocalIp] = useState<string | null>(null);
 

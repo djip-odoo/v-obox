@@ -113,8 +113,7 @@ epos-proxy/
     │   │   └── client.ts       # Type-safe fetch wrappers mirroring Wails Go bindings
     │   │
     │   ├── contexts/           # React Context Providers
-    │   │   ├── RuntimeContext.tsx  # Detects Wails (window.go) vs Remote Webview context
-    │   │   ├── AppContext.tsx      # Application metadata, ports, autostart state
+    │   │   ├── AppContext.tsx      # Unified Application & Runtime context (isWails, ready, serverURL, OS, serverRunning)
     │   │   ├── PrinterContext.tsx  # Printer list state, polling, LAN status tracking
     │   │   ├── WebViewContext.tsx  # Kiosk configuration, fullscreen state, reload triggers
     │   │   ├── PINContext.tsx      # Global modal state for PIN entry/auth

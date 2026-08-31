@@ -1,7 +1,7 @@
 import { useContext } from "react";
 import { getPINSessionToken } from "../api/authState";
 import { PINContext } from "../contexts/PINContext";
-import { RuntimeContext } from "../contexts/RuntimeContext";
+import { AppContext } from "../contexts/AppContext";
 
 /**
  * usePINGate — returns a `gate` function that wraps any async privileged
@@ -20,7 +20,7 @@ import { RuntimeContext } from "../contexts/RuntimeContext";
  *   await gate(async () => { await somePrivilegedAction(); });
  */
 export function usePINGate() {
-  const { isWails } = useContext(RuntimeContext);
+  const { data: { isWails } } = useContext(AppContext);
   const { showPINDialog } = useContext(PINContext);
 
   async function gate<T>(action: () => Promise<T>): Promise<T | null> {

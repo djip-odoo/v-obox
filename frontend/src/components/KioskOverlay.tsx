@@ -1,6 +1,6 @@
 import { useContext, useRef, useState } from "react";
 import { WebViewContext } from "../contexts/WebViewContext";
-import { RuntimeContext } from "../contexts/RuntimeContext";
+import { AppContext } from "../contexts/AppContext";
 import PINModal from "./PINModal";
 
 /** Radius (px) of the circular tap zone at each corner. */
@@ -22,7 +22,7 @@ const RESET_MS = 1000;
  * remote webview / admin browser.
  */
 export default function KioskOverlay() {
-  const { isWails } = useContext(RuntimeContext);
+  const appContext = useContext(AppContext);
   const { data, actions } = useContext(WebViewContext);
   const [pinVisible, setPinVisible] = useState(false);
 
@@ -58,7 +58,7 @@ export default function KioskOverlay() {
     setPinVisible(false);
   };
 
-  if (!isWails || !data.isKioskActive || !data.config?.url) {
+  if (!appContext.data.isWails || !data.isKioskActive || !data.config?.url) {
     return null;
   }
 

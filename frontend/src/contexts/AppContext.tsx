@@ -1,14 +1,27 @@
-import { createContext, useEffect, useState } from "react";
+import { createContext, useContext, useEffect, useState } from "react";
 import { main } from "../../wailsjs/go/models";
+import { GetSessionToken } from "../../wailsjs/go/main/App";
+import { setWailsToken } from "../api/authState";
 import { backendService } from "../services/backend";
+import { ApiAppVariable } from "../api/client";
+
+export function detectWails(): boolean {
+  return (
+    typeof window !== "undefined" &&
+    !!(window as unknown as Record<string, unknown>)["go"]
+  );
+}
 
 const RETRY_INTERVAL = 5000;
 
-type AppContextType = {
+export type AppContextType = {
   setters: Record<string, never>;
   data: {
+    isWails: boolean;
+    ready: boolean;
+    serverURL: string | null;
+    app: main.AppVariable | ApiAppVariable | null;
     os: string | null;
-    app: main.AppVariable | null;
     isWindows: boolean;
     isMac: boolean;
     isLinux: boolean;
@@ -19,15 +32,27 @@ type AppContextType = {
 
 export const AppContext = createContext({} as AppContextType);
 
-interface AppContextWrapper {
+export function useApp() {
+  return useContext(AppContext);
+}
+
+interface AppContextWrapperProps {
   children: React.ReactNode;
 }
 
-export const AppContextWrapper = ({ children }: AppContextWrapper) => {
-  const [app, setApp] = useState<main.AppVariable | null>(null);
+export const AppContextWrapper = ({ children }: AppContextWrapperProps) => {
+  const isWails = detectWails();
+  const [ready, setReady] = useState(!isWails);
+  const [app, setApp] = useState<main.AppVariable | ApiAppVariable | null>(null);
+  const [serverURL, setServerURL] = useState<string | null>(
+    isWails ? null : typeof window !== "undefined" ? window.location.origin : null,
+  );
 
   const os = app?.os || null;
   const data = {
+    isWails,
+    ready,
+    serverURL,
     app,
     os,
     isWindows: os === "windows",
@@ -39,6 +64,22 @@ export const AppContextWrapper = ({ children }: AppContextWrapper) => {
   const actions = {} as Record<string, never>;
 
   useEffect(() => {
+    if (!isWails) return;
+
+    GetSessionToken()
+      .then((token) => {
+        if (token) {
+          setWailsToken(token);
+        }
+        setReady(true);
+      })
+      .catch((err) => {
+        console.error("Failed to get Wails session token:", err);
+        setReady(true);
+      });
+  }, [isWails]);
+
+  useEffect(() => {
     let cancelled = false;
     let retryId: number | null = null;
 
@@ -47,7 +88,7 @@ export const AppContextWrapper = ({ children }: AppContextWrapper) => {
         const variables = await backendService.getAppVariable();
 
         if (cancelled) return;
-        setApp(variables as main.AppVariable);
+        setApp(variables);
       } catch (error) {
         console.error("Failed to fetch app context:", error);
         if (!cancelled) {

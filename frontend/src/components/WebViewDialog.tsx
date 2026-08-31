@@ -1,7 +1,7 @@
 import { useContext, useEffect, useState } from "react";
 import { QRCodeSVG } from "qrcode.react";
 import { WebViewContext } from "../contexts/WebViewContext";
-import { RuntimeContext } from "../contexts/RuntimeContext";
+import { AppContext } from "../contexts/AppContext";
 import { ToastContext } from "../contexts/ToastContext";
 import Dialog, { ActionType } from "./Dialog";
 import { usePINGate } from "../hooks/usePINGate";
@@ -50,7 +50,7 @@ export function isValidUrl(urlStr: string): boolean {
 }
 
 export default function WebViewDialog() {
-  const { isWails } = useContext(RuntimeContext);
+  const { data: { isWails } } = useContext(AppContext);
   const toastContext = useContext(ToastContext);
   const { data, actions } = useContext(WebViewContext);
   const gate = usePINGate();

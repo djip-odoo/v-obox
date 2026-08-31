@@ -7,7 +7,7 @@ import {
   useState,
 } from "react";
 import { EventsOn } from "../../wailsjs/runtime/runtime";
-import { RuntimeContext } from "./RuntimeContext";
+import { AppContext } from "./AppContext";
 import { backendService } from "../services/backend";
 
 export type WebViewConfig = {
@@ -43,7 +43,7 @@ interface WebViewContextWrapperProps {
 export const WebViewContextWrapper = ({
   children,
 }: WebViewContextWrapperProps) => {
-  const { isWails } = useContext(RuntimeContext);
+  const { data: { isWails } } = useContext(AppContext);
   const [config, setConfig] = useState<WebViewConfig | null>(null);
   const [isKioskActive, setIsKioskActive] = useState(false);
   const [reloadNonce, setReloadNonce] = useState(0);

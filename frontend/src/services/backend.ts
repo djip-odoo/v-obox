@@ -1,4 +1,4 @@
-import { detectWails } from "../contexts/RuntimeContext";
+import { detectWails } from "../contexts/AppContext";
 import {
   AddLANPrinter,
   AppVariable,
