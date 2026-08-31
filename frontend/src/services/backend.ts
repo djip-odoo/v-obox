@@ -141,6 +141,11 @@ class WailsBackendService implements IBackendService {
   }
 
   async setWindowFullscreen(fullscreen: boolean): Promise<void> {
+    const w = window as unknown as Record<string, unknown>;
+    const wails = w["wails"] as Record<string, unknown> | undefined;
+    if (typeof wails?.["setFullscreen"] === "function") {
+      (wails["setFullscreen"] as (v: boolean) => void)(fullscreen);
+    }
     await WailsApp.SetWindowFullscreen(fullscreen);
   }
 

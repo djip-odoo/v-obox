@@ -116,6 +116,21 @@ public class WailsJSBridge {
     }
 
     /**
+     * Set fullscreen / kiosk mode
+     * Called from JavaScript: wails.setFullscreen(boolean)
+     */
+    @JavascriptInterface
+    public void setFullscreen(boolean fullscreen) {
+        if (bridge != null && bridge.getActivity() != null) {
+            bridge.getActivity().runOnUiThread(() -> {
+                if (bridge.getActivity() instanceof MainActivity) {
+                    ((MainActivity) bridge.getActivity()).setFullscreenMode(fullscreen);
+                }
+            });
+        }
+    }
+
+    /**
      * Send a callback response to JavaScript
      */
     private void sendCallback(String callbackId, String result, String error) {

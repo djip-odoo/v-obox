@@ -30,9 +30,13 @@ import android.webkit.WebViewClient;
 import android.webkit.WebChromeClient;
 import android.webkit.ConsoleMessage;
 
+import android.view.View;
 import androidx.annotation.Nullable;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.content.FileProvider;
+import androidx.core.view.WindowCompat;
+import androidx.core.view.WindowInsetsCompat;
+import androidx.core.view.WindowInsetsControllerCompat;
 import androidx.webkit.WebViewAssetLoader;
 
 import org.json.JSONObject;
@@ -808,8 +812,57 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
+    private boolean isKioskFullscreen = false;
+
+    public void setFullscreenMode(boolean fullscreen) {
+        this.isKioskFullscreen = fullscreen;
+        runOnUiThread(() -> {
+            try {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                    WindowInsetsControllerCompat controller = WindowCompat.getInsetsController(getWindow(), getWindow().getDecorView());
+                    if (controller != null) {
+                        if (fullscreen) {
+                            controller.hide(WindowInsetsCompat.Type.systemBars());
+                            controller.setSystemBarsBehavior(WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE);
+                        } else {
+                            controller.show(WindowInsetsCompat.Type.systemBars());
+                        }
+                    }
+                } else {
+                    View decorView = getWindow().getDecorView();
+                    if (fullscreen) {
+                        decorView.setSystemUiVisibility(
+                            View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+                            | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
+                            | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
+                            | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
+                            | View.SYSTEM_UI_FLAG_FULLSCREEN
+                            | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
+                        );
+                    } else {
+                        decorView.setSystemUiVisibility(View.SYSTEM_UI_FLAG_VISIBLE);
+                    }
+                }
+            } catch (Exception e) {
+                Log.e(TAG, "Failed to set fullscreen mode", e);
+            }
+        });
+    }
+
+    @Override
+    public void onWindowFocusChanged(boolean hasFocus) {
+        super.onWindowFocusChanged(hasFocus);
+        if (hasFocus && isKioskFullscreen) {
+            setFullscreenMode(true);
+        }
+    }
+
     @Override
     public void onBackPressed() {
+        if (isKioskFullscreen) {
+            // Lock back button during kiosk mode
+            return;
+        }
         if (webView != null && webView.canGoBack()) {
             webView.goBack();
         } else {
