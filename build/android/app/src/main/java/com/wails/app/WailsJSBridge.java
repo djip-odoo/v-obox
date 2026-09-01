@@ -142,6 +142,7 @@ public class WailsJSBridge {
                     if (bridge.getActivity() instanceof MainActivity) {
                         ((MainActivity) bridge.getActivity()).setFullscreenMode(false);
                     }
+                    bridge.stopForegroundService();
                     bridge.getActivity().finishAndRemoveTask();
                 } catch (Exception e) {
                     Log.e(TAG, "Error quitting app", e);

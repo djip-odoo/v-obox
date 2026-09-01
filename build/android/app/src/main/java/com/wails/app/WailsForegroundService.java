@@ -27,8 +27,8 @@ public class WailsForegroundService extends android.app.Service {
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
-        String title = "Wails";
-        String text = "Running in the background";
+        String title = "ePOS Proxy";
+        String text = "ePOS Proxy service is active";
         if (intent != null) {
             if (intent.getStringExtra("title") != null) title = intent.getStringExtra("title");
             if (intent.getStringExtra("text") != null) text = intent.getStringExtra("text");
@@ -37,7 +37,7 @@ public class WailsForegroundService extends android.app.Service {
         NotificationManager nm = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             NotificationChannel ch = new NotificationChannel(
-                    CHANNEL_ID, "Background work", NotificationManager.IMPORTANCE_LOW);
+                    CHANNEL_ID, "Proxy Service", NotificationManager.IMPORTANCE_LOW);
             nm.createNotificationChannel(ch);
         }
 
@@ -50,7 +50,7 @@ public class WailsForegroundService extends android.app.Service {
         }
 
         Notification n = new NotificationCompat.Builder(this, CHANNEL_ID)
-                .setSmallIcon(android.R.drawable.ic_popup_sync)
+                .setSmallIcon(R.mipmap.ic_launcher)
                 .setContentTitle(title)
                 .setContentText(text)
                 .setOngoing(true)

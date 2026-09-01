@@ -51,7 +51,7 @@ tasks:
         vars:
           ARCH: '{{.ARCH | default .HOST_ARCH}}'
     vars:
-      BUILD_FLAGS: '{{if eq .PRODUCTION "true"}}-tags production,android -trimpath -buildvcs=false -ldflags="-w -s"{{else}}-tags android,debug -buildvcs=false -gcflags=all="-l"{{end}}'
+      BUILD_FLAGS: '{{if eq .PRODUCTION "true"}}-tags production,android -trimpath -buildvcs=false -ldflags="-w -s -extldflags \"-Wl,-z,max-page-size=16384\""{{else}}-tags android,debug -buildvcs=false -gcflags=all="-l" -ldflags="-extldflags \"-Wl,-z,max-page-size=16384\""{{end}}'
     env:
       PRODUCTION: '{{.PRODUCTION | default "false"}}'
 
@@ -113,6 +113,7 @@ tasks:
 
         export CGO_ENABLED=1
         export GOOS=android
+        export CGO_LDFLAGS="${CGO_LDFLAGS:-} -Wl,-z,max-page-size=16384"
 
         mkdir -p {{.BIN_DIR}}
         mkdir -p build/android/app/src/main/jniLibs/$JNI_DIR
@@ -120,7 +121,7 @@ tasks:
         go build -buildmode=c-shared -overlay build/android/overlay.json {{.BUILD_FLAGS}} \
           -o build/android/app/src/main/jniLibs/$JNI_DIR/libwails.so
     vars:
-      BUILD_FLAGS: '{{if eq .PRODUCTION "true"}}-tags production,android -trimpath -buildvcs=false -ldflags="-w -s"{{else}}-tags android,debug -buildvcs=false -gcflags=all="-l"{{end}}'
+      BUILD_FLAGS: '{{if eq .PRODUCTION "true"}}-tags production,android -trimpath -buildvcs=false -ldflags="-w -s -extldflags \"-Wl,-z,max-page-size=16384\""{{else}}-tags android,debug -buildvcs=false -gcflags=all="-l" -ldflags="-extldflags \"-Wl,-z,max-page-size=16384\""{{end}}'
 
   compile:go:all-archs:
     summary: Compile Go code for all Android architectures (fat APK)

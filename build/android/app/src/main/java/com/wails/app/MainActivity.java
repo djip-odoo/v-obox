@@ -113,6 +113,9 @@ public class MainActivity extends AppCompatActivity {
         bridge = new WailsBridge(this);
         bridge.initialize();
 
+        // Start background proxy foreground service
+        bridge.startForegroundService("{\"title\":\"ePOS Proxy\",\"text\":\"ePOS Proxy service is active\"}");
+
         // Set up WebView
         setupWebView();
 

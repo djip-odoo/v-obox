@@ -93,6 +93,26 @@ public class WailsBridge {
         System.loadLibrary("wails");
     }
 
+    private static volatile WailsBridge instance;
+
+    public static WailsBridge getInstance() {
+        return instance;
+    }
+
+    public static String getUSBPrintersJson() {
+        if (instance != null) {
+            return instance.listUSBPrinters("");
+        }
+        return "[]";
+    }
+
+    public static String writeUSBPrinter(String jsonArg) {
+        if (instance != null) {
+            return instance.printUSB(jsonArg);
+        }
+        return "{\"ok\":false,\"error\":\"WailsBridge not initialized\"}";
+    }
+
     private final Activity activity;
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
     private WebView webView;
@@ -164,6 +184,7 @@ public class WailsBridge {
                     } catch (Exception ignored) {}
                 }
             }
+            instance = this;
             nativeInit(this);
             initialized = true;
             Log.i(TAG, "Wails bridge initialized");
@@ -182,6 +203,7 @@ public class WailsBridge {
         try {
             nativeShutdown();
             initialized = false;
+            instance = null;
         } catch (Exception e) {
             Log.e(TAG, "Error during shutdown", e);
         }

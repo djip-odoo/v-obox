@@ -1,5 +1,3 @@
-//go:build !android
-
 package printer
 
 import (
@@ -18,17 +16,20 @@ type ID struct {
 	Path   string
 }
 
-func encodePrinterID(libUsbPrinter *LibUsbPrinter) (string, error) {
+func encodePrinterID(ident *LibUsbPrinter) (string, error) {
+	if ident == nil {
+		return "", fmt.Errorf("cannot encode printer ID: nil identifier")
+	}
 	var parts []string
 
-	if libUsbPrinter.VidPid != "" {
-		parts = append(parts, "vp:"+libUsbPrinter.VidPid)
+	if ident.VidPid != "" {
+		parts = append(parts, "vp:"+ident.VidPid)
 	}
 
-	if libUsbPrinter.Serial != "" {
-		parts = append(parts, "s:"+libUsbPrinter.Serial)
-	} else if libUsbPrinter.Path != "" {
-		parts = append(parts, "p:"+libUsbPrinter.Path)
+	if ident.Serial != "" {
+		parts = append(parts, "s:"+ident.Serial)
+	} else if ident.Path != "" {
+		parts = append(parts, "p:"+ident.Path)
 	}
 
 	if len(parts) == 0 {
@@ -37,7 +38,7 @@ func encodePrinterID(libUsbPrinter *LibUsbPrinter) (string, error) {
 
 	base := strings.Join(parts, "|")
 	id := base64.RawURLEncoding.EncodeToString([]byte(base))
-	logger.Infof("LibUsbPrinter: %v | base: %s | encoded id: %s", libUsbPrinter, base, id)
+	logger.Infof("LibUsbPrinter: %v | base: %s | encoded id: %s", ident, base, id)
 	return id, nil
 }
 

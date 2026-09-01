@@ -7,3 +7,11 @@ const (
 	TypeReceipt Type = "receipt"
 	TypeLabel   Type = "label"
 )
+
+// LibUsbPrinter is the identity read off a device during a scan.
+type LibUsbPrinter struct {
+	Serial string
+	Path   string
+	Name   string
+	VidPid string
+}
