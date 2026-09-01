@@ -1,11 +1,13 @@
 import { useContext, useState } from "react";
 import { createPortal } from "react-dom";
 import { WebViewContext } from "../contexts/WebViewContext";
+import { AppContext } from "../contexts/AppContext";
 import { backendService } from "../services/backend";
 import PINModal from "./PINModal";
 
 export default function QuitAppButton() {
   const { data: { config } } = useContext(WebViewContext);
+  const { data: { isWails } } = useContext(AppContext);
   const [showPinModal, setShowPinModal] = useState(false);
   const [showConfirmDialog, setShowConfirmDialog] = useState(false);
   const [isQuitting, setIsQuitting] = useState(false);
@@ -29,7 +31,7 @@ export default function QuitAppButton() {
   };
 
   return (
-    <>
+    <>{isWails &&
       <button
         type="button"
         onClick={handleQuitClick}
@@ -50,7 +52,7 @@ export default function QuitAppButton() {
           />
         </svg>
         <span>{isQuitting ? "Closing App..." : "Quit Application"}</span>
-      </button>
+      </button>}
 
       {showPinModal && (
         <PINModal

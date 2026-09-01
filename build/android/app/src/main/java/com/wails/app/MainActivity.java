@@ -888,20 +888,33 @@ public class MainActivity extends AppCompatActivity {
 
                 if (fullscreen) {
                     collapseStatusBar();
-                    try {
-                        startLockTask();
-                    } catch (Exception e) {
-                        Log.w(TAG, "startLockTask warning: " + e.getMessage());
-                    }
-                } else {
-                    try {
-                        stopLockTask();
-                    } catch (Exception e) {
-                        Log.w(TAG, "stopLockTask warning: " + e.getMessage());
-                    }
                 }
             } catch (Exception e) {
                 Log.e(TAG, "Failed to set fullscreen mode", e);
+            }
+        });
+    }
+
+    public void requestDefaultLauncher() {
+        runOnUiThread(() -> {
+            try {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    android.app.role.RoleManager roleManager = getSystemService(android.app.role.RoleManager.class);
+                    if (roleManager != null && roleManager.isRoleAvailable(android.app.role.RoleManager.ROLE_HOME)) {
+                        if (!roleManager.isRoleHeld(android.app.role.RoleManager.ROLE_HOME)) {
+                            Intent intent = roleManager.createRequestRoleIntent(android.app.role.RoleManager.ROLE_HOME);
+                            startActivity(intent);
+                            return;
+                        }
+                    }
+                }
+                Intent intent = new Intent(android.provider.Settings.ACTION_HOME_SETTINGS);
+                startActivity(intent);
+            } catch (Exception e) {
+                try {
+                    Intent intent = new Intent(android.provider.Settings.ACTION_SETTINGS);
+                    startActivity(intent);
+                } catch (Exception ignored) {}
             }
         });
     }

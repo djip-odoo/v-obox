@@ -152,6 +152,17 @@ public class WailsJSBridge {
     }
 
     /**
+     * Request default launcher / home app role or open settings
+     * Called from JavaScript: wails.requestDefaultLauncher()
+     */
+    @JavascriptInterface
+    public void requestDefaultLauncher() {
+        if (bridge != null && bridge.getActivity() instanceof MainActivity) {
+            ((MainActivity) bridge.getActivity()).requestDefaultLauncher();
+        }
+    }
+
+    /**
      * Send a callback response to JavaScript
      */
     private void sendCallback(String callbackId, String result, String error) {
