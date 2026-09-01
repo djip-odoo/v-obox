@@ -5,99 +5,83 @@ import (
 
 	"epos-proxy/internal/logger"
 
-	"github.com/wailsapp/wails/v2/pkg/menu"
-	wailsruntime "github.com/wailsapp/wails/v2/pkg/runtime"
+	"github.com/wailsapp/wails/v3/pkg/application"
 )
 
-func createMenu(app *App) *menu.Menu {
-	mainMenu := menu.NewMenu()
+func createMenu(app *application.App, appService *App) *application.Menu {
+	mainMenu := app.NewMenu()
 	appMenu := mainMenu.AddSubmenu("App")
 
 	if runtime.GOOS == "darwin" {
-		// Without an Edit menu, copy/paste do nothing on the webview on macO
-		mainMenu.Append(menu.EditMenu())
+		// Without an Edit menu, copy/paste do nothing on the webview on macOS
+		mainMenu.AddRole(application.EditMenu)
 	}
 
-	appMenu.AddCheckbox("Auto Start", app.IsAutostartEnabled(), nil, func(cb *menu.CallbackData) {
-		handleAutoStartToggle(app, cb)
+	appMenu.AddCheckbox("Auto Start", appService.IsAutostartEnabled()).OnClick(func(ctx *application.Context) {
+		handleAutoStartToggle(appService, ctx)
 	})
 
-	appMenu.AddCheckbox("Allow Network Printing", app.IsNetworkPrintingEnabled(), nil, func(cb *menu.CallbackData) {
-		handleNetworkPrintingToggle(app, cb)
+	appMenu.AddCheckbox("Allow Network Printing", appService.IsNetworkPrintingEnabled()).OnClick(func(ctx *application.Context) {
+		handleNetworkPrintingToggle(appService, ctx)
 	})
 
-	appMenu.AddText("Set PIN", nil, func(_ *menu.CallbackData) {
-		wailsruntime.EventsEmit(app.ctx, "open-set-pin-dialog")
+	appMenu.Add("Set PIN").OnClick(func(_ *application.Context) {
+		appService.EmitEvent("open-set-pin-dialog")
 	})
 
-	appMenu.AddText("Download Logs", nil, func(_ *menu.CallbackData) {
-		app.DownloadLogs()
+	appMenu.Add("Download Logs").OnClick(func(_ *application.Context) {
+		appService.DownloadLogs()
 	})
 
-	appMenu.AddText("Quit", nil, func(_ *menu.CallbackData) {
-		logger.Infof("Quit requested by user")
-		wailsruntime.Quit(app.ctx)
+	appMenu.AddSeparator()
+
+	appMenu.Add("Quit").OnClick(func(_ *application.Context) {
+		if appService.ConfirmQuit() {
+			logger.Infof("Quit requested by user")
+			app.Quit()
+		}
 	})
 
 	return mainMenu
 }
 
-func handleAutoStartToggle(app *App, cb *menu.CallbackData) {
-	checked := cb.MenuItem.Checked
+func handleAutoStartToggle(appService *App, ctx *application.Context) {
+	menuItem := ctx.ClickedMenuItem()
+	checked := menuItem.Checked()
 
 	logger.Debugf("Auto Start toggled: %v", checked)
 
 	if checked {
-		if err := app.EnableAutostart(); err != nil {
+		if err := appService.EnableAutostart(); err != nil {
 			logger.Errorf("Failed to enable autostart: %v", err)
 		}
 		return
 	}
 
-	if err := app.DisableAutostart(); err != nil {
+	if err := appService.DisableAutostart(); err != nil {
 		logger.Errorf("Failed to disable autostart: %v", err)
 	}
 }
 
-func handleNetworkPrintingToggle(app *App, cb *menu.CallbackData) {
-	checked := cb.MenuItem.Checked
+func handleNetworkPrintingToggle(appService *App, ctx *application.Context) {
+	menuItem := ctx.ClickedMenuItem()
+	checked := menuItem.Checked()
 
-	// Guards against a spurious callback firing with the already-persisted
-	// value (e.g. on initial menu setup) so the info dialog only shows for
-	// an actual user-driven change, never on app start.
-	if checked == app.IsNetworkPrintingEnabled() {
+	// Guards against a spurious callback firing with the already-persisted value
+	if checked == appService.IsNetworkPrintingEnabled() {
 		return
 	}
 
 	logger.Debugf("Allow Network Printing toggled: %v", checked)
 
-	if err := app.SetNetworkPrintingEnabled(checked); err != nil {
+	if err := appService.SetNetworkPrintingEnabled(checked); err != nil {
 		logger.Errorf("Failed to set network printing enabled: %v", err)
 		return
 	}
 
-	wailsruntime.EventsEmit(app.ctx, "network-printing-changed", checked)
+	appService.EmitEvent("network-printing-changed", checked)
 }
 
-func (app *App) ConfirmQuit() bool {
-	result, err := app.dlg().Message(app.ctx, wailsruntime.MessageDialogOptions{
-		Type:          wailsruntime.QuestionDialog,
-		Title:         "Quit ePOS Proxy",
-		Message:       "Stopping the proxy will prevent POS from printing receipts.\n\nAre you sure you want to quit?",
-		Buttons:       []string{"Cancel", "Quit"},
-		DefaultButton: "Cancel",
-	})
-
-	if err != nil {
-		logger.Errorf("Failed to show quit dialog: %v", err)
-		return false
-	}
-
-	// linux doesn't use Buttons overrides and uses No | Yes for question dialog
-	if result != "Yes" && result != "Quit" {
-		return false
-	}
-
-	logger.Debug("Confirmed quit action")
-	return true
+func (a *App) ConfirmQuit() bool {
+	return a.dlg().Question("Quit ePOS Proxy", "Stopping the proxy will prevent POS from printing receipts.\n\nAre you sure you want to quit?")
 }

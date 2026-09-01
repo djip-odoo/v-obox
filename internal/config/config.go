@@ -45,16 +45,35 @@ type Manager struct {
 	Data AppConfig
 }
 
-func NewManager() (*Manager, error) {
+func getBaseConfigDir() string {
+	if filesDir := os.Getenv("FILES_DIR"); filesDir != "" {
+		return filesDir
+	}
 	base, err := os.UserConfigDir()
-	if err != nil {
-		return nil, fmt.Errorf("cannot locate user config dir: %w", err)
+	if err == nil && base != "" {
+		return base
 	}
+	if home := os.Getenv("HOME"); home != "" {
+		return home
+	}
+	candidates := []string{
+		"/data/user/0/com.wails.app/files",
+		"/data/data/com.wails.app/files",
+		"/data/user/0/com.wails.app/cache",
+		"/data/data/com.wails.app/cache",
+	}
+	for _, c := range candidates {
+		if fi, err := os.Stat(c); err == nil && fi.IsDir() {
+			return c
+		}
+	}
+	return os.TempDir()
+}
 
+func NewManager() (*Manager, error) {
+	base := getBaseConfigDir()
 	dir := filepath.Join(base, AppName)
-	if err := os.MkdirAll(dir, 0755); err != nil {
-		return nil, fmt.Errorf("cannot create config dir: %w", err)
-	}
+	_ = os.MkdirAll(dir, 0755)
 
 	return &Manager{
 		path: filepath.Join(dir, "config.json"),
@@ -87,6 +106,10 @@ func (cm *Manager) Save() error {
 }
 
 func (cm *Manager) saveLocked() error {
+	dir := filepath.Dir(cm.path)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return fmt.Errorf("config dir error: %w", err)
+	}
 	data, err := json.MarshalIndent(cm.Data, "", "  ")
 	if err != nil {
 		return fmt.Errorf("config marshal error: %w", err)

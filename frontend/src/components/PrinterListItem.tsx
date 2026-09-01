@@ -1,4 +1,4 @@
-import { main } from "../../wailsjs/go/models";
+import { Printer, UnavailablePrinter } from "../types/models";
 import { PrinterContext } from "../contexts/PrinterContext";
 import { AppContext } from "../contexts/AppContext";
 import { useContext } from "react";
@@ -9,11 +9,11 @@ import { usePINGate } from "../hooks/usePINGate";
 
 type PrinterListItemProps =
   | {
-      printer: main.Printer;
+      printer: Printer;
       isOnline: true;
     }
   | {
-      printer: main.UnavailablePrinter;
+      printer: UnavailablePrinter;
       isOnline: false;
     };
 
@@ -25,7 +25,7 @@ export default function PrinterListItem({
   const { data: { isWails } } = useContext(AppContext);
   const gate = usePINGate();
 
-  const getPrinterStatusClass = (printer: main.Printer) => {
+  const getPrinterStatusClass = (printer: Printer) => {
     if (!printer.isLAN) {
       return printer.online ? "bg-success" : "bg-danger";
     }
@@ -48,7 +48,7 @@ export default function PrinterListItem({
     return error.toLowerCase().includes("libusb");
   };
 
-  const handleRemoveLAN = async (p: main.Printer) => {
+  const handleRemoveLAN = async (p: Printer) => {
     await gate(async () => {
       if (!isWails) {
         const confirmed = window.confirm(

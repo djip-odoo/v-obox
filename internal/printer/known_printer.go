@@ -1,18 +1,7 @@
 package printer
 
 import (
-	"fmt"
 	"strings"
-
-	"github.com/google/gousb"
-)
-
-// Type is what a printer produces, which decides how job data is framed.
-type Type string
-
-const (
-	TypeReceipt Type = "receipt"
-	TypeLabel   Type = "label"
 )
 
 // Some thermal printers do not expose the standard USB printer class (0x07)
@@ -34,11 +23,8 @@ var printerRegistry = map[string]Type{
 	"195f:0001": TypeLabel, // Godex G500
 }
 
-func isKnownPrinter(desc *gousb.DeviceDesc) bool {
-	vidPid := strings.ToLower(
-		fmt.Sprintf("%04x:%04x", uint16(desc.Vendor), uint16(desc.Product)),
-	)
-	_, ok := printerRegistry[vidPid]
+func isKnownPrinterVidPid(vidPid string) bool {
+	_, ok := printerRegistry[strings.ToLower(vidPid)]
 	return ok
 }
 

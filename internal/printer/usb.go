@@ -1,3 +1,5 @@
+//go:build !android
+
 package printer
 
 import (
@@ -33,15 +35,6 @@ type EndpointInfo struct {
 	iFace            int
 	alternateSetting int
 	outEndpoint      int
-}
-
-// LibUsbPrinter is the raw identity read off a device during a scan.
-type LibUsbPrinter struct {
-	Serial   string
-	Path     string
-	Name     string
-	VidPid   string
-	DeviceId DeviceID
 }
 
 func ListUSBPrinters() (*Printers, error) {
@@ -161,7 +154,6 @@ func GetPrinterInfo(ctx *gousb.Context, descToFind *gousb.DeviceDesc) (*LibUsbPr
 	info.Serial = serial
 	info.Path = pathToString(descToFind)
 	info.VidPid = fmt.Sprintf("%04X:%04X", uint16(descToFind.Vendor), uint16(descToFind.Product))
-	info.DeviceId = deviceID
 	logger.Debugf("USB printer: %s (Serial: %s)", info.Name, info.Serial)
 	return &info, nil
 }

@@ -1,3 +1,5 @@
+//go:build !android
+
 package printer
 
 import (
@@ -12,6 +14,12 @@ import (
 
 	"github.com/google/gousb"
 )
+
+// idleTimeout is the duration the printer connection is kept alive after the
+// last job completes. Closing too eagerly (e.g. immediately after each job)
+// causes USB printers to flush their internal buffer on the next reconnect,
+// which prints garbage bytes after the correct receipt.
+const idleTimeout = 2 * time.Second
 
 // ConnKind is the transport a Printer talks over.
 type ConnKind int
@@ -146,16 +154,44 @@ func (p *Printer) Write(data []byte) error {
 
 func (p *Printer) loop() {
 	logger.Debugf("Printer loop started for %s with %d jobs", p.idToString(), len(p.jobs))
+
+	var (
+		idleMu    sync.Mutex
+		idleTimer *time.Timer
+	)
+
+	resetIdle := func() {
+		idleMu.Lock()
+		defer idleMu.Unlock()
+		if idleTimer != nil {
+			idleTimer.Reset(idleTimeout)
+			return
+		}
+		idleTimer = time.AfterFunc(idleTimeout, func() {
+			p.close()
+			idleMu.Lock()
+			idleTimer = nil
+			idleMu.Unlock()
+		})
+	}
+
 	for j := range p.jobs {
 		result := j.run(p)
 		if j.reply != nil {
 			j.reply <- result
 			close(j.reply)
 		}
-		if len(p.jobs) == 0 {
-			p.close()
-		}
+		resetIdle()
 	}
+
+	// Channel closed — cancel any pending idle timer and close immediately.
+	idleMu.Lock()
+	if idleTimer != nil {
+		idleTimer.Stop()
+		idleTimer = nil
+	}
+	idleMu.Unlock()
+	p.close()
 }
 func (p *Printer) ensureOpen() error {
 	if p.connectionType == ConnKindLAN {

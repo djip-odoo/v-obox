@@ -1,6 +1,6 @@
-import { main } from "../../wailsjs/go/models";
+import { Printer } from "../types/models";
 
-export async function sendLabelPrint(printer: main.Printer) {
+export async function sendLabelPrint(printer: Printer) {
   const zpl = `
 ^XA
 ^PW800

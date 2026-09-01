@@ -6,7 +6,7 @@ import {
   useRef,
   useState,
 } from "react";
-import { EventsOn } from "../../wailsjs/runtime/runtime";
+import { Events } from "@wailsio/runtime";
 import { AppContext } from "./AppContext";
 import { backendService } from "../services/backend";
 
@@ -31,6 +31,7 @@ type WebViewContextType = {
     enterKiosk: () => Promise<void>;
     reloadKiosk: () => void;
     refresh: () => Promise<void>;
+    setDefaultLauncher: () => Promise<void>;
   };
 };
 
@@ -80,7 +81,8 @@ export const WebViewContextWrapper = ({
   useEffect(() => {
     if (!isWails) return;
 
-    const unsubKiosk = EventsOn("kiosk-state-changed", async (enabled: boolean) => {
+    const unsubKiosk = Events.On("kiosk-state-changed", async (ev: { data: boolean }) => {
+      const enabled = ev.data;
       setIsKioskActive(enabled);
       await backendService.setWindowFullscreen(enabled);
       try {
@@ -91,7 +93,7 @@ export const WebViewContextWrapper = ({
       }
     });
 
-    const unsubConfig = EventsOn("webview-config-changed", async () => {
+    const unsubConfig = Events.On("webview-config-changed", async () => {
       try {
         const cfg = await backendService.getWebViewConfig();
         setConfig(cfg);
@@ -100,7 +102,7 @@ export const WebViewContextWrapper = ({
       }
     });
 
-    const unsubReload = EventsOn("kiosk-reload", () => {
+    const unsubReload = Events.On("kiosk-reload", () => {
       setReloadNonce((n) => n + 1);
     });
 
@@ -136,6 +138,11 @@ export const WebViewContextWrapper = ({
   };
 
   const enterKiosk = async () => {
+    try {
+      await backendService.requestDefaultLauncher?.();
+    } catch (err) {
+      console.error("Failed to request default launcher on enter kiosk:", err);
+    }
     await toggleEnabled(true);
   };
 
@@ -156,6 +163,14 @@ export const WebViewContextWrapper = ({
     return backendService.validatePIN(pin);
   };
 
+  const setDefaultLauncher = async () => {
+    try {
+      await backendService.requestDefaultLauncher?.();
+    } catch (err) {
+      console.error("Failed to open default launcher settings:", err);
+    }
+  };
+
   return (
     <WebViewContext.Provider
       value={{
@@ -169,6 +184,7 @@ export const WebViewContextWrapper = ({
           exitKiosk,
           reloadKiosk,
           refresh,
+          setDefaultLauncher,
         },
       }}
     >

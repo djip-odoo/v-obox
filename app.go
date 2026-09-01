@@ -17,59 +17,79 @@ import (
 
 	autostart "github.com/emersion/go-autostart"
 	"github.com/google/uuid"
-	"github.com/wailsapp/wails/v2/pkg/menu"
-	wailsruntime "github.com/wailsapp/wails/v2/pkg/runtime"
+	"github.com/wailsapp/wails/v3/pkg/application"
 )
 
-// dialoger abstracts the Wails runtime dialog calls. Production code uses
-// runtimeDialogs; tests substitute a fake so the dialog-driven code paths can
-// be exercised without a live Wails context.
+// dialoger abstracts native GUI dialogs for testability.
 type dialoger interface {
-	Message(ctx context.Context, opts wailsruntime.MessageDialogOptions) (string, error)
-	SaveFile(ctx context.Context, opts wailsruntime.SaveDialogOptions) (string, error)
+	Error(title, message string)
+	Question(title, message string) bool
+	SaveFile(opts *application.SaveFileDialogOptions) (string, error)
 }
 
-// runtimeDialogs forwards to the real Wails runtime.
-type runtimeDialogs struct{}
+type defaultDialogs struct{}
 
-func (runtimeDialogs) Message(ctx context.Context, opts wailsruntime.MessageDialogOptions) (string, error) {
-	return wailsruntime.MessageDialog(ctx, opts)
+func (defaultDialogs) Error(title, message string) {
+	if app := application.Get(); app != nil {
+		app.Dialog.Error().SetTitle(title).SetMessage(message).Show()
+	} else {
+		logger.Errorf("%s: %s", title, message)
+	}
 }
 
-func (runtimeDialogs) SaveFile(ctx context.Context, opts wailsruntime.SaveDialogOptions) (string, error) {
-	return wailsruntime.SaveFileDialog(ctx, opts)
+func (defaultDialogs) Question(title, message string) bool {
+	confirmed := false
+	if app := application.Get(); app != nil {
+		dialog := app.Dialog.Question().SetTitle(title).SetMessage(message)
+		btnCancel := dialog.AddButton("Cancel")
+		btnCancel.SetAsCancel().SetAsDefault()
+		btnConfirm := dialog.AddButton("Confirm")
+		btnConfirm.OnClick(func() {
+			confirmed = true
+		})
+		dialog.Show()
+	}
+	return confirmed
+}
+
+func (defaultDialogs) SaveFile(opts *application.SaveFileDialogOptions) (string, error) {
+	if app := application.Get(); app != nil {
+		return app.Dialog.SaveFileWithOptions(opts).PromptForSingleSelection()
+	}
+	return "", nil
 }
 
 // App struct
 type App struct {
-	ctx            context.Context
+	wailsApp       *application.App
+	mainWindow     *application.WebviewWindow
 	webserver      *server.Server
 	config         *config.Manager
 	printerManager *printer.Manager
 	autoStart      *autostart.App
 	dialogs        dialoger
-	appMenu        *menu.Menu // stored so kiosk mode can hide/restore the menu bar
-	sessionToken   string     // trusted Wails-origin token set once in startup()
+	sessionToken   string // trusted Wails-origin token set once in startup()
 }
 
-// dlg returns the dialog backend, defaulting to the Wails runtime so an App
-// built as a bare struct literal still behaves correctly.
 func (a *App) dlg() dialoger {
 	if a.dialogs == nil {
-		return runtimeDialogs{}
+		return defaultDialogs{}
 	}
 	return a.dialogs
 }
 
-// showError surfaces an error to the user and logs any failure to do so.
-func (a *App) showError(title, message string) {
-	if _, err := a.dlg().Message(a.ctx, wailsruntime.MessageDialogOptions{
-		Type:    wailsruntime.ErrorDialog,
-		Title:   title,
-		Message: message,
-	}); err != nil {
-		logger.Errorf("Failed to show error dialog %q: %v", title, err)
+// EmitEvent broadcasts a custom event to the frontend.
+func (a *App) EmitEvent(name string, data ...any) {
+	if a.wailsApp != nil {
+		a.wailsApp.Event.Emit(name, data...)
+	} else if app := application.Get(); app != nil {
+		app.Event.Emit(name, data...)
 	}
+}
+
+// showError surfaces an error to the user via a native dialog.
+func (a *App) showError(title, message string) {
+	a.dlg().Error(title, message)
 }
 
 type Printer struct {
@@ -116,7 +136,6 @@ func NewApp() *App {
 		Exec:        []string{os.Args[0]},
 	}
 	a.printerManager = printer.NewManager()
-	a.dialogs = runtimeDialogs{}
 
 	cfg, err := config.NewManager()
 	if err != nil {
@@ -132,8 +151,7 @@ func NewApp() *App {
 	return a
 }
 
-func (a *App) startup(ctx context.Context) {
-	a.ctx = ctx
+func (a *App) startup() {
 	logger.Debugf("Application startup")
 	logger.Debugf("Config loaded from %s", a.config.Path())
 
@@ -161,34 +179,34 @@ func (a *App) startup(ctx context.Context) {
 
 	// Notify the desktop frontend when kiosk status or config is modified remotely
 	a.webserver.SetKioskCallback(func(enabled bool) {
-		if a.ctx != nil {
-			wailsruntime.EventsEmit(a.ctx, "kiosk-state-changed", enabled)
-		}
+		a.EmitEvent("kiosk-state-changed", enabled)
 	})
 	a.webserver.SetConfigCallback(func() {
-		if a.ctx != nil {
-			wailsruntime.EventsEmit(a.ctx, "webview-config-changed")
-		}
+		a.EmitEvent("webview-config-changed")
 	})
 	a.webserver.SetKioskReloadCallback(func() {
-		if a.ctx != nil {
-			wailsruntime.EventsEmit(a.ctx, "kiosk-reload")
-		}
+		a.EmitEvent("kiosk-reload")
 	})
 }
 
-func (a *App) shutdown(ctx context.Context) {
+func (a *App) shutdown(_ context.Context) {
 	logger.Infof("Stopping proxy server")
 
-	if err := a.webserver.Stop(); err != nil {
-		logger.Errorf("Server stop error: %v", err)
+	if a.webserver != nil {
+		if err := a.webserver.Stop(); err != nil {
+			logger.Errorf("Server stop error: %v", err)
+		}
 	}
 }
 
 func (a *App) AppVariable() AppVariable {
+	running := false
+	if a.webserver != nil {
+		running = a.webserver.Running()
+	}
 	return AppVariable{
 		Os:            runtime.GOOS,
-		ServerRunning: a.webserver.Running(),
+		ServerRunning: running,
 	}
 }
 
@@ -200,13 +218,16 @@ func (a *App) GetSessionToken() string {
 }
 
 func (a *App) GetPrinterUrl(id string) string {
-	url := fmt.Sprintf("%s:%d/p/%s", util.GetLocalIP(a.config.IsNetworkPrintingEnabled()), a.webserver.Port, id)
+	port := 8069
+	if a.webserver != nil {
+		port = a.webserver.Port
+	}
+	url := fmt.Sprintf("%s:%d/p/%s", util.GetLocalIP(a.config.IsNetworkPrintingEnabled()), port, id)
 	logger.Debugf("Generated printer endpoint: %s", url)
 	return url
 }
 
 func (a *App) Printers() Printers {
-
 	logger.Debug("Collecting printer status")
 
 	printers := make([]Printer, 0)
@@ -215,7 +236,6 @@ func (a *App) Printers() Printers {
 	printerInfos, err := printer.ListUSBPrinters()
 	errorMsg := ""
 	if err == nil {
-
 		logger.Debugf("Detected %d available USB printers", len(printerInfos.Available))
 
 		for _, info := range printerInfos.Available {
@@ -320,59 +340,45 @@ func (a *App) SetWebViewEnabled(v bool) error {
 // SetWindowFullscreen puts the main Wails window into or out of fullscreen
 // and hides/restores the native menu bar accordingly.
 func (a *App) SetWindowFullscreen(fullscreen bool) {
-	if a.ctx == nil {
-		return
-	}
-	if fullscreen {
-		wailsruntime.WindowFullscreen(a.ctx)
-		// Hide the native menu bar in kiosk mode
-		menubar.SetNativeMenubarVisible(false)
-		if runtime.GOOS != "linux" {
-			wailsruntime.MenuSetApplicationMenu(a.ctx, menu.NewMenu())
-			wailsruntime.MenuUpdateApplicationMenu(a.ctx)
-		}
-	} else {
-		wailsruntime.WindowUnfullscreen(a.ctx)
-		// Restore the menu bar when leaving kiosk mode
-		menubar.SetNativeMenubarVisible(true)
-		if runtime.GOOS != "linux" {
-			if a.appMenu == nil {
-				a.appMenu = createMenu(a)
-			}
-			wailsruntime.MenuSetApplicationMenu(a.ctx, a.appMenu)
-			wailsruntime.MenuUpdateApplicationMenu(a.ctx)
+	if a.mainWindow != nil {
+		if fullscreen {
+			a.mainWindow.Fullscreen()
+			a.mainWindow.HideMenuBar()
+			menubar.SetNativeMenubarVisible(false)
+		} else {
+			a.mainWindow.UnFullscreen()
+			a.mainWindow.ShowMenuBar()
+			menubar.SetNativeMenubarVisible(true)
 		}
 	}
 }
 
 // ReloadKiosk broadcasts a kiosk-reload event to reload the active kiosk iframe.
 func (a *App) ReloadKiosk() {
-	if a.ctx != nil {
-		wailsruntime.EventsEmit(a.ctx, "kiosk-reload")
+	a.EmitEvent("kiosk-reload")
+}
+
+// QuitApp exits the application cleanly
+func (a *App) QuitApp() {
+	logger.Info("QuitApp called, shutting down application")
+	if app := application.Get(); app != nil {
+		app.Quit()
 	}
 }
 
 func (a *App) ConfirmRemoveLANPrinter(ip string) (bool, error) {
 	logger.Debugf("Remove LAN printer requested: %s", ip)
 
-	result, err := a.dlg().Message(a.ctx, wailsruntime.MessageDialogOptions{
-		Type:          wailsruntime.QuestionDialog,
-		Title:         "Remove Printer",
-		Message:       fmt.Sprintf("Are you sure you want to remove the printer at %s?", ip),
-		Buttons:       []string{"Cancel", "Confirm"},
-		DefaultButton: "Cancel",
-		CancelButton:  "Cancel",
-	})
-	if err != nil {
-		return false, fmt.Errorf("failed to show confirmation dialog: %w", err)
-	}
-	if result == "Confirm" || result == "Yes" {
+	confirmed := a.dlg().Question("Remove Printer", fmt.Sprintf("Are you sure you want to remove the printer at %s?", ip))
+
+	if confirmed {
 		if err := a.config.RemoveLANPrinter(ip); err != nil {
 			return false, fmt.Errorf("failed to remove LAN printer: %w", err)
 		}
 		return true, nil
 	}
-	logger.Infof("Remove LAN printer cancelled, Remove printer dialog result: %s", result)
+
+	logger.Infof("Remove LAN printer cancelled by user")
 	return false, nil
 }
 
@@ -384,19 +390,20 @@ func (a *App) CheckLANPrinterStatus(ip string) bool {
 func (a *App) DownloadLogs() {
 	logger.Debugf("Download logs requested")
 	logDir := logger.LogDirectory()
-	zipName := fmt.Sprintf("epos-proxy-logs-%s.zip",
-		time.Now().Format("2006-01-02"))
+	zipName := fmt.Sprintf("epos-proxy-logs-%s.zip", time.Now().Format("2006-01-02"))
 	logger.Debugf("Creating logs archive: %s", zipName)
-	savePath, err := a.dlg().SaveFile(a.ctx, wailsruntime.SaveDialogOptions{
-		Title:           "Save Archive",
-		DefaultFilename: zipName,
-		Filters: []wailsruntime.FileFilter{
+
+	savePath, err := a.dlg().SaveFile(&application.SaveFileDialogOptions{
+		Title:    "Save Archive",
+		Filename: zipName,
+		Filters: []application.FileFilter{
 			{
 				DisplayName: "Zip Archives (*.zip)",
 				Pattern:     "*.zip",
 			},
 		},
 	})
+
 	if err != nil {
 		logger.Errorf("Save dialog failed: %v", err)
 		a.showError("Download Logs Failed", err.Error())
