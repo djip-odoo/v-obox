@@ -136,6 +136,13 @@ public class MainActivity extends AppCompatActivity {
         settings.setAllowFileAccess(false);
         settings.setAllowContentAccess(false);
         settings.setMediaPlaybackRequiresUserGesture(false);
+        // Configure UserAgent to present as full Google Chrome Mobile (strip '; wv' and 'Version/4.0'
+        // which mark it as an embedded webview and cause web apps like Odoo POS to disable LNA).
+        String ua = settings.getUserAgentString();
+        if (ua != null) {
+            ua = ua.replace("; wv", "").replaceAll("Version/\\d+\\.\\d+\\s*", "");
+            settings.setUserAgentString(ua);
+        }
         settings.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
 
         // Enable debugging in debug builds

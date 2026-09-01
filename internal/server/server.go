@@ -133,8 +133,22 @@ func New(port int, mgr *printer.Manager, cfg *config.Manager, distFS fs.FS) *Ser
 
 	app.Use(cors.New(cors.Config{
 		AllowOrigins:        []string{"*"},
+		AllowMethods:        []string{"GET", "POST", "HEAD", "PUT", "DELETE", "PATCH", "OPTIONS"},
+		AllowHeaders:        []string{"*"},
 		AllowPrivateNetwork: true,
 	}))
+
+	// Ensure Access-Control-Allow-Private-Network is guaranteed on every response
+	app.Use(func(c fiber.Ctx) error {
+		c.Set("Access-Control-Allow-Private-Network", "true")
+		if c.Method() == "OPTIONS" {
+			c.Set("Access-Control-Allow-Origin", "*")
+			c.Set("Access-Control-Allow-Methods", "GET, POST, HEAD, PUT, DELETE, PATCH, OPTIONS")
+			c.Set("Access-Control-Allow-Headers", "*")
+			return c.SendStatus(fiber.StatusNoContent)
+		}
+		return c.Next()
+	})
 
 	// ── Read-only APIs ────────────────────────────────────────────────────────
 

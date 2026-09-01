@@ -1639,11 +1639,13 @@ public class WailsBridge {
             try {
                 int offset = 0;
                 int timeoutMs = 5000;
+                // Thermal printers have small hardware FIFOs (typically 1KB-4KB).
+                // Chunking to 512 bytes with micro-delays prevents buffer overrun and dropped bytes
+                // (which cause corrupted image raster data, dropped ESC/POS sequences, and garbage).
+                int chunkSize = 512;
                 while (offset < data.length) {
-                    int chunk = Math.min(data.length - offset, 8192);
-                    byte[] buffer = new byte[chunk];
-                    System.arraycopy(data, offset, buffer, 0, chunk);
-                    int transferred = conn.connection.bulkTransfer(conn.outEndpoint, buffer, chunk, timeoutMs);
+                    int chunk = Math.min(data.length - offset, chunkSize);
+                    int transferred = conn.connection.bulkTransfer(conn.outEndpoint, data, offset, chunk, timeoutMs);
                     if (transferred < 0) {
                         // Transfer failed — evict the cached connection so next job reopens fresh.
                         closeUsbConn(devicePath);
@@ -1652,6 +1654,11 @@ public class WailsBridge {
                         return res.toString();
                     }
                     offset += transferred;
+                    if (offset < data.length) {
+                        try {
+                            Thread.sleep(2); // 2ms throttle between chunks to let printer process buffer
+                        } catch (InterruptedException ignored) {}
+                    }
                 }
                 res.put("ok", true);
                 success = true;
