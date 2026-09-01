@@ -131,7 +131,7 @@ public class WailsJSBridge {
     }
 
     /**
-     * Quit application completely
+     * Quit application completely (prompts for new launcher if currently default launcher)
      * Called from JavaScript: wails.quitApp()
      */
     @JavascriptInterface
@@ -140,15 +140,28 @@ public class WailsJSBridge {
             bridge.getActivity().runOnUiThread(() -> {
                 try {
                     if (bridge.getActivity() instanceof MainActivity) {
-                        ((MainActivity) bridge.getActivity()).setFullscreenMode(false);
+                        ((MainActivity) bridge.getActivity()).quitAppWithLauncherPrompt();
+                    } else {
+                        bridge.stopForegroundService();
+                        bridge.getActivity().finishAndRemoveTask();
                     }
-                    bridge.stopForegroundService();
-                    bridge.getActivity().finishAndRemoveTask();
                 } catch (Exception e) {
                     Log.e(TAG, "Error quitting app", e);
                 }
             });
         }
+    }
+
+    /**
+     * Check if application is currently default home/launcher
+     * Called from JavaScript: wails.isDefaultLauncher()
+     */
+    @JavascriptInterface
+    public boolean isDefaultLauncher() {
+        if (bridge != null && bridge.getActivity() instanceof MainActivity) {
+            return ((MainActivity) bridge.getActivity()).isDefaultLauncher();
+        }
+        return false;
     }
 
     /**
@@ -159,6 +172,17 @@ public class WailsJSBridge {
     public void requestDefaultLauncher() {
         if (bridge != null && bridge.getActivity() instanceof MainActivity) {
             ((MainActivity) bridge.getActivity()).requestDefaultLauncher();
+        }
+    }
+
+    /**
+     * Open Home Settings directly
+     * Called from JavaScript: wails.openHomeSettings()
+     */
+    @JavascriptInterface
+    public void openHomeSettings() {
+        if (bridge != null && bridge.getActivity() instanceof MainActivity) {
+            ((MainActivity) bridge.getActivity()).openHomeSettings();
         }
     }
 

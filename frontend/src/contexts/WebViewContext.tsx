@@ -31,6 +31,7 @@ type WebViewContextType = {
     enterKiosk: () => Promise<void>;
     reloadKiosk: () => void;
     refresh: () => Promise<void>;
+    setDefaultLauncher: () => Promise<void>;
   };
 };
 
@@ -137,6 +138,11 @@ export const WebViewContextWrapper = ({
   };
 
   const enterKiosk = async () => {
+    try {
+      await backendService.requestDefaultLauncher?.();
+    } catch (err) {
+      console.error("Failed to request default launcher on enter kiosk:", err);
+    }
     await toggleEnabled(true);
   };
 
@@ -157,6 +163,14 @@ export const WebViewContextWrapper = ({
     return backendService.validatePIN(pin);
   };
 
+  const setDefaultLauncher = async () => {
+    try {
+      await backendService.requestDefaultLauncher?.();
+    } catch (err) {
+      console.error("Failed to open default launcher settings:", err);
+    }
+  };
+
   return (
     <WebViewContext.Provider
       value={{
@@ -170,6 +184,7 @@ export const WebViewContextWrapper = ({
           exitKiosk,
           reloadKiosk,
           refresh,
+          setDefaultLauncher,
         },
       }}
     >

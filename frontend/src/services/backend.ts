@@ -58,6 +58,12 @@ export interface IBackendService {
   setWindowFullscreen(fullscreen: boolean): Promise<void>;
   reloadKiosk(): Promise<void>;
   quitApp(): Promise<void>;
+
+  // Android Default Launcher
+  isAndroidLauncherSupported?(): boolean;
+  isDefaultLauncher?(): Promise<boolean>;
+  requestDefaultLauncher?(): Promise<void>;
+  openHomeSettings?(): Promise<void>;
 }
 
 class WailsBackendService implements IBackendService {
@@ -163,6 +169,37 @@ class WailsBackendService implements IBackendService {
     }
     await WailsApp.QuitApp();
   }
+
+  isAndroidLauncherSupported(): boolean {
+    const w = window as unknown as Record<string, unknown>;
+    const wails = w["wails"] as Record<string, unknown> | undefined;
+    return typeof wails?.["isDefaultLauncher"] === "function";
+  }
+
+  async isDefaultLauncher(): Promise<boolean> {
+    const w = window as unknown as Record<string, unknown>;
+    const wails = w["wails"] as Record<string, unknown> | undefined;
+    if (typeof wails?.["isDefaultLauncher"] === "function") {
+      return Boolean((wails["isDefaultLauncher"] as () => boolean)());
+    }
+    return false;
+  }
+
+  async requestDefaultLauncher(): Promise<void> {
+    const w = window as unknown as Record<string, unknown>;
+    const wails = w["wails"] as Record<string, unknown> | undefined;
+    if (typeof wails?.["requestDefaultLauncher"] === "function") {
+      (wails["requestDefaultLauncher"] as () => void)();
+    }
+  }
+
+  async openHomeSettings(): Promise<void> {
+    const w = window as unknown as Record<string, unknown>;
+    const wails = w["wails"] as Record<string, unknown> | undefined;
+    if (typeof wails?.["openHomeSettings"] === "function") {
+      (wails["openHomeSettings"] as () => void)();
+    }
+  }
 }
 
 class RemoteBackendService implements IBackendService {
@@ -181,7 +218,7 @@ class RemoteBackendService implements IBackendService {
   }
 
   setNetworkPrintingEnabled(): Promise<void> {
-    return Promise.resolve();
+    return Promise.reject(new Error("Network printing can only be configured from desktop"));
   }
 
   getAutostart(): Promise<boolean> {
@@ -189,7 +226,7 @@ class RemoteBackendService implements IBackendService {
   }
 
   setAutostart(): Promise<void> {
-    return Promise.resolve();
+    return Promise.reject(new Error("Autostart can only be configured from desktop"));
   }
 
   getPrinters(): Promise<ApiPrintersResponse> {
@@ -258,6 +295,22 @@ class RemoteBackendService implements IBackendService {
     }
     return Promise.resolve();
   }
+
+  isAndroidLauncherSupported(): boolean {
+    return false;
+  }
+
+  isDefaultLauncher(): Promise<boolean> {
+    return Promise.resolve(false);
+  }
+
+  requestDefaultLauncher(): Promise<void> {
+    return Promise.resolve();
+  }
+
+  openHomeSettings(): Promise<void> {
+    return Promise.resolve();
+  }
 }
 
 class DynamicBackendService implements IBackendService {
@@ -299,6 +352,10 @@ class DynamicBackendService implements IBackendService {
   }
   reloadKiosk() { return this.active.reloadKiosk(); }
   quitApp() { return this.active.quitApp(); }
+  isAndroidLauncherSupported() { return this.active.isAndroidLauncherSupported ? this.active.isAndroidLauncherSupported() : false; }
+  isDefaultLauncher() { return this.active.isDefaultLauncher ? this.active.isDefaultLauncher() : Promise.resolve(false); }
+  requestDefaultLauncher() { return this.active.requestDefaultLauncher ? this.active.requestDefaultLauncher() : Promise.resolve(); }
+  openHomeSettings() { return this.active.openHomeSettings ? this.active.openHomeSettings() : Promise.resolve(); }
 }
 
 export const backendService: IBackendService = new DynamicBackendService();

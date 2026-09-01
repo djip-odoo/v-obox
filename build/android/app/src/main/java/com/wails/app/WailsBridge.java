@@ -62,6 +62,10 @@ import org.json.JSONObject;
 
 import java.util.Locale;
 import java.util.concurrent.Executor;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.TimeUnit;
 import java.util.HashMap;
 import java.util.HashSet;
 import android.hardware.usb.UsbManager;
@@ -1427,6 +1431,110 @@ public class WailsBridge {
     private final Object usbLock = new Object();
     private boolean permissionResult = false;
 
+    // ── USB connection cache ───────────────────────────────────────────────────
+    // Keeping the connection open between jobs avoids a claimInterface() on every
+    // print, which would flush the printer's internal buffer and produce garbage
+    // output after the real receipt. Connections are closed after a short idle
+    // period so USB resources are not held indefinitely.
+
+    private static final long USB_IDLE_CLOSE_MS = 3_000; // ms to keep conn alive after last job
+
+    private static final class UsbConn {
+        final UsbDeviceConnection connection;
+        final UsbInterface usbInterface;
+        final UsbEndpoint outEndpoint;
+        ScheduledFuture<?> idleClose;
+
+        UsbConn(UsbDeviceConnection connection, UsbInterface usbInterface, UsbEndpoint outEndpoint) {
+            this.connection = connection;
+            this.usbInterface = usbInterface;
+            this.outEndpoint = outEndpoint;
+        }
+    }
+
+    // Guarded by usbConnLock
+    private final Object usbConnLock = new Object();
+    private final HashMap<String, UsbConn> usbConnCache = new HashMap<>();
+    private final ScheduledExecutorService usbIdleScheduler =
+            Executors.newSingleThreadScheduledExecutor(r -> {
+                Thread t = new Thread(r, "usb-idle-close");
+                t.setDaemon(true);
+                return t;
+            });
+
+    /** Returns a cached (or freshly opened) connection for the given device path. */
+    private UsbConn getOrOpenUsbConn(UsbManager usbManager, UsbDevice device) throws Exception {
+        String key = device.getDeviceName();
+        synchronized (usbConnLock) {
+            UsbConn existing = usbConnCache.get(key);
+            if (existing != null) {
+                // Cancel the pending idle-close so it stays alive.
+                if (existing.idleClose != null) {
+                    existing.idleClose.cancel(false);
+                    existing.idleClose = null;
+                }
+                return existing;
+            }
+        }
+
+        // Find the bulk-OUT endpoint.
+        UsbInterface usbInterface = null;
+        UsbEndpoint outEndpoint = null;
+        for (int i = 0; i < device.getInterfaceCount(); i++) {
+            UsbInterface intf = device.getInterface(i);
+            for (int j = 0; j < intf.getEndpointCount(); j++) {
+                UsbEndpoint ep = intf.getEndpoint(j);
+                if (ep.getType() == UsbConstants.USB_ENDPOINT_XFER_BULK
+                        && ep.getDirection() == UsbConstants.USB_DIR_OUT) {
+                    usbInterface = intf;
+                    outEndpoint = ep;
+                    break;
+                }
+            }
+            if (outEndpoint != null) break;
+        }
+        if (usbInterface == null || outEndpoint == null) {
+            throw new Exception("No bulk OUT endpoint found on device");
+        }
+
+        UsbDeviceConnection connection = usbManager.openDevice(device);
+        if (connection == null) {
+            throw new Exception("Failed to open UsbDeviceConnection");
+        }
+        if (!connection.claimInterface(usbInterface, true)) {
+            connection.close();
+            throw new Exception("Failed to claim USB interface");
+        }
+
+        UsbConn conn = new UsbConn(connection, usbInterface, outEndpoint);
+        synchronized (usbConnLock) {
+            usbConnCache.put(key, conn);
+        }
+        return conn;
+    }
+
+    /** Schedule idle-close for a connection after USB_IDLE_CLOSE_MS of inactivity. */
+    private void scheduleUsbIdleClose(String devicePath) {
+        synchronized (usbConnLock) {
+            UsbConn conn = usbConnCache.get(devicePath);
+            if (conn == null) return;
+            if (conn.idleClose != null) conn.idleClose.cancel(false);
+            conn.idleClose = usbIdleScheduler.schedule(() -> closeUsbConn(devicePath),
+                    USB_IDLE_CLOSE_MS, TimeUnit.MILLISECONDS);
+        }
+    }
+
+    private void closeUsbConn(String devicePath) {
+        UsbConn conn;
+        synchronized (usbConnLock) {
+            conn = usbConnCache.remove(devicePath);
+        }
+        if (conn == null) return;
+        try { conn.connection.releaseInterface(conn.usbInterface); } catch (Exception ignored) {}
+        try { conn.connection.close(); } catch (Exception ignored) {}
+        Log.d(TAG, "USB connection closed (idle) for " + devicePath);
+    }
+
     public String printUSB(String jsonArg) {
         JSONObject res = new JSONObject();
         try {
@@ -1488,7 +1596,6 @@ public class WailsBridge {
                         public void onReceive(Context context, Intent intent) {
                             if (ACTION_USB_PERMISSION.equals(intent.getAction())) {
                                 synchronized (usbLock) {
-                                    UsbDevice device = intent.getParcelableExtra(UsbManager.EXTRA_DEVICE);
                                     if (intent.getBooleanExtra(UsbManager.EXTRA_PERMISSION_GRANTED, false)) {
                                         permissionResult = true;
                                     }
@@ -1501,21 +1608,21 @@ public class WailsBridge {
                     int flags = Build.VERSION.SDK_INT >= Build.VERSION_CODES.M ? PendingIntent.FLAG_MUTABLE : 0;
                     PendingIntent permissionIntent = PendingIntent.getBroadcast(
                             activity, 0, new Intent(ACTION_USB_PERMISSION), flags);
-                    
+
                     IntentFilter filter = new IntentFilter(ACTION_USB_PERMISSION);
                     activity.registerReceiver(usbReceiver, filter);
-                    
+
                     usbManager.requestPermission(devToAuth, permissionIntent);
-                    
+
                     try {
                         usbLock.wait(10000);
                     } catch (InterruptedException e) {
                         Thread.currentThread().interrupt();
                     }
-                    
+
                     activity.unregisterReceiver(usbReceiver);
                 }
-                
+
                 if (!permissionResult && !usbManager.hasPermission(targetDevice)) {
                     res.put("ok", false);
                     res.put("error", "USB permission denied by user");
@@ -1523,62 +1630,39 @@ public class WailsBridge {
                 }
             }
 
-            UsbInterface usbInterface = null;
-            UsbEndpoint outEndpoint = null;
+            // Use a cached connection — avoids claimInterface() on every job, which
+            // would flush the printer's internal buffer and print garbage after the receipt.
+            String devicePath = targetDevice.getDeviceName();
+            UsbConn conn = getOrOpenUsbConn(usbManager, targetDevice);
 
-            for (int i = 0; i < targetDevice.getInterfaceCount(); i++) {
-                UsbInterface intf = targetDevice.getInterface(i);
-                for (int j = 0; j < intf.getEndpointCount(); j++) {
-                    UsbEndpoint ep = intf.getEndpoint(j);
-                    if (ep.getType() == UsbConstants.USB_ENDPOINT_XFER_BULK && ep.getDirection() == UsbConstants.USB_DIR_OUT) {
-                        usbInterface = intf;
-                        outEndpoint = ep;
-                        break;
-                    }
-                }
-                if (outEndpoint != null) break;
-            }
-
-            if (usbInterface == null || outEndpoint == null) {
-                res.put("ok", false);
-                res.put("error", "No bulk OUT endpoint found on device");
-                return res.toString();
-            }
-
-            UsbDeviceConnection connection = usbManager.openDevice(targetDevice);
-            if (connection == null) {
-                res.put("ok", false);
-                res.put("error", "Failed to open UsbDeviceConnection");
-                return res.toString();
-            }
-
+            boolean success = false;
             try {
-                if (!connection.claimInterface(usbInterface, true)) {
-                    connection.close();
-                    res.put("ok", false);
-                    res.put("error", "Failed to claim USB interface");
-                    return res.toString();
-                }
-
                 int offset = 0;
                 int timeoutMs = 5000;
                 while (offset < data.length) {
                     int chunk = Math.min(data.length - offset, 8192);
                     byte[] buffer = new byte[chunk];
                     System.arraycopy(data, offset, buffer, 0, chunk);
-                    int transferred = connection.bulkTransfer(outEndpoint, buffer, chunk, timeoutMs);
+                    int transferred = conn.connection.bulkTransfer(conn.outEndpoint, buffer, chunk, timeoutMs);
                     if (transferred < 0) {
+                        // Transfer failed — evict the cached connection so next job reopens fresh.
+                        closeUsbConn(devicePath);
                         res.put("ok", false);
                         res.put("error", "Bulk transfer failed with error code: " + transferred);
                         return res.toString();
                     }
                     offset += transferred;
                 }
-
                 res.put("ok", true);
+                success = true;
+            } catch (Exception e) {
+                // On write error evict and rethrow so outer catch formats the response.
+                closeUsbConn(devicePath);
+                throw e;
             } finally {
-                connection.releaseInterface(usbInterface);
-                connection.close();
+                if (success) {
+                    scheduleUsbIdleClose(devicePath);
+                }
             }
 
         } catch (Exception e) {

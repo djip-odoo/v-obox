@@ -52,6 +52,7 @@ export default function WebViewDialog() {
   const { data: { isWails } } = useContext(AppContext);
   const toastContext = useContext(ToastContext);
   const { data, actions } = useContext(WebViewContext);
+  const { setDefaultLauncher } = actions;
   const gate = usePINGate();
   const cfg = data.config;
 
@@ -601,8 +602,60 @@ export default function WebViewDialog() {
                 />
               </button>
             </div>
+
+            {/* Default Launcher — Android only */}
+            {isWails && (
+              <div className="mt-3 flex items-center justify-between border-t border-gray-200 pt-3">
+                <div>
+                  <div className="text-xs font-medium text-gray-800">
+                    Default launcher app
+                  </div>
+
+                  <div className="text-[11px] text-gray-500">
+                    Set this app as the Android home screen launcher.
+                  </div>
+                </div>
+
+                <button
+                  id="set-default-launcher-btn"
+                  type="button"
+                  onClick={setDefaultLauncher}
+                  className="
+                    inline-flex shrink-0 items-center gap-1.5
+                    rounded-lg border border-gray-300
+                    bg-white px-3 py-1.5
+                    text-xs font-medium text-gray-700
+                    shadow-xs transition-colors
+                    hover:border-odoo hover:bg-odoo/5 hover:text-odoo
+                    cursor-pointer
+                  "
+                >
+                  <svg
+                    className="h-3.5 w-3.5"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth="2"
+                      d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"
+                    />
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth="2"
+                      d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"
+                    />
+                  </svg>
+                  Open Settings
+                </button>
+              </div>
+            )}
           </div>
         </section>
+
 
         {/* ============================================================
             REMOTE ACCESS

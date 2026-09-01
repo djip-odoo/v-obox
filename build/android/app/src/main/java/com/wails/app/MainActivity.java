@@ -854,45 +854,60 @@ public class MainActivity extends AppCompatActivity {
                     getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
                 }
 
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                    WindowInsetsControllerCompat controller = WindowCompat.getInsetsController(getWindow(), getWindow().getDecorView());
-                    if (controller != null) {
-                        if (fullscreen) {
-                            controller.hide(WindowInsetsCompat.Type.systemBars());
-                            controller.setSystemBarsBehavior(WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE);
-                        } else {
-                            controller.show(WindowInsetsCompat.Type.systemBars());
-                            controller.setSystemBarsBehavior(WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE);
-                        }
-                    }
-                } else {
-                    View decorView = getWindow().getDecorView();
-                    if (fullscreen) {
-                        int flags = View.SYSTEM_UI_FLAG_LAYOUT_STABLE
-                            | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
-                            | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
-                            | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
-                            | View.SYSTEM_UI_FLAG_FULLSCREEN
-                            | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY;
-                        decorView.setSystemUiVisibility(flags);
-                        decorView.setOnSystemUiVisibilityChangeListener(visibility -> {
-                            if ((visibility & View.SYSTEM_UI_FLAG_FULLSCREEN) == 0 && isKioskFullscreen) {
-                                decorView.setSystemUiVisibility(flags);
-                            }
-                        });
-                    } else {
-                        decorView.setOnSystemUiVisibilityChangeListener(null);
-                        decorView.setSystemUiVisibility(View.SYSTEM_UI_FLAG_VISIBLE);
-                    }
-                }
-
-                if (fullscreen) {
-                    collapseStatusBar();
-                }
+                applyImmersiveMode(fullscreen);
             } catch (Exception e) {
                 Log.e(TAG, "Failed to set fullscreen mode", e);
             }
         });
+    }
+
+    private void applyImmersiveMode(boolean fullscreen) {
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                WindowInsetsControllerCompat controller = WindowCompat.getInsetsController(getWindow(), getWindow().getDecorView());
+                if (controller != null) {
+                    if (fullscreen) {
+                        controller.hide(WindowInsetsCompat.Type.systemBars());
+                        controller.setSystemBarsBehavior(WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE);
+                    } else {
+                        controller.show(WindowInsetsCompat.Type.systemBars());
+                    }
+                }
+            } else {
+                View decorView = getWindow().getDecorView();
+                if (fullscreen) {
+                    int flags = View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+                        | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
+                        | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
+                        | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
+                        | View.SYSTEM_UI_FLAG_FULLSCREEN
+                        | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY;
+                    decorView.setSystemUiVisibility(flags);
+                } else {
+                    decorView.setSystemUiVisibility(View.SYSTEM_UI_FLAG_VISIBLE);
+                }
+            }
+        } catch (Exception ignored) {}
+    }
+
+    public boolean isDefaultLauncher() {
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                android.app.role.RoleManager roleManager = getSystemService(android.app.role.RoleManager.class);
+                if (roleManager != null && roleManager.isRoleAvailable(android.app.role.RoleManager.ROLE_HOME)) {
+                    return roleManager.isRoleHeld(android.app.role.RoleManager.ROLE_HOME);
+                }
+            }
+            Intent intent = new Intent(Intent.ACTION_MAIN);
+            intent.addCategory(Intent.CATEGORY_HOME);
+            android.content.pm.ResolveInfo resolveInfo = getPackageManager().resolveActivity(intent, PackageManager.MATCH_DEFAULT_ONLY);
+            if (resolveInfo != null && resolveInfo.activityInfo != null) {
+                return getPackageName().equals(resolveInfo.activityInfo.packageName);
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "Error checking default launcher: " + e.getMessage());
+        }
+        return false;
     }
 
     public void requestDefaultLauncher() {
@@ -903,11 +918,40 @@ public class MainActivity extends AppCompatActivity {
                     if (roleManager != null && roleManager.isRoleAvailable(android.app.role.RoleManager.ROLE_HOME)) {
                         if (!roleManager.isRoleHeld(android.app.role.RoleManager.ROLE_HOME)) {
                             Intent intent = roleManager.createRequestRoleIntent(android.app.role.RoleManager.ROLE_HOME);
-                            startActivity(intent);
+                            startActivityForResult(intent, 7020);
+                            return;
+                        } else {
                             return;
                         }
                     }
                 }
+            } catch (Exception e) {
+                Log.w(TAG, "RoleManager request failed: " + e.getMessage());
+            }
+
+            try {
+                Intent intent = new Intent(android.provider.Settings.ACTION_HOME_SETTINGS);
+                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                startActivity(intent);
+            } catch (Exception e) {
+                try {
+                    Intent intent = new Intent(android.provider.Settings.ACTION_MANAGE_DEFAULT_APPS_SETTINGS);
+                    intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                    startActivity(intent);
+                } catch (Exception e2) {
+                    try {
+                        Intent intent = new Intent(android.provider.Settings.ACTION_SETTINGS);
+                        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                        startActivity(intent);
+                    } catch (Exception ignored) {}
+                }
+            }
+        });
+    }
+
+    public void openHomeSettings() {
+        runOnUiThread(() -> {
+            try {
                 Intent intent = new Intent(android.provider.Settings.ACTION_HOME_SETTINGS);
                 startActivity(intent);
             } catch (Exception e) {
@@ -919,27 +963,45 @@ public class MainActivity extends AppCompatActivity {
         });
     }
 
+    public void quitAppWithLauncherPrompt() {
+        runOnUiThread(() -> {
+            try {
+                try {
+                    getPackageManager().clearPackagePreferredActivities(getPackageName());
+                } catch (Exception ignored) {}
+
+                // Open Home settings so user can choose a new default home app upon quitting
+                Intent intent = new Intent(android.provider.Settings.ACTION_HOME_SETTINGS);
+                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                startActivity(intent);
+
+                if (bridge != null) {
+                    bridge.stopForegroundService();
+                }
+                finishAndRemoveTask();
+            } catch (Exception e) {
+                Log.e(TAG, "Error during quitAppWithLauncherPrompt", e);
+                finishAndRemoveTask();
+            }
+        });
+    }
+
     private void collapseStatusBar() {
         try {
             @SuppressLint("WrongConstant") Object service = getSystemService("statusbar");
             if (service != null) {
                 Class<?> statusbarManager = Class.forName("android.app.StatusBarManager");
-                java.lang.reflect.Method collapse = statusbarManager.getMethod("collapsePanels");
-                collapse.invoke(service);
+                try {
+                    java.lang.reflect.Method collapse = statusbarManager.getMethod("collapsePanels");
+                    collapse.setAccessible(true);
+                    collapse.invoke(service);
+                } catch (Exception ignored) {}
             }
         } catch (Exception ignored) {}
     }
 
     @Override
     public boolean dispatchTouchEvent(MotionEvent ev) {
-        if (isKioskFullscreen) {
-            float y = ev.getRawY();
-            int screenHeight = getResources().getDisplayMetrics().heightPixels;
-            // Block top edge pulldown and bottom edge navigation gestures
-            if (y < 150 || y > (screenHeight - 150)) {
-                collapseStatusBar();
-            }
-        }
         return super.dispatchTouchEvent(ev);
     }
 
@@ -959,14 +1021,8 @@ public class MainActivity extends AppCompatActivity {
     @Override
     public void onWindowFocusChanged(boolean hasFocus) {
         super.onWindowFocusChanged(hasFocus);
-        if (isKioskFullscreen) {
-            if (!hasFocus) {
-                collapseStatusBar();
-                try {
-                    sendBroadcast(new Intent(Intent.ACTION_CLOSE_SYSTEM_DIALOGS));
-                } catch (Exception ignored) {}
-            }
-            setFullscreenMode(true);
+        if (isKioskFullscreen && hasFocus) {
+            applyImmersiveMode(true);
         }
     }
 
