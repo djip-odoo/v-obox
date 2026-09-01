@@ -72,6 +72,9 @@ export default function KioskOverlay() {
     cursor: "default",
   };
 
+  const rawZoom = data.config?.zoom ?? 1;
+  const zoom = rawZoom > 0 ? rawZoom : 1;
+
   return (
     <>
       {/* Top-right corner tap zone */}
@@ -79,14 +82,20 @@ export default function KioskOverlay() {
 
       {/* Full-screen kiosk iframe */}
       <div
-        className="fixed inset-0 bg-black"
+        className="fixed inset-0 bg-black overflow-hidden"
         style={{ zIndex: 9990, pointerEvents: pinVisible ? "none" : "auto" }}
       >
         <iframe
           key={data.reloadNonce}
           src={data.config.url}
           title="Kiosk"
-          className="w-full h-full border-0"
+          className="border-0"
+          style={{
+            width: `${100 / zoom}%`,
+            height: `${100 / zoom}%`,
+            transform: `scale(${zoom})`,
+            transformOrigin: "0 0",
+          }}
           allow="local-network-access *; private-network-access *; clipboard-read *; clipboard-write *; camera *; microphone *; geolocation *; autoplay *"
         />
       </div>

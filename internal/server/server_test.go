@@ -313,7 +313,16 @@ func TestServer_AuthAndPrivilegedRoutes(t *testing.T) {
 	testutil.ExpectedEqual(t, respBearer.StatusCode, http.StatusOK)
 	testutil.ExpectedTrue(t, cfg.GetWebViewEnabled())
 
-	// 6. Reload kiosk callback with Bearer token
+	// 6. Set kiosk zoom with Bearer token
+	reqZoom := httptest.NewRequest("POST", "/api/webview/zoom", bytes.NewReader([]byte(`{"zoom":1.25}`)))
+	reqZoom.Header.Set("Content-Type", "application/json")
+	reqZoom.Header.Set("Authorization", "Bearer "+token)
+	respZoom, err := s.app.Test(reqZoom)
+	testutil.ExpectedNoError(t, err)
+	testutil.ExpectedEqual(t, respZoom.StatusCode, http.StatusOK)
+	testutil.ExpectedEqual(t, cfg.GetWebViewZoom(), 1.25)
+
+	// 7. Reload kiosk callback with Bearer token
 	reloadCalled := false
 	s.SetKioskReloadCallback(func() {
 		reloadCalled = true

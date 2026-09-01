@@ -43,9 +43,10 @@ type apiPrintersResponse struct {
 }
 
 type apiWebViewConfig struct {
-	URL     string `json:"url"`
-	Enabled bool   `json:"enabled"`
-	HasPIN  bool   `json:"hasPIN"`
+	URL     string  `json:"url"`
+	Enabled bool    `json:"enabled"`
+	HasPIN  bool    `json:"hasPIN"`
+	Zoom    float64 `json:"zoom"`
 }
 
 type apiTroubleshootInfo struct {
@@ -135,6 +136,7 @@ func (s *Server) handleGetWebView(c fiber.Ctx) error {
 		URL:     s.cfg.GetWebViewURL(),
 		Enabled: s.cfg.GetWebViewEnabled(),
 		HasPIN:  s.cfg.HasWebViewPIN(),
+		Zoom:    s.cfg.GetWebViewZoom(),
 	})
 }
 
@@ -239,6 +241,27 @@ func (s *Server) handleSetWebViewURL(c fiber.Ctx) error {
 	}
 	if err := s.cfg.SetWebViewURL(req.URL); err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+	s.mu.RLock()
+	cb := s.onConfigChanged
+	s.mu.RUnlock()
+	if cb != nil {
+		cb()
+	}
+	return c.JSON(fiber.Map{"ok": true})
+}
+
+type setWebViewZoomReq struct {
+	Zoom float64 `json:"zoom"`
+}
+
+func (s *Server) handleSetWebViewZoom(c fiber.Ctx) error {
+	var req setWebViewZoomReq
+	if err := bindJSON(c, &req); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid request"})
+	}
+	if err := s.cfg.SetWebViewZoom(req.Zoom); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
 	}
 	s.mu.RLock()
 	cb := s.onConfigChanged

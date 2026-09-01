@@ -13,6 +13,7 @@ import {
   apiRemoveLANPrinter,
   apiSetWebViewEnabled,
   apiSetWebViewURL,
+  apiSetWebViewZoom,
   apiTestPrint,
   ApiAppVariable,
   ApiPrinter,
@@ -52,6 +53,7 @@ export interface IBackendService {
   // Kiosk & Webview
   getWebViewConfig(): Promise<WebViewConfig | ApiWebViewConfig>;
   setWebViewURL(url: string): Promise<void>;
+  setWebViewZoom(zoom: number): Promise<void>;
   setWebViewEnabled(enabled: boolean): Promise<void>;
   setWebViewPIN(pin: string): Promise<void>;
   validatePIN(pin: string): Promise<boolean>;
@@ -133,6 +135,10 @@ class WailsBackendService implements IBackendService {
 
   async setWebViewURL(url: string): Promise<void> {
     await WailsApp.SetWebViewURL(url);
+  }
+
+  async setWebViewZoom(zoom: number): Promise<void> {
+    await WailsApp.SetWebViewZoom(zoom);
   }
 
   async setWebViewEnabled(enabled: boolean): Promise<void> {
@@ -262,6 +268,10 @@ class RemoteBackendService implements IBackendService {
     await apiSetWebViewURL(url);
   }
 
+  async setWebViewZoom(zoom: number): Promise<void> {
+    await apiSetWebViewZoom(zoom);
+  }
+
   async setWebViewEnabled(enabled: boolean): Promise<void> {
     await apiSetWebViewEnabled(enabled);
   }
@@ -339,6 +349,7 @@ class DynamicBackendService implements IBackendService {
   openCashDrawer(printer: Printer | ApiPrinter) { return this.active.openCashDrawer(printer); }
   getWebViewConfig() { return this.active.getWebViewConfig(); }
   setWebViewURL(url: string) { return this.active.setWebViewURL(url); }
+  setWebViewZoom(zoom: number) { return this.active.setWebViewZoom(zoom); }
   setWebViewEnabled(enabled: boolean) { return this.active.setWebViewEnabled(enabled); }
   setWebViewPIN(pin: string) { return this.active.setWebViewPIN(pin); }
   validatePIN(pin: string) { return this.active.validatePIN(pin); }

@@ -28,6 +28,7 @@ type AppConfig struct {
 	WebViewURL      string   `json:"webview_url,omitempty"`
 	WebViewPIN      string   `json:"webview_pin,omitempty"`
 	WebViewEnabled  bool     `json:"webview_enabled"`
+	WebViewZoom     float64  `json:"webview_zoom,omitempty"`
 	NetworkPrinting bool     `json:"network_printing"`
 }
 
@@ -36,6 +37,7 @@ func defaults() AppConfig {
 		Port:            0,
 		NetworkPrinting: false,
 		WebViewPIN:      "0000",
+		WebViewZoom:     1.0,
 	}
 }
 
@@ -273,6 +275,27 @@ func (cm *Manager) SetWebViewEnabled(v bool) error {
 		return errors.New("cannot enable kiosk mode: URL is not configured")
 	}
 	cm.Data.WebViewEnabled = v
+	return cm.saveLocked()
+}
+
+// GetWebViewZoom returns the configured kiosk display zoom level (defaults to 1.0).
+func (cm *Manager) GetWebViewZoom() float64 {
+	cm.mu.RLock()
+	defer cm.mu.RUnlock()
+	if cm.Data.WebViewZoom <= 0 {
+		return 1.0
+	}
+	return cm.Data.WebViewZoom
+}
+
+// SetWebViewZoom validates and persists the kiosk zoom level (between 0.25 and 5.0).
+func (cm *Manager) SetWebViewZoom(zoom float64) error {
+	if zoom < 0.25 || zoom > 5.0 {
+		return errors.New("zoom level must be between 0.25 and 5.0")
+	}
+	cm.mu.Lock()
+	defer cm.mu.Unlock()
+	cm.Data.WebViewZoom = zoom
 	return cm.saveLocked()
 }
 

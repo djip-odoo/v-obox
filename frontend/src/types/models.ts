@@ -39,4 +39,5 @@ export interface WebViewConfig {
   url: string;
   enabled: boolean;
   hasPIN: boolean;
+  zoom?: number;
 }

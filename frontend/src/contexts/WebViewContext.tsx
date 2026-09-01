@@ -14,6 +14,7 @@ export type WebViewConfig = {
   url: string;
   enabled: boolean;
   hasPIN: boolean;
+  zoom?: number;
 };
 
 type WebViewContextType = {
@@ -24,6 +25,7 @@ type WebViewContextType = {
   };
   actions: {
     saveURL: (url: string) => Promise<void>;
+    saveZoom: (zoom: number) => Promise<void>;
     savePIN: (pin: string) => Promise<void>;
     toggleEnabled: (v: boolean) => Promise<void>;
     validatePIN: (pin: string) => Promise<boolean>;
@@ -121,6 +123,12 @@ export const WebViewContextWrapper = ({
     setConfig(cfg);
   };
 
+  const saveZoom = async (zoom: number) => {
+    await backendService.setWebViewZoom(zoom);
+    const cfg = await backendService.getWebViewConfig();
+    setConfig(cfg);
+  };
+
   const savePIN = async (pin: string) => {
     await backendService.setWebViewPIN(pin);
     const cfg = await backendService.getWebViewConfig();
@@ -177,6 +185,7 @@ export const WebViewContextWrapper = ({
         data: { config, isKioskActive, reloadNonce },
         actions: {
           saveURL,
+          saveZoom,
           savePIN,
           toggleEnabled,
           validatePIN,

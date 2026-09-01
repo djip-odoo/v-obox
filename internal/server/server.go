@@ -166,6 +166,7 @@ func New(port int, mgr *printer.Manager, cfg *config.Manager, distFS fs.FS) *Ser
 	app.Post("/api/printers/lan", srv.requireAuth, srv.handleAddLANPrinter)
 	app.Delete("/api/printers/lan", srv.requireAuth, srv.handleRemoveLANPrinter)
 	app.Post("/api/webview/url", srv.requireAuth, srv.handleSetWebViewURL)
+	app.Post("/api/webview/zoom", srv.requireAuth, srv.handleSetWebViewZoom)
 	app.Post("/api/webview/enabled", srv.requireAuth, srv.handleSetWebViewEnabled)
 	app.Post("/api/webview/reload", srv.requireAuth, srv.handleReloadWebView)
 

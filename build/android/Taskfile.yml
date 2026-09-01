@@ -16,6 +16,9 @@ vars:
   # System-image ABI for the host, used in the "create an AVD" hint below.
   ANDROID_ABI:
     sh: '[ "$(uname -m)" = "arm64" ] && echo "arm64-v8a" || echo "x86_64"'
+  # Target architecture for connected physical device detected via ADB
+  DEVICE_ARCH:
+    sh: 'ABI=$({{.ADB}} shell getprop ro.product.cpu.abi 2>/dev/null | tr -d "\r\n"); case "$ABI" in arm64*) echo "arm64" ;; armeabi*) echo "arm" ;; x86_64*) echo "amd64" ;; x86*) echo "386" ;; *) echo "arm64" ;; esac'
   # SDK location: $ANDROID_HOME / $ANDROID_SDK_ROOT, else the per-OS default
   # (macOS: ~/Library/Android/sdk, Linux/other: ~/Android/Sdk)
   SDK_ROOT:
@@ -290,11 +293,35 @@ tasks:
       - '"{{.ADB}}" shell am start -n {{.APP_ID}}/com.wails.app.MainActivity'
 
   run:device:
-    summary: Build, install and launch a debug build on the connected physical Android device (armeabi-v7a)
+    summary: Build, install and launch a debug build on the connected physical Android device (auto-detects ABI)
     deps:
       - task: build
         vars:
-          ARCH: '{{.ARCH | default "arm64"}}' # `arm` for 32bit
+          ARCH: '{{.ARCH | default .DEVICE_ARCH}}'
+    cmds:
+      - task: assemble:apk
+      - '"{{.ADB}}" uninstall {{.APP_ID}} 2>/dev/null || true'
+      - '"{{.ADB}}" install "{{.BIN_DIR}}/{{.APP_NAME}}.apk"'
+      - '"{{.ADB}}" shell am start -n {{.APP_ID}}/com.wails.app.MainActivity'
+
+  run:device:32:
+    summary: Build, install and launch a debug build on a 32-bit connected Android device (armeabi-v7a / arm)
+    deps:
+      - task: build
+        vars:
+          ARCH: arm
+    cmds:
+      - task: assemble:apk
+      - '"{{.ADB}}" uninstall {{.APP_ID}} 2>/dev/null || true'
+      - '"{{.ADB}}" install "{{.BIN_DIR}}/{{.APP_NAME}}.apk"'
+      - '"{{.ADB}}" shell am start -n {{.APP_ID}}/com.wails.app.MainActivity'
+
+  run:device:64:
+    summary: Build, install and launch a debug build on a 64-bit connected Android device (arm64-v8a / arm64)
+    deps:
+      - task: build
+        vars:
+          ARCH: arm64
     cmds:
       - task: assemble:apk
       - '"{{.ADB}}" uninstall {{.APP_ID}} 2>/dev/null || true'

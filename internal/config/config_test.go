@@ -296,4 +296,14 @@ func TestWebViewConfig(t *testing.T) {
 	testutil.ExpectedNoError(t, err)
 	testutil.ExpectedTrue(t, cm.CheckWebViewPIN("9876"))
 	testutil.ExpectedFalse(t, cm.CheckWebViewPIN("0000"))
+
+	// Test Zoom validation & retrieval
+	testutil.ExpectedEqual(t, cm.GetWebViewZoom(), 1.0)
+	err = cm.SetWebViewZoom(0.1) // too low
+	testutil.ExpectedError(t, err)
+	err = cm.SetWebViewZoom(6.0) // too high
+	testutil.ExpectedError(t, err)
+	err = cm.SetWebViewZoom(1.25)
+	testutil.ExpectedNoError(t, err)
+	testutil.ExpectedEqual(t, cm.GetWebViewZoom(), 1.25)
 }

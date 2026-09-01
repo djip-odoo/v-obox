@@ -30,6 +30,9 @@ import android.webkit.WebViewClient;
 import android.webkit.WebChromeClient;
 import android.webkit.ConsoleMessage;
 
+import android.app.ActivityManager;
+import android.app.admin.DevicePolicyManager;
+import android.content.ComponentName;
 import android.view.KeyEvent;
 import android.view.MotionEvent;
 import android.view.View;
@@ -112,6 +115,9 @@ public class MainActivity extends AppCompatActivity {
         // Initialize the native Go library
         bridge = new WailsBridge(this);
         bridge.initialize();
+
+        // Setup Device Owner / Lock Task policy on startup
+        setupLockTaskPolicy();
 
         // Start background proxy foreground service
         bridge.startForegroundService("{\"title\":\"ePOS Proxy\",\"text\":\"ePOS Proxy service is active\"}");
@@ -843,6 +849,17 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
+    @Override
+    public void onWindowFocusChanged(boolean hasFocus) {
+        super.onWindowFocusChanged(hasFocus);
+        if (isKioskFullscreen) {
+            applyImmersiveMode(true);
+            if (!hasFocus) {
+                collapseStatusBar();
+            }
+        }
+    }
+
     private boolean isKioskFullscreen = false;
 
     public void setFullscreenMode(boolean fullscreen) {
@@ -856,9 +873,11 @@ public class MainActivity extends AppCompatActivity {
                         getWindow().getAttributes().layoutInDisplayCutoutMode =
                             WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES;
                     }
+                    startKioskLockTask();
                 } else {
                     getWindow().clearFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN);
                     getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+                    stopKioskLockTask();
                 }
 
                 applyImmersiveMode(fullscreen);
@@ -866,6 +885,135 @@ public class MainActivity extends AppCompatActivity {
                 Log.e(TAG, "Failed to set fullscreen mode", e);
             }
         });
+    }
+
+    public boolean isDeviceOwner() {
+        try {
+            DevicePolicyManager dpm = (DevicePolicyManager) getSystemService(Context.DEVICE_POLICY_SERVICE);
+            return dpm != null && dpm.isDeviceOwnerApp(getPackageName());
+        } catch (Exception e) {
+            Log.w(TAG, "Error checking device owner: " + e.getMessage());
+            return false;
+        }
+    }
+
+    public boolean isLockTaskPermitted() {
+        try {
+            DevicePolicyManager dpm = (DevicePolicyManager) getSystemService(Context.DEVICE_POLICY_SERVICE);
+            return dpm != null && dpm.isLockTaskPermitted(getPackageName());
+        } catch (Exception e) {
+            Log.w(TAG, "Error checking lock task permitted: " + e.getMessage());
+            return false;
+        }
+    }
+
+    public int getLockTaskModeState() {
+        try {
+            ActivityManager am = (ActivityManager) getSystemService(Context.ACTIVITY_SERVICE);
+            if (am != null) {
+                return am.getLockTaskModeState();
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "Error checking lock task state: " + e.getMessage());
+        }
+        return ActivityManager.LOCK_TASK_MODE_NONE;
+    }
+
+    public void setupLockTaskPolicy() {
+        try {
+            DevicePolicyManager dpm = (DevicePolicyManager) getSystemService(Context.DEVICE_POLICY_SERVICE);
+            if (dpm == null) {
+                Log.w(TAG, "DevicePolicyManager is null");
+                return;
+            }
+
+            ComponentName admin = KioskDeviceAdminReceiver.getComponentName(this);
+            boolean isOwner = dpm.isDeviceOwnerApp(getPackageName());
+            Log.i(TAG, "Kiosk Policy Check: isDeviceOwner=" + isOwner);
+
+            if (isOwner) {
+                Log.i(TAG, "Device Owner active. Setting Lock Task packages & restrictive features.");
+                // Whitelist this app package for Lock Task mode
+                dpm.setLockTaskPackages(admin, new String[]{ getPackageName() });
+
+                // Restrict all system features (Home, Recents, Notifications, System Info, Keyguard) in Lock Task
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                    dpm.setLockTaskFeatures(admin, DevicePolicyManager.LOCK_TASK_FEATURE_NONE);
+                }
+
+                // Disable keyguard
+                dpm.setKeyguardDisabled(admin, true);
+
+                Log.i(TAG, "LockTask configured. isLockTaskPermitted=" + dpm.isLockTaskPermitted(getPackageName()));
+            } else {
+                Log.w(TAG, "Application is NOT provisioned as Device Owner. Lock Task kiosk mode will not be enforced at system level.");
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "Error setting up lock task policy", e);
+        }
+    }
+
+    public void startKioskLockTask() {
+        try {
+            setupLockTaskPolicy();
+
+            int state = getLockTaskModeState();
+            if (state == ActivityManager.LOCK_TASK_MODE_LOCKED) {
+                Log.i(TAG, "LockTask already active in LOCKED state (mLockTaskModeState=LOCKED).");
+                return;
+            }
+
+            if (isLockTaskPermitted()) {
+                Log.i(TAG, "Calling startLockTask() -> expecting mLockTaskModeState=LOCKED");
+                startLockTask();
+            } else if (isDeviceOwner()) {
+                setupLockTaskPolicy();
+                if (isLockTaskPermitted()) {
+                    startLockTask();
+                }
+            } else {
+                Log.w(TAG, "Device is NOT Device Owner. Calling startLockTask() will result in PINNED (screen pinning), not LOCKED dedicated kiosk.");
+                startLockTask();
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "Failed to start LockTask", e);
+        }
+    }
+
+    public void stopKioskLockTask() {
+        try {
+            int state = getLockTaskModeState();
+            if (state != ActivityManager.LOCK_TASK_MODE_NONE) {
+                Log.i(TAG, "Stopping LockTask (current state=" + state + ")");
+                stopLockTask();
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "Failed to stop LockTask", e);
+        }
+    }
+
+    public void collapseStatusBar() {
+        try {
+            @SuppressLint("WrongConstant") Object statusBarService = getSystemService("statusbar");
+            if (statusBarService != null) {
+                Class<?> statusBarManager = Class.forName("android.app.StatusBarManager");
+                try {
+                    java.lang.reflect.Method collapse = statusBarManager.getMethod("collapsePanels");
+                    collapse.setAccessible(true);
+                    collapse.invoke(statusBarService);
+                } catch (NoSuchMethodException e) {
+                    java.lang.reflect.Method collapse = statusBarManager.getMethod("collapse");
+                    collapse.setAccessible(true);
+                    collapse.invoke(statusBarService);
+                }
+            }
+        } catch (Exception ignored) {}
+
+        try {
+            @SuppressWarnings("deprecation")
+            Intent closeDialog = new Intent(Intent.ACTION_CLOSE_SYSTEM_DIALOGS);
+            sendBroadcast(closeDialog);
+        } catch (Exception ignored) {}
     }
 
     private void applyImmersiveMode(boolean fullscreen) {
@@ -993,20 +1141,6 @@ public class MainActivity extends AppCompatActivity {
         });
     }
 
-    private void collapseStatusBar() {
-        try {
-            @SuppressLint("WrongConstant") Object service = getSystemService("statusbar");
-            if (service != null) {
-                Class<?> statusbarManager = Class.forName("android.app.StatusBarManager");
-                try {
-                    java.lang.reflect.Method collapse = statusbarManager.getMethod("collapsePanels");
-                    collapse.setAccessible(true);
-                    collapse.invoke(service);
-                } catch (Exception ignored) {}
-            }
-        } catch (Exception ignored) {}
-    }
-
     @Override
     public boolean dispatchTouchEvent(MotionEvent ev) {
         return super.dispatchTouchEvent(ev);
@@ -1023,14 +1157,6 @@ public class MainActivity extends AppCompatActivity {
             }
         }
         return super.dispatchKeyEvent(event);
-    }
-
-    @Override
-    public void onWindowFocusChanged(boolean hasFocus) {
-        super.onWindowFocusChanged(hasFocus);
-        if (isKioskFullscreen && hasFocus) {
-            applyImmersiveMode(true);
-        }
     }
 
     @Override

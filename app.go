@@ -116,9 +116,10 @@ type AppVariable struct {
 
 // WebViewConfig is the public view of kiosk settings (PIN is never exposed).
 type WebViewConfig struct {
-	URL     string `json:"url"`
-	Enabled bool   `json:"enabled"`
-	HasPIN  bool   `json:"hasPIN"`
+	URL     string  `json:"url"`
+	Enabled bool    `json:"enabled"`
+	HasPIN  bool    `json:"hasPIN"`
+	Zoom    float64 `json:"zoom"`
 }
 
 type Printers struct {
@@ -310,6 +311,7 @@ func (a *App) GetWebViewConfig() WebViewConfig {
 		URL:     a.config.GetWebViewURL(),
 		Enabled: a.config.GetWebViewEnabled(),
 		HasPIN:  a.config.HasWebViewPIN(),
+		Zoom:    a.config.GetWebViewZoom(),
 	}
 }
 
@@ -317,6 +319,16 @@ func (a *App) GetWebViewConfig() WebViewConfig {
 func (a *App) SetWebViewURL(url string) error {
 	logger.Debugf("Setting WebView URL")
 	return a.config.SetWebViewURL(url)
+}
+
+// SetWebViewZoom persists the kiosk display zoom level.
+func (a *App) SetWebViewZoom(zoom float64) error {
+	logger.Debugf("Setting WebView zoom: %v", zoom)
+	if err := a.config.SetWebViewZoom(zoom); err != nil {
+		return err
+	}
+	a.EmitEvent("webview-config-changed")
+	return nil
 }
 
 // SetWebViewPIN validates and persists the 4-digit kiosk PIN.

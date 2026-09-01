@@ -57,6 +57,7 @@ export default function WebViewDialog() {
   const cfg = data.config;
 
   const [url, setUrl] = useState(cfg?.url ?? "");
+  const [zoom, setZoom] = useState<number>(cfg?.zoom && cfg.zoom > 0 ? cfg.zoom : 1.0);
   const [localError, setLocalError] = useState<string | null>(null);
   const [serverUrl, setServerUrl] = useState(
     window.location.origin + "/"
@@ -77,13 +78,16 @@ export default function WebViewDialog() {
   const canEnable = Boolean(isUrlValid && cfg?.hasPIN);
 
   /*
-   * Keep URL field synchronized with configuration.
+   * Keep URL and Zoom fields synchronized with configuration.
    */
   useEffect(() => {
     if (cfg?.url) {
       setUrl(cfg.url);
     }
-  }, [cfg?.url]);
+    if (cfg?.zoom && cfg.zoom > 0) {
+      setZoom(cfg.zoom);
+    }
+  }, [cfg?.url, cfg?.zoom]);
 
   /*
    * Load the local server address used for remote access.
@@ -106,6 +110,16 @@ export default function WebViewDialog() {
     fetchServerInfo();
   }, []);
 
+  const handleZoomChange = async (newZoom: number) => {
+    const clamped = Math.round(Math.min(2.0, Math.max(0.5, newZoom)) * 100) / 100;
+    setZoom(clamped);
+    try {
+      await actions.saveZoom(clamped);
+    } catch (err) {
+      console.error("Failed to save zoom:", err);
+    }
+  };
+
   const saveSettings = async (): Promise<boolean> => {
     setLocalError(null);
 
@@ -126,6 +140,7 @@ export default function WebViewDialog() {
     const saved = await gate(async () => {
       try {
         await actions.saveURL(trimmedUrl);
+        await actions.saveZoom(zoom);
         await actions.toggleEnabled(true);
 
         if (isWails) {
@@ -144,7 +159,7 @@ export default function WebViewDialog() {
     }
 
     toastContext.actions.showToast(
-      "Kiosk URL saved and opened",
+      "Kiosk settings saved and opened",
       "success"
     );
 
@@ -163,7 +178,7 @@ export default function WebViewDialog() {
       if (url.trim() && url.trim() !== cfg?.url) {
         await actions.saveURL(url.trim());
       }
-
+      await actions.saveZoom(zoom);
       await actions.toggleEnabled(true);
 
       if (isWails) {
@@ -508,6 +523,111 @@ export default function WebViewDialog() {
               </p>
             </div>
 
+            {/* Display Zoom */}
+            <div className="mt-4 border-t border-gray-200 pt-3">
+              <div className="flex items-center justify-between mb-2">
+                <div>
+                  <label
+                    htmlFor="kiosk-zoom"
+                    className="block text-xs font-medium text-gray-700"
+                  >
+                    Iframe Display Zoom
+                  </label>
+                  <p className="text-[11px] text-gray-500">
+                    Scale the POS interface up or down to fit your display.
+                  </p>
+                </div>
+                <span className="rounded-full bg-odoo/10 px-2.5 py-0.5 text-xs font-bold text-odoo">
+                  {Math.round(zoom * 100)}%
+                </span>
+              </div>
+
+              {/* Stepper + Slider */}
+              <div className="flex items-center gap-3">
+                <button
+                  type="button"
+                  onClick={() => handleZoomChange(zoom - 0.05)}
+                  disabled={zoom <= 0.5}
+                  title="Zoom out"
+                  className="
+                    flex h-8 w-8 shrink-0 items-center justify-center
+                    rounded-lg border border-gray-300 bg-white
+                    text-gray-600 shadow-xs transition-colors
+                    hover:border-gray-400 hover:bg-gray-50
+                    disabled:opacity-40 disabled:cursor-not-allowed
+                    cursor-pointer
+                  "
+                >
+                  <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <line x1="5" y1="12" x2="19" y2="12" strokeWidth="2" strokeLinecap="round" />
+                  </svg>
+                </button>
+
+                <input
+                  id="kiosk-zoom"
+                  type="range"
+                  min="0.5"
+                  max="2.0"
+                  step="0.05"
+                  value={zoom}
+                  onChange={(e) => handleZoomChange(parseFloat(e.target.value))}
+                  className="w-full accent-odoo cursor-pointer h-2 bg-gray-200 rounded-lg"
+                />
+
+                <button
+                  type="button"
+                  onClick={() => handleZoomChange(zoom + 0.05)}
+                  disabled={zoom >= 2.0}
+                  title="Zoom in"
+                  className="
+                    flex h-8 w-8 shrink-0 items-center justify-center
+                    rounded-lg border border-gray-300 bg-white
+                    text-gray-600 shadow-xs transition-colors
+                    hover:border-gray-400 hover:bg-gray-50
+                    disabled:opacity-40 disabled:cursor-not-allowed
+                    cursor-pointer
+                  "
+                >
+                  <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <line x1="12" y1="5" x2="12" y2="19" strokeWidth="2" strokeLinecap="round" />
+                    <line x1="5" y1="12" x2="19" y2="12" strokeWidth="2" strokeLinecap="round" />
+                  </svg>
+                </button>
+              </div>
+
+              {/* Preset buttons */}
+              <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
+                {[0.75, 0.9, 1.0, 1.1, 1.25, 1.5].map((preset) => {
+                  const isSelected = Math.abs(zoom - preset) < 0.01;
+                  return (
+                    <button
+                      key={preset}
+                      type="button"
+                      onClick={() => handleZoomChange(preset)}
+                      className={`
+                        rounded-md px-2 py-0.5 text-[11px] font-medium transition-colors cursor-pointer
+                        ${isSelected
+                          ? "bg-odoo text-white shadow-xs"
+                          : "border border-gray-200 bg-white text-gray-600 hover:bg-gray-50"
+                        }
+                      `}
+                    >
+                      {Math.round(preset * 100)}%
+                    </button>
+                  );
+                })}
+                {Math.abs(zoom - 1.0) >= 0.01 && (
+                  <button
+                    type="button"
+                    onClick={() => handleZoomChange(1.0)}
+                    className="ml-auto text-[11px] font-medium text-odoo hover:underline cursor-pointer"
+                  >
+                    Reset (100%)
+                  </button>
+                )}
+              </div>
+            </div>
+
             {/* Inline error */}
             {localError && (
               <div className="mt-3 flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2.5 text-xs text-red-700">
@@ -692,90 +812,91 @@ export default function WebViewDialog() {
           </div>
 
           <div className="rounded-xl border border-gray-200 bg-gray-50/50 p-4">
-            <div className="flex items-center gap-5">
+            <div className="flex flex-col sm:flex-row items-center sm:items-start gap-4">
               {/* QR */}
               <div className="shrink-0 rounded-xl border border-gray-200 bg-white p-2.5 shadow-xs">
                 <QRCodeSVG
                   value={serverUrl}
-                  size={116}
+                  size={120}
                   level="M"
                 />
               </div>
 
-              {/* URL */}
-              <div className="min-w-0 flex-1">
+              {/* Info text */}
+              <div className="min-w-0 flex-1 text-center sm:text-left">
                 <div className="text-xs font-semibold text-gray-800">
                   Scan to connect
                 </div>
 
                 <p className="mt-1 text-[11px] leading-relaxed text-gray-500">
                   Scan this QR code with a phone, tablet, or another
-                  computer connected to the same network.
+                  computer connected to the same network to access the ePOS proxy.
                 </p>
 
-                <div className="mt-3 flex gap-2">
-                  <input
-                    type="text"
-                    readOnly
-                    value={serverUrl}
-                    className="
-                      min-w-0 flex-1 rounded-lg
-                      border border-gray-300
-                      bg-white px-2.5 py-2
-                      text-xs font-mono text-gray-700
-                      outline-none
-                    "
-                  />
-
-                  <button
-                    type="button"
-                    onClick={() => copyServerUrl(serverUrl)}
-                    className="
-                      inline-flex shrink-0 items-center gap-1.5
-                      rounded-lg bg-odoo
-                      px-3 py-2
-                      text-xs font-medium text-white
-                      shadow-xs transition-colors
-                      hover:bg-odoo-dark
-                      cursor-pointer
-                    "
-                  >
-                    {copiedUrl ? (
-                      <>
-                        <svg
-                          className="h-3.5 w-3.5"
-                          fill="none"
-                          stroke="currentColor"
-                          viewBox="0 0 24 24"
-                        >
-                          <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            strokeWidth="2"
-                            d="M5 13l4 4L19 7"
-                          />
-                        </svg>
-                      </>
-                    ) : (
-                      <>
-                        <svg
-                          className="h-3.5 w-3.5"
-                          fill="none"
-                          stroke="currentColor"
-                          viewBox="0 0 24 24"
-                        >
-                          <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            strokeWidth="2"
-                            d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"
-                          />
-                        </svg>
-                      </>
-                    )}
-                  </button>
+                <div className="mt-2.5 inline-flex items-center gap-1.5 rounded-md bg-blue-50 px-2.5 py-1 text-[10px] font-medium text-blue-700">
+                  <span className="h-1.5 w-1.5 rounded-full bg-blue-500 animate-pulse" />
+                  Local Network Address
                 </div>
               </div>
+            </div>
+
+          </div>
+          {/* Full-width URL display */}
+          <div className="mt-3.5 border-t border-gray-200/80 pt-3">
+            <label className="mb-1 block text-[11px] font-medium text-gray-600">
+              Direct Connection URL
+            </label>
+            <div className="flex items-center gap-2 rounded-lg border border-gray-300 bg-white p-1.5 shadow-xs">
+              <span className="min-w-0 flex-1 px-2 py-1 text-xs font-mono text-gray-800 select-all break-all">
+                {serverUrl}
+              </span>
+
+              <button
+                type="button"
+                onClick={() => copyServerUrl(serverUrl)}
+                className={`
+                    inline-flex shrink-0 items-center gap-1.5
+                    rounded-md px-3 py-1.5
+                    text-xs font-medium text-white
+                    shadow-xs transition-colors cursor-pointer
+                    ${copiedUrl ? "bg-green-600 hover:bg-green-700" : "bg-odoo hover:bg-odoo-dark"}
+                  `}
+              >
+                {copiedUrl ? (
+                  <>
+                    <svg
+                      className="h-3.5 w-3.5"
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth="2"
+                        d="M5 13l4 4L19 7"
+                      />
+                    </svg>
+                    Copied!
+                  </>
+                ) : (
+                  <>
+                    <svg
+                      className="h-3.5 w-3.5"
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth="2"
+                        d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"
+                      />
+                    </svg>
+                  </>
+                )}
+              </button>
             </div>
           </div>
         </section>}

@@ -42,6 +42,7 @@ export interface ApiWebViewConfig {
   url: string;
   enabled: boolean;
   hasPIN: boolean;
+  zoom?: number;
 }
 
 export interface ApiAppVariable {
@@ -193,6 +194,10 @@ export function apiRemoveLANPrinter(ip: string): Promise<{ ok: boolean }> {
 
 export function apiSetWebViewURL(url: string): Promise<{ ok: boolean }> {
   return apiPost<{ ok: boolean }>("/api/webview/url", { url }, true);
+}
+
+export function apiSetWebViewZoom(zoom: number): Promise<{ ok: boolean }> {
+  return apiPost<{ ok: boolean }>("/api/webview/zoom", { zoom }, true);
 }
 
 export function apiSetWebViewEnabled(enabled: boolean): Promise<{ ok: boolean }> {
