@@ -163,6 +163,42 @@ public class WailsJSBridge {
     }
 
     /**
+     * Check if application is provisioned as Device Owner
+     * Called from JavaScript: wails.isDeviceOwner()
+     */
+    @JavascriptInterface
+    public boolean isDeviceOwner() {
+        if (bridge != null && bridge.getActivity() != null) {
+            return KioskManager.getInstance(bridge.getActivity()).isDeviceOwner();
+        }
+        return false;
+    }
+
+    /**
+     * Check if Lock Task Mode is currently active
+     * Called from JavaScript: wails.isLockTaskActive()
+     */
+    @JavascriptInterface
+    public boolean isLockTaskActive() {
+        if (bridge != null && bridge.getActivity() != null) {
+            return KioskManager.getInstance(bridge.getActivity()).isLockTaskActive();
+        }
+        return false;
+    }
+
+    /**
+     * Check if Kiosk lockdown is enabled in preferences
+     * Called from JavaScript: wails.isKioskMode()
+     */
+    @JavascriptInterface
+    public boolean isKioskMode() {
+        if (bridge != null && bridge.getActivity() != null) {
+            return KioskManager.getInstance(bridge.getActivity()).isKioskEnabled();
+        }
+        return false;
+    }
+
+    /**
      * Send a callback response to JavaScript
      */
     private void sendCallback(String callbackId, String result, String error) {

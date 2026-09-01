@@ -113,6 +113,15 @@ public class MainActivity extends AppCompatActivity {
         bridge = new WailsBridge(this);
         bridge.initialize();
 
+        // Initialize Kiosk Manager and apply Device Owner policies if provisioned
+        KioskManager kioskManager = KioskManager.getInstance(this);
+        if (kioskManager.isDeviceOwner()) {
+            kioskManager.setupKioskPolicies();
+        }
+        if (kioskManager.isKioskEnabled()) {
+            kioskManager.startKiosk(this);
+        }
+
         // Start background proxy foreground service
         bridge.startForegroundService("{\"title\":\"ePOS Proxy\",\"text\":\"ePOS Proxy service is active\"}");
 
@@ -788,7 +797,8 @@ public class MainActivity extends AppCompatActivity {
     @Override
     protected void onResume() {
         super.onResume();
-        if (isKioskFullscreen) {
+        KioskManager kioskManager = KioskManager.getInstance(this);
+        if (isKioskFullscreen || kioskManager.isKioskEnabled()) {
             setFullscreenMode(true);
         }
         if (bridge != null) {
@@ -840,59 +850,13 @@ public class MainActivity extends AppCompatActivity {
 
     public void setFullscreenMode(boolean fullscreen) {
         this.isKioskFullscreen = fullscreen;
-        runOnUiThread(() -> {
-            try {
-                if (fullscreen) {
-                    getWindow().addFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN);
-                    getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-                        getWindow().getAttributes().layoutInDisplayCutoutMode =
-                            WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES;
-                    }
-                } else {
-                    getWindow().clearFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN);
-                    getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
-                }
-
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                    WindowInsetsControllerCompat controller = WindowCompat.getInsetsController(getWindow(), getWindow().getDecorView());
-                    if (controller != null) {
-                        if (fullscreen) {
-                            controller.hide(WindowInsetsCompat.Type.systemBars());
-                            controller.setSystemBarsBehavior(WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE);
-                        } else {
-                            controller.show(WindowInsetsCompat.Type.systemBars());
-                            controller.setSystemBarsBehavior(WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE);
-                        }
-                    }
-                } else {
-                    View decorView = getWindow().getDecorView();
-                    if (fullscreen) {
-                        int flags = View.SYSTEM_UI_FLAG_LAYOUT_STABLE
-                            | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
-                            | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
-                            | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
-                            | View.SYSTEM_UI_FLAG_FULLSCREEN
-                            | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY;
-                        decorView.setSystemUiVisibility(flags);
-                        decorView.setOnSystemUiVisibilityChangeListener(visibility -> {
-                            if ((visibility & View.SYSTEM_UI_FLAG_FULLSCREEN) == 0 && isKioskFullscreen) {
-                                decorView.setSystemUiVisibility(flags);
-                            }
-                        });
-                    } else {
-                        decorView.setOnSystemUiVisibilityChangeListener(null);
-                        decorView.setSystemUiVisibility(View.SYSTEM_UI_FLAG_VISIBLE);
-                    }
-                }
-
-                if (fullscreen) {
-                    collapseStatusBar();
-                }
-            } catch (Exception e) {
-                Log.e(TAG, "Failed to set fullscreen mode", e);
-            }
-        });
+        KioskManager kioskManager = KioskManager.getInstance(this);
+        if (fullscreen) {
+            kioskManager.startKiosk(this);
+            collapseStatusBar();
+        } else {
+            kioskManager.stopKiosk(this);
+        }
     }
 
     public void requestDefaultLauncher() {
@@ -932,7 +896,8 @@ public class MainActivity extends AppCompatActivity {
 
     @Override
     public boolean dispatchTouchEvent(MotionEvent ev) {
-        if (isKioskFullscreen) {
+        KioskManager kioskManager = KioskManager.getInstance(this);
+        if (isKioskFullscreen || kioskManager.isKioskEnabled()) {
             float y = ev.getRawY();
             int screenHeight = getResources().getDisplayMetrics().heightPixels;
             // Block top edge pulldown and bottom edge navigation gestures
@@ -945,7 +910,8 @@ public class MainActivity extends AppCompatActivity {
 
     @Override
     public boolean dispatchKeyEvent(KeyEvent event) {
-        if (isKioskFullscreen) {
+        KioskManager kioskManager = KioskManager.getInstance(this);
+        if (isKioskFullscreen || kioskManager.isKioskEnabled()) {
             int keyCode = event.getKeyCode();
             if (keyCode == KeyEvent.KEYCODE_BACK ||
                 keyCode == KeyEvent.KEYCODE_HOME ||
@@ -959,20 +925,27 @@ public class MainActivity extends AppCompatActivity {
     @Override
     public void onWindowFocusChanged(boolean hasFocus) {
         super.onWindowFocusChanged(hasFocus);
-        if (isKioskFullscreen) {
+        KioskManager kioskManager = KioskManager.getInstance(this);
+        if (isKioskFullscreen || kioskManager.isKioskEnabled()) {
             if (!hasFocus) {
                 collapseStatusBar();
                 try {
                     sendBroadcast(new Intent(Intent.ACTION_CLOSE_SYSTEM_DIALOGS));
                 } catch (Exception ignored) {}
             }
-            setFullscreenMode(true);
+            kioskManager.applyImmersiveFullscreen(this, true);
+            if (kioskManager.isLockTaskPermitted() && !kioskManager.isLockTaskActive()) {
+                try {
+                    startLockTask();
+                } catch (Exception ignored) {}
+            }
         }
     }
 
     @Override
     public void onBackPressed() {
-        if (isKioskFullscreen) {
+        KioskManager kioskManager = KioskManager.getInstance(this);
+        if (isKioskFullscreen || kioskManager.isKioskEnabled()) {
             // Lock back button during kiosk mode
             return;
         }
