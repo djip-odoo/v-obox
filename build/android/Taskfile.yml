@@ -53,6 +53,7 @@ tasks:
       - task: compile:go:shared
         vars:
           ARCH: '{{.ARCH | default .HOST_ARCH}}'
+          PRODUCTION: '{{.PRODUCTION}}'
     vars:
       BUILD_FLAGS: '{{if eq .PRODUCTION "true"}}-tags production,android -trimpath -buildvcs=false -ldflags="-w -s -extldflags \"-Wl,-z,max-page-size=16384\""{{else}}-tags android,debug -buildvcs=false -gcflags=all="-l" -ldflags="-extldflags \"-Wl,-z,max-page-size=16384\""{{end}}'
     env:
@@ -149,6 +150,24 @@ tasks:
     cmds:
       - task: assemble:apk:release
 
+  build:fat:
+    summary: Builds a debug build for all architectures (fat APK)
+    deps:
+      - task: build
+        vars:
+          PRODUCTION: "false"
+          ARCH: arm64
+    cmds:
+      - task: compile:go:shared
+        vars:
+          ARCH: amd64
+          PRODUCTION: "false"
+      - task: compile:go:shared
+        vars:
+          ARCH: arm
+          PRODUCTION: "false"
+      - task: assemble:apk
+
   package:fat:
     summary: Packages a production build for all architectures (fat APK)
     deps:
@@ -160,6 +179,10 @@ tasks:
       - task: compile:go:shared
         vars:
           ARCH: amd64
+          PRODUCTION: "true"
+      - task: compile:go:shared
+        vars:
+          ARCH: arm
           PRODUCTION: "true"
       - task: assemble:apk:release
 

@@ -29,6 +29,11 @@ tasks:
     cmds:
       - task: "{{.GOOS}}:package"
 
+  package:android:fat:
+    summary: Packages a production Android APK for all architectures (arm64, x86_64, armeabi-v7a)
+    cmds:
+      - task: android:package:fat
+
   run:
     summary: Runs the application
     cmds:

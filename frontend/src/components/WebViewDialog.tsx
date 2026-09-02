@@ -40,17 +40,11 @@ export function isValidUrl(urlStr: string): boolean {
   try {
     const parsed = new URL(trimmed);
 
-    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+    if (parsed.protocol !== "https:") {
       return false;
     }
 
-    if (!parsed.hostname) {
-      return false;
-    }
-
-    return KIOSK_URL_CONSTRAINTS.some((constraint) =>
-      constraint.validate(parsed)
-    );
+    return Boolean(parsed.hostname);
   } catch {
     return false;
   }
@@ -140,7 +134,7 @@ export default function WebViewDialog() {
 
     if (!isValidUrl(trimmedUrl)) {
       setLocalError(
-        "Enter a valid HTTP or HTTPS URL for an Odoo POS Self Order page."
+        "Enter a valid HTTPS URL (must start with https://)."
       );
       return false;
     }
