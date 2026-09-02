@@ -37,7 +37,7 @@ public class WailsForegroundService extends android.app.Service {
         NotificationManager nm = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             NotificationChannel ch = new NotificationChannel(
-                    CHANNEL_ID, "Proxy Service", NotificationManager.IMPORTANCE_LOW);
+                    CHANNEL_ID, "Proxy Service", NotificationManager.IMPORTANCE_MIN);
             nm.createNotificationChannel(ch);
         }
 
@@ -54,6 +54,7 @@ public class WailsForegroundService extends android.app.Service {
                 .setContentTitle(title)
                 .setContentText(text)
                 .setOngoing(true)
+                .setPriority(NotificationCompat.PRIORITY_MIN)
                 .setContentIntent(contentIntent)
                 .build();
 

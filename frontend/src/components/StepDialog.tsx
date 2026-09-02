@@ -3,6 +3,7 @@ import { Browser } from "@wailsio/runtime";
 import type { Step } from "../types";
 import { useStepDialog } from "../hooks/useStepDialog";
 import { renderFormattedText } from "../functions/renderFormattedText";
+import { copyTextToClipboard } from "../hooks/useClipboard";
 import Dialog, { type DialogAction } from "./Dialog";
 
 type ContentPhase = "shown" | "leaving" | "entering";
@@ -101,12 +102,14 @@ export default function StepDialog({ steps, openButton, title, isLoading, onOpen
   }, [phase]);
 
   async function copyCode(index: number, code: string) {
-    await navigator.clipboard.writeText(code);
-    setCodeCopied((copied) => ({ ...copied, [index]: true }));
-    setTimeout(
-      () => setCodeCopied((copied) => ({ ...copied, [index]: false })),
-      2000,
-    );
+    const ok = await copyTextToClipboard(code);
+    if (ok) {
+      setCodeCopied((copied) => ({ ...copied, [index]: true }));
+      setTimeout(
+        () => setCodeCopied((copied) => ({ ...copied, [index]: false })),
+        2000,
+      );
+    }
   }
 
   const step = steps[displayStep];

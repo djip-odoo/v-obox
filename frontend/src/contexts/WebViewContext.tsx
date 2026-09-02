@@ -146,11 +146,6 @@ export const WebViewContextWrapper = ({
   };
 
   const enterKiosk = async () => {
-    try {
-      await backendService.requestDefaultLauncher?.();
-    } catch (err) {
-      console.error("Failed to request default launcher on enter kiosk:", err);
-    }
     await toggleEnabled(true);
   };
 

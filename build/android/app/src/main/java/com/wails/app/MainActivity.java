@@ -972,8 +972,7 @@ public class MainActivity extends AppCompatActivity {
                     startLockTask();
                 }
             } else {
-                Log.w(TAG, "Device is NOT Device Owner. Calling startLockTask() will result in PINNED (screen pinning), not LOCKED dedicated kiosk.");
-                startLockTask();
+                Log.i(TAG, "Device is NOT Device Owner. Skipping startLockTask() to avoid Screen Pinning system notifications; using immersive fullscreen kiosk mode instead.");
             }
         } catch (Exception e) {
             Log.e(TAG, "Failed to start LockTask", e);

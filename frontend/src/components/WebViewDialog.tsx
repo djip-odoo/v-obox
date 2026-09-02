@@ -724,7 +724,7 @@ export default function WebViewDialog() {
             </div>
 
             {/* Default Launcher — Android only */}
-            {isWails && (
+            {isWails && backendService.isAndroidLauncherSupported?.() && (
               <div className="mt-3 flex items-center justify-between border-t border-gray-200 pt-3">
                 <div>
                   <div className="text-xs font-medium text-gray-800">
