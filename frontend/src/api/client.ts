@@ -12,6 +12,7 @@ import {
   getAuthHeaders,
   setPINSessionToken,
 } from "./authState";
+import { DeviceInfo } from "../types/models";
 
 // ── Types (mirror the Wails models namespace) ─────────────────────────────────
 
@@ -154,6 +155,14 @@ export function apiGetWebViewConfig(): Promise<ApiWebViewConfig> {
 
 export function apiGetTroubleshootInfo(): Promise<ApiTroubleshootInfo> {
   return apiGet<ApiTroubleshootInfo>("/api/troubleshoot");
+}
+
+export function apiGetDeviceInfo(): Promise<DeviceInfo> {
+  return apiGet<DeviceInfo>("/api/device-info");
+}
+
+export function apiSetDeviceInfo(info: DeviceInfo): Promise<{ ok: boolean }> {
+  return apiPost<{ ok: boolean }>("/api/device-info", info, false);
 }
 
 // ── PIN session creation ──────────────────────────────────────────────────────

@@ -116,6 +116,12 @@ export const AppContextWrapper = ({ children }: AppContextWrapperProps) => {
     };
   }, []);
 
+  useEffect(() => {
+    if (isWails && ready) {
+      backendService.getDeviceInfo().catch(() => {});
+    }
+  }, [isWails, ready]);
+
   return (
     <AppContext.Provider value={{ data, setters, actions }}>
       {children}

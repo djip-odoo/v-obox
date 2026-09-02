@@ -20,6 +20,14 @@ export const KIOSK_URL_CONSTRAINTS = [
     validate: (url: URL) =>
       /^\/pos-self\/[a-zA-Z0-9_-]+/i.test(url.pathname),
   },
+  {
+    type: "odoo-pos",
+    name: "Odoo POS",
+    example:
+      "https://your-domain.odoo.com/pos/ui/199?from_backend=True",
+    validate: (url: URL) =>
+      /^\/pos\/ui\//i.test(url.pathname),
+  },
 ];
 
 export function isValidUrl(urlStr: string): boolean {

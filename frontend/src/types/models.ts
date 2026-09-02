@@ -41,3 +41,61 @@ export interface WebViewConfig {
   hasPIN: boolean;
   zoom?: number;
 }
+
+export interface DeviceInfo {
+  platform: string;
+  model?: string;
+  manufacturer?: string;
+  brand?: string;
+  device?: string;
+  product?: string;
+  board?: string;
+  hardware?: string;
+
+  osVersion: string;
+  apiLevel?: number;
+  securityPatch?: string;
+
+  webViewPackage?: string;
+  webViewVersion?: string;
+  userAgent?: string;
+
+  cpuArch: string;
+  cpuCores: number;
+  supportedAbis?: string[];
+  socModel?: string;
+
+  totalRamBytes?: number;
+  availableRamBytes?: number;
+  usedRamBytes?: number;
+  isLowRam?: boolean;
+
+  totalStorageBytes?: number;
+  availableStorageBytes?: number;
+  usedStorageBytes?: number;
+
+  batteryLevel?: number;
+  isCharging?: boolean;
+  pluggedSource?: string;
+
+  screenWidth?: number;
+  screenHeight?: number;
+  screenDensityDpi?: number;
+  screenDensity?: number;
+  refreshRate?: number;
+
+  networkType?: string;
+  localIp?: string;
+  port?: number;
+
+  packageName?: string;
+  appVersion?: string;
+  appVersionCode?: number;
+  uptimeMs?: number;
+
+  serverRunning?: boolean;
+  hostname?: string;
+  goVersion?: string;
+  error?: string;
+}
+

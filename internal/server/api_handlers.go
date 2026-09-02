@@ -58,6 +58,18 @@ type apiTroubleshootInfo struct {
 	ExecPath       string `json:"execPath"`
 }
 
+type apiDeviceInfo struct {
+	Platform      string `json:"platform"`
+	OSVersion     string `json:"osVersion"`
+	CPUArch       string `json:"cpuArch"`
+	CPUCores      int    `json:"cpuCores"`
+	Hostname      string `json:"hostname,omitempty"`
+	ServerRunning bool   `json:"serverRunning"`
+	GoVersion     string `json:"goVersion"`
+	LocalIP       string `json:"localIp,omitempty"`
+	Port          int    `json:"port"`
+}
+
 // ── Read-only handlers ─────────────────────────────────────────────────────────
 
 func (s *Server) handleGetApp(c fiber.Ctx) error {
@@ -65,6 +77,44 @@ func (s *Server) handleGetApp(c fiber.Ctx) error {
 		ServerRunning: true, // server is running — we received the request
 		Os:            runtime.GOOS,
 	})
+}
+
+func (s *Server) handleGetDeviceInfo(c fiber.Ctx) error {
+	s.mu.RLock()
+	cached := s.deviceInfo
+	s.mu.RUnlock()
+
+	if cached != nil {
+		return c.JSON(cached)
+	}
+
+	host, _ := os.Hostname()
+	localIP := ""
+	if s.cfg != nil {
+		localIP = util.GetLocalIP(s.cfg.IsNetworkPrintingEnabled())
+	}
+	return c.JSON(apiDeviceInfo{
+		Platform:      runtime.GOOS,
+		OSVersion:     runtime.GOOS + " " + runtime.GOARCH,
+		CPUArch:       runtime.GOARCH,
+		CPUCores:      runtime.NumCPU(),
+		Hostname:      host,
+		ServerRunning: true,
+		GoVersion:     runtime.Version(),
+		LocalIP:       localIP,
+		Port:          s.Port,
+	})
+}
+
+func (s *Server) handlePostDeviceInfo(c fiber.Ctx) error {
+	var info map[string]interface{}
+	if err := bindJSON(c, &info); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid request"})
+	}
+	s.mu.Lock()
+	s.deviceInfo = info
+	s.mu.Unlock()
+	return c.JSON(fiber.Map{"ok": true})
 }
 
 func (s *Server) handleGetPrinters(c fiber.Ctx) error {

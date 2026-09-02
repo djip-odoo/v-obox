@@ -21,10 +21,13 @@ import {
   ApiTroubleshootInfo,
   ApiWebViewConfig,
   apiReloadKiosk,
+  apiGetDeviceInfo,
+  apiSetDeviceInfo,
 } from "../api/client";
 import { executePrint } from "../functions/executePrint";
 import {
   AppVariable,
+  DeviceInfo,
   Printer,
   Printers,
   TroubleshootInfo,
@@ -37,6 +40,7 @@ export interface IBackendService {
   // App & System Info
   getAppVariable(): Promise<AppVariable | ApiAppVariable>;
   getTroubleshootInfo(): Promise<TroubleshootInfo | ApiTroubleshootInfo>;
+  getDeviceInfo(): Promise<DeviceInfo>;
   getNetworkPrintingEnabled(): Promise<boolean>;
   setNetworkPrintingEnabled(v: boolean): Promise<void>;
   getAutostart(): Promise<boolean>;
@@ -206,6 +210,25 @@ class WailsBackendService implements IBackendService {
       (wails["openHomeSettings"] as () => void)();
     }
   }
+
+  async getDeviceInfo(): Promise<DeviceInfo> {
+    const w = window as unknown as Record<string, unknown>;
+    const wails = w["wails"] as Record<string, unknown> | undefined;
+    if (typeof wails?.["getDeviceInfo"] === "function") {
+      try {
+        const raw = (wails["getDeviceInfo"] as () => string)();
+        if (raw) {
+          const parsed = JSON.parse(raw) as DeviceInfo;
+          // Synchronize to Go backend so any remote browser viewing the proxy also sees this host Android device's info!
+          apiSetDeviceInfo(parsed).catch(() => {});
+          return parsed;
+        }
+      } catch (e) {
+        console.error("Failed to parse native getDeviceInfo:", e);
+      }
+    }
+    return apiGetDeviceInfo();
+  }
 }
 
 class RemoteBackendService implements IBackendService {
@@ -217,6 +240,10 @@ class RemoteBackendService implements IBackendService {
 
   getTroubleshootInfo(): Promise<ApiTroubleshootInfo> {
     return apiGetTroubleshootInfo();
+  }
+
+  getDeviceInfo(): Promise<DeviceInfo> {
+    return apiGetDeviceInfo();
   }
 
   getNetworkPrintingEnabled(): Promise<boolean> {
@@ -337,6 +364,7 @@ class DynamicBackendService implements IBackendService {
 
   getAppVariable() { return this.active.getAppVariable(); }
   getTroubleshootInfo() { return this.active.getTroubleshootInfo(); }
+  getDeviceInfo() { return this.active.getDeviceInfo(); }
   getNetworkPrintingEnabled() { return this.active.getNetworkPrintingEnabled(); }
   setNetworkPrintingEnabled(v: boolean) { return this.active.setNetworkPrintingEnabled(v); }
   getAutostart() { return this.active.getAutostart(); }

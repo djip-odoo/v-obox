@@ -38,6 +38,7 @@ type Server struct {
 	mu              sync.RWMutex
 	wailsToken      string          // trusted Wails session token (empty = none set yet)
 	sessions        map[string]bool // active PIN-auth session tokens (remote clients)
+	deviceInfo      map[string]interface{}
 	onKioskChanged  func(enabled bool)
 	onConfigChanged func()
 	onKioskReload   func()
@@ -157,6 +158,8 @@ func New(port int, mgr *printer.Manager, cfg *config.Manager, distFS fs.FS) *Ser
 	app.Get("/api/printers/lan/:ip/status", srv.handleGetLANPrinterStatus)
 	app.Get("/api/webview", srv.handleGetWebView)
 	app.Get("/api/troubleshoot", srv.handleGetTroubleshoot)
+	app.Get("/api/device-info", srv.handleGetDeviceInfo)
+	app.Post("/api/device-info", srv.handlePostDeviceInfo)
 
 	// PIN session creation — validates PIN and issues a session token
 	app.Post("/api/auth/session", srv.handleAuthSession)

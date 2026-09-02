@@ -4,6 +4,7 @@ import PrinterListItem from "./PrinterListItem";
 import { PrinterContext } from "../contexts/PrinterContext";
 import WebViewDialog from "./WebViewDialog";
 import QuitAppButton from "./QuitAppButton";
+import DeviceInfoDialog from "./DeviceInfoDialog";
 
 export default function PrinterList() {
   const printerContext = useContext(PrinterContext);
@@ -67,6 +68,7 @@ export default function PrinterList() {
         <NetworkIpDialog />
         <WebViewDialog />
         <QuitAppButton />
+        <DeviceInfoDialog />
       </div>
     </>
   );
