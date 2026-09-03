@@ -1286,30 +1286,93 @@ public class MainActivity extends AppCompatActivity {
 
     @Override
     public boolean dispatchTouchEvent(MotionEvent ev) {
-        if (isKioskFullscreen && ev.getAction() == MotionEvent.ACTION_DOWN) {
-            float x = ev.getX();
-            float y = ev.getY();
-            int width = getResources().getDisplayMetrics().widthPixels;
-            float radiusPx = 80 * getResources().getDisplayMetrics().density;
-            if (x >= width - radiusPx && y <= radiusPx) {
-                long now = System.currentTimeMillis();
-                if (now - lastCornerTapTime > 1000) {
-                    cornerTapCount = 0;
-                }
-                lastCornerTapTime = now;
-                cornerTapCount++;
-                if (cornerTapCount >= 4) {
-                    cornerTapCount = 0;
-                    runOnUiThread(() -> {
-                        setFullscreenMode(false);
-                        if (webView != null) {
-                            webView.loadUrl("https://wails.localhost/");
-                        }
-                    });
+        if (ev.getAction() == MotionEvent.ACTION_DOWN) {
+            String currentUrl = webView != null ? webView.getUrl() : null;
+            boolean isExternalWebapp = currentUrl != null && !currentUrl.startsWith(WAILS_SCHEME + "://" + WAILS_HOST);
+            if (isKioskFullscreen || isExternalWebapp) {
+                float x = ev.getX();
+                float y = ev.getY();
+                int width = getResources().getDisplayMetrics().widthPixels;
+                int height = getResources().getDisplayMetrics().heightPixels;
+                float radiusPx = 80 * getResources().getDisplayMetrics().density;
+                boolean isCorner = (x <= radiusPx && y <= radiusPx) // Top-Left
+                                || (x >= width - radiusPx && y <= radiusPx) // Top-Right
+                                || (x <= radiusPx && y >= height - radiusPx) // Bottom-Left
+                                || (x >= width - radiusPx && y >= height - radiusPx); // Bottom-Right
+                if (isCorner) {
+                    long now = System.currentTimeMillis();
+                    if (now - lastCornerTapTime > 1200) {
+                        cornerTapCount = 0;
+                    }
+                    lastCornerTapTime = now;
+                    cornerTapCount++;
+                    if (cornerTapCount >= 4) {
+                        cornerTapCount = 0;
+                        promptPINToCloseWebapp();
+                    }
                 }
             }
         }
         return super.dispatchTouchEvent(ev);
+    }
+
+    private void promptPINToCloseWebapp() {
+        runOnUiThread(() -> {
+            final android.widget.EditText pinInput = new android.widget.EditText(this);
+            pinInput.setInputType(android.text.InputType.TYPE_CLASS_NUMBER | android.text.InputType.TYPE_NUMBER_VARIATION_PASSWORD);
+            pinInput.setHint("Enter Admin PIN");
+            pinInput.setPadding(60, 40, 60, 40);
+
+            new androidx.appcompat.app.AlertDialog.Builder(this)
+                .setTitle("Close Web Application")
+                .setMessage("Enter the administrator PIN to close the web app and return to settings:")
+                .setView(pinInput)
+                .setPositiveButton("Unlock & Exit", (dialog, which) -> {
+                    String enteredPin = pinInput.getText().toString().trim();
+                    verifyPinAndExit(enteredPin);
+                })
+                .setNegativeButton("Cancel", (dialog, which) -> dialog.dismiss())
+                .setCancelable(true)
+                .show();
+        });
+    }
+
+    private void verifyPinAndExit(String pin) {
+        new Thread(() -> {
+            boolean valid = false;
+            try {
+                java.net.URL url = new java.net.URL("http://127.0.0.1:4545/api/auth/session");
+                java.net.HttpURLConnection conn = (java.net.HttpURLConnection) url.openConnection();
+                conn.setRequestMethod("POST");
+                conn.setRequestProperty("Content-Type", "application/json");
+                conn.setDoOutput(true);
+                conn.setConnectTimeout(2000);
+                conn.setReadTimeout(2000);
+                String jsonBody = "{\"pin\":\"" + pin.replace("\"", "\\\"") + "\"}";
+                try (java.io.OutputStream os = conn.getOutputStream()) {
+                    os.write(jsonBody.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                }
+                int code = conn.getResponseCode();
+                valid = (code == 200);
+            } catch (Exception e) {
+                Log.e(TAG, "PIN check error", e);
+                // Fallback to exit if backend not reachable
+                valid = true;
+            }
+
+            final boolean isSuccess = valid;
+            runOnUiThread(() -> {
+                if (isSuccess) {
+                    setFullscreenMode(false);
+                    if (webView != null) {
+                        webView.loadUrl(WAILS_SCHEME + "://" + WAILS_HOST + "/");
+                    }
+                } else {
+                    android.widget.Toast.makeText(this, "Incorrect PIN", android.widget.Toast.LENGTH_SHORT).show();
+                    promptPINToCloseWebapp();
+                }
+            });
+        }).start();
     }
 
     @Override

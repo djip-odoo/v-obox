@@ -233,3 +233,11 @@ export function apiCashDrawer(printerId: string): Promise<{ ok: boolean }> {
 export function apiReloadKiosk(): Promise<{ ok: boolean }> {
   return apiPost<{ ok: boolean }>("/api/webview/reload", {}, true);
 }
+
+export function apiOpenWebView(url?: string): Promise<{ ok: boolean; url?: string }> {
+  return apiPost<{ ok: boolean; url?: string }>("/api/webview/open", { url }, true);
+}
+
+export function apiCloseWebView(): Promise<{ ok: boolean }> {
+  return apiPost<{ ok: boolean }>("/api/webview/close", {}, true);
+}

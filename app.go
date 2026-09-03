@@ -201,6 +201,12 @@ func (a *App) startup() {
 	a.webserver.SetKioskReloadCallback(func() {
 		a.ReloadKiosk()
 	})
+	a.webserver.SetOpenWebappCallback(func(url string) {
+		a.NavigateToWebapp(url)
+	})
+	a.webserver.SetCloseWebappCallback(func() {
+		a.NavigateToLocalUI()
+	})
 
 	menubar.RegisterKioskExitGesture(func() {
 		logger.Infof("Native kiosk exit gesture triggered")

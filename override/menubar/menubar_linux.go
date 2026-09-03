@@ -40,9 +40,14 @@ static void on_gesture_pressed(GtkGestureClick *gesture, int n_press, double x, 
     GtkWidget *widget = gtk_event_controller_get_widget(GTK_EVENT_CONTROLLER(gesture));
     if (!widget) return;
     int width = gtk_widget_get_width(widget);
-    if (x >= (width - 80) && y <= 80 && width > 80) {
+    int height = gtk_widget_get_height(widget);
+    gboolean is_corner = (x <= 80 && y <= 80) // Top-Left
+                      || (x >= (width - 80) && y <= 80 && width > 80) // Top-Right
+                      || (x <= 80 && y >= (height - 80) && height > 80) // Bottom-Left
+                      || (x >= (width - 80) && y >= (height - 80) && width > 80 && height > 80); // Bottom-Right
+    if (is_corner) {
         guint32 now = (guint32)(g_get_monotonic_time() / 1000);
-        if (now - last_tap_time > 1000) {
+        if (now - last_tap_time > 1200) {
             tap_count = 0;
         }
         last_tap_time = now;

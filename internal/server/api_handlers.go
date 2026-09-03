@@ -359,6 +359,39 @@ func (s *Server) handleReloadWebView(c fiber.Ctx) error {
 	return c.JSON(fiber.Map{"ok": true})
 }
 
+type openWebViewReq struct {
+	URL string `json:"url,omitempty"`
+}
+
+func (s *Server) handleOpenWebView(c fiber.Ctx) error {
+	var req openWebViewReq
+	_ = bindJSON(c, &req)
+	targetURL := req.URL
+	if targetURL == "" && s.cfg != nil {
+		targetURL = s.cfg.GetWebViewURL()
+	}
+	if targetURL == "" {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "no URL configured"})
+	}
+	s.mu.RLock()
+	cb := s.onOpenWebapp
+	s.mu.RUnlock()
+	if cb != nil {
+		cb(targetURL)
+	}
+	return c.JSON(fiber.Map{"ok": true, "url": targetURL})
+}
+
+func (s *Server) handleCloseWebView(c fiber.Ctx) error {
+	s.mu.RLock()
+	cb := s.onCloseWebapp
+	s.mu.RUnlock()
+	if cb != nil {
+		cb()
+	}
+	return c.JSON(fiber.Map{"ok": true})
+}
+
 // ── Privileged print-test / cash-drawer routes ────────────────────────────────
 
 func (s *Server) handleTestPrint(c fiber.Ctx) error {

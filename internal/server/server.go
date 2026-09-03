@@ -41,6 +41,8 @@ type Server struct {
 	onKioskChanged  func(enabled bool)
 	onConfigChanged func()
 	onKioskReload   func()
+	onOpenWebapp    func(url string)
+	onCloseWebapp   func()
 }
 
 // SetKioskCallback registers a callback invoked when kiosk enabled status changes via HTTP API.
@@ -62,6 +64,20 @@ func (s *Server) SetKioskReloadCallback(cb func()) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.onKioskReload = cb
+}
+
+// SetOpenWebappCallback registers a callback invoked when remote open webapp is requested.
+func (s *Server) SetOpenWebappCallback(cb func(string)) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.onOpenWebapp = cb
+}
+
+// SetCloseWebappCallback registers a callback invoked when remote close webapp is requested.
+func (s *Server) SetCloseWebappCallback(cb func()) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.onCloseWebapp = cb
 }
 
 // SetSessionToken registers the trusted Wails session token.
@@ -166,6 +182,8 @@ func New(port int, mgr *printer.Manager, cfg *config.Manager, distFS fs.FS) *Ser
 	app.Post("/api/webview/zoom", srv.requireAuth, srv.handleSetWebViewZoom)
 	app.Post("/api/webview/enabled", srv.requireAuth, srv.handleSetWebViewEnabled)
 	app.Post("/api/webview/reload", srv.requireAuth, srv.handleReloadWebView)
+	app.Post("/api/webview/open", srv.requireAuth, srv.handleOpenWebView)
+	app.Post("/api/webview/close", srv.requireAuth, srv.handleCloseWebView)
 
 	// Test-print / cash-drawer via proxy — privileged so random remote callers
 	// can't trigger prints, while Odoo POS continues to use the open /p/…

@@ -156,6 +156,8 @@ export default function WebViewDialog() {
           await backendService.setWindowFullscreen(false);
         }
         window.location.href = targetUrl;
+      } else {
+        await backendService.openWebView(targetUrl);
       }
 
       toastContext.actions.showToast(
@@ -164,6 +166,31 @@ export default function WebViewDialog() {
       );
     } catch (err: unknown) {
       setLocalError(String(err) || "Failed to launch Web App.");
+    }
+  };
+
+  const handleCloseWebapp = async () => {
+    if (cfg?.hasPIN) {
+      const pinVerified = await showPINDialog();
+      if (!pinVerified) {
+        return;
+      }
+    }
+
+    try {
+      if (isWails) {
+        await backendService.setWindowFullscreen(false);
+        window.location.href = "/";
+      } else {
+        await backendService.closeWebView();
+      }
+
+      toastContext.actions.showToast(
+        "Returning to Proxy Settings...",
+        "success"
+      );
+    } catch (err: unknown) {
+      setLocalError(String(err) || "Failed to close Web App.");
     }
   };
 
@@ -519,37 +546,50 @@ export default function WebViewDialog() {
               </p>
             </div>
 
-            {/* Launch Web App Card */}
-            <div className="mt-4 flex items-center justify-between gap-3 rounded-xl border border-odoo/20 bg-odoo/5 p-3.5">
+            {/* Launch / Close Web App Card */}
+            <div className="mt-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-xl border border-odoo/20 bg-odoo/5 p-3.5">
               <div>
                 <div className="text-xs font-semibold text-gray-900">
-                  Switch to Web Application
+                  Switch or Return Web Application
                 </div>
                 <div className="text-[11px] text-gray-600">
                   {cfg?.enabled
-                    ? "Opens the Web App in Fullscreen Lockdown Mode."
-                    : "Opens the Web App in standard window mode."}
+                    ? "Lockdown mode is ENABLED (Fullscreen Kiosk)."
+                    : "Standard windowed mode."}
                 </div>
               </div>
 
-              <button
-                type="button"
-                disabled={!isUrlValid}
-                onClick={handleLaunchWebapp}
-                className={`
-                  inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-semibold text-white shadow-xs transition-colors
-                  ${isUrlValid
-                    ? "bg-odoo hover:bg-odoo-hover cursor-pointer"
-                    : "bg-gray-300 cursor-not-allowed opacity-60"
-                  }
-                `}
-              >
-                <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
-                <span>Open Web App</span>
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={handleCloseWebapp}
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-gray-300 bg-white px-3 py-2 text-xs font-semibold text-gray-700 shadow-xs hover:bg-gray-50 transition-colors cursor-pointer"
+                >
+                  <svg className="h-4 w-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+                  </svg>
+                  <span>Close Web App</span>
+                </button>
+
+                <button
+                  type="button"
+                  disabled={!isUrlValid}
+                  onClick={handleLaunchWebapp}
+                  className={`
+                    inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-semibold text-white shadow-xs transition-colors
+                    ${isUrlValid
+                      ? "bg-odoo hover:bg-odoo-hover cursor-pointer"
+                      : "bg-gray-300 cursor-not-allowed opacity-60"
+                    }
+                  `}
+                >
+                  <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                  <span>Open Web App</span>
+                </button>
+              </div>
             </div>
 
             {/* Display Zoom */}
