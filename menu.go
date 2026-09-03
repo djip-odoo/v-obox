@@ -44,9 +44,8 @@ func createMenu(app *application.App, appService *App) *application.Menu {
 		appService.NavigateToLocalUI()
 	})
 
-	appMenu.Add("Exit Lockdown").SetAccelerator("Escape").OnClick(func(_ *application.Context) {
-		logger.Infof("Exit Lockdown requested from menu")
-		_ = appService.SetWebViewEnabled(false)
+	appMenu.Add("Return to Proxy Settings").SetAccelerator("Escape").OnClick(func(_ *application.Context) {
+		logger.Infof("Return to Proxy Settings requested from menu")
 		appService.NavigateToLocalUI()
 	})
 

@@ -350,7 +350,7 @@ func (s *Server) handleSetWebViewEnabled(c fiber.Ctx) error {
 	if err := s.cfg.SetWebViewEnabled(req.Enabled); err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
-	s.PostWebviewAction("lockdown", "", req.Enabled, 1.0)
+
 	s.mu.RLock()
 	cb := s.onKioskChanged
 	s.mu.RUnlock()

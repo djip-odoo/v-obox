@@ -59,7 +59,7 @@ export const WebViewContextWrapper = ({
     try {
       const cfg = await backendService.getWebViewConfig();
       setConfig(cfg);
-      setIsKioskActive(Boolean(cfg.enabled));
+      setIsKioskActive(Boolean(cfg?.isActive));
     } catch (err) {
       console.error("Failed to fetch WebView config:", err);
     }
@@ -78,12 +78,11 @@ export const WebViewContextWrapper = ({
   useEffect(() => {
     if (!isWails) return;
 
-    const unsubKiosk = Events.On("kiosk-state-changed", async (ev: { data: boolean }) => {
-      const enabled = ev.data;
-      setIsKioskActive(enabled);
+    const unsubKiosk = Events.On("kiosk-state-changed", async () => {
       try {
         const cfg = await backendService.getWebViewConfig();
         setConfig(cfg);
+        setIsKioskActive(Boolean(cfg?.isActive));
       } catch {
         /* ignore */
       }
@@ -93,6 +92,7 @@ export const WebViewContextWrapper = ({
       try {
         const cfg = await backendService.getWebViewConfig();
         setConfig(cfg);
+        setIsKioskActive(Boolean(cfg?.isActive));
       } catch {
         /* ignore */
       }
@@ -131,20 +131,16 @@ export const WebViewContextWrapper = ({
 
   const toggleEnabled = async (v: boolean) => {
     await backendService.setWebViewEnabled(v);
-    if (backendService.isWails) {
-      setIsKioskActive(v);
-      await backendService.setWindowFullscreen(v);
-    }
     const cfg = await backendService.getWebViewConfig();
     setConfig(cfg);
   };
 
   const enterKiosk = async () => {
-    await toggleEnabled(true);
+    await openWebapp();
   };
 
   const exitKiosk = async () => {
-    await toggleEnabled(false);
+    await closeWebapp();
   };
 
   const reloadKiosk = async () => {
