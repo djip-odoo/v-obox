@@ -206,6 +206,8 @@ func (a *App) startup() {
 		logger.Infof("Native kiosk exit gesture triggered")
 		_ = a.SetWebViewEnabled(false)
 	})
+
+	menubar.ConfigureWebviewSettings()
 }
 
 func (a *App) shutdown(_ context.Context) {
@@ -374,6 +376,7 @@ func (a *App) NavigateToWebapp(url string) {
 		} else {
 			a.SetWindowFullscreen(false)
 		}
+		menubar.ConfigureWebviewSettings()
 		a.mainWindow.SetURL(url)
 		a.mainWindow.ExecJS(fmt.Sprintf("window.location.href = %q;", url))
 	}

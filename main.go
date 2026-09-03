@@ -22,6 +22,19 @@ func main() {
 		if os.Getenv("WEBKIT_DISABLE_DMABUF_RENDERER") == "" {
 			_ = os.Setenv("WEBKIT_DISABLE_DMABUF_RENDERER", "1")
 		}
+		for _, p := range []string{
+			"/usr/lib/x86_64-linux-gnu/gio/modules",
+			"/usr/lib/aarch64-linux-gnu/gio/modules",
+			"/usr/lib64/gio/modules",
+			"/usr/lib/gio/modules",
+		} {
+			if fi, err := os.Stat(p); err == nil && fi.IsDir() {
+				if os.Getenv("GIO_EXTRA_MODULES") == "" {
+					_ = os.Setenv("GIO_EXTRA_MODULES", p)
+				}
+				break
+			}
+		}
 	}
 
 	logger.InitLogger()

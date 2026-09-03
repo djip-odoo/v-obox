@@ -29,6 +29,16 @@ import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.webkit.WebChromeClient;
 import android.webkit.ConsoleMessage;
+import android.webkit.CookieManager;
+import android.webkit.GeolocationPermissions;
+import android.webkit.PermissionRequest;
+import android.webkit.SslErrorHandler;
+import android.webkit.ServiceWorkerController;
+import android.webkit.ServiceWorkerWebSettings;
+import android.webkit.RenderProcessGoneDetail;
+import android.webkit.JsResult;
+import android.webkit.JsPromptResult;
+import android.net.http.SslError;
 
 import android.app.ActivityManager;
 import android.app.admin.DevicePolicyManager;
@@ -134,26 +144,51 @@ public class MainActivity extends AppCompatActivity {
         webView = findViewById(R.id.webview);
         bridge.setWebView(webView);
 
+        // Enable third-party cookies for seamless cross-origin and Odoo POS session syncing
+        CookieManager cookieManager = CookieManager.getInstance();
+        cookieManager.setAcceptCookie(true);
+        cookieManager.setAcceptThirdPartyCookies(webView, true);
+
         // Configure WebView settings
         WebSettings settings = webView.getSettings();
         settings.setJavaScriptEnabled(true);
         settings.setDomStorageEnabled(true);
         settings.setDatabaseEnabled(true);
-        settings.setAllowFileAccess(false);
-        settings.setAllowContentAccess(false);
+        settings.setAllowFileAccess(true);
+        settings.setAllowContentAccess(true);
+        settings.setAllowFileAccessFromFileURLs(true);
+        settings.setAllowUniversalAccessFromFileURLs(true);
+        settings.setCacheMode(WebSettings.LOAD_DEFAULT);
+        settings.setGeolocationEnabled(true);
         settings.setMediaPlaybackRequiresUserGesture(false);
         // Configure UserAgent to present as full Google Chrome Mobile (strip '; wv' and 'Version/4.0'
         // which mark it as an embedded webview and cause web apps like Odoo POS to disable LNA).
         String ua = settings.getUserAgentString();
         if (ua != null) {
-            ua = ua.replace("; wv", "").replaceAll("Version/\\d+\\.\\d+\\s*", "");
+            ua = ua.replace("; wv", "")
+                   .replaceAll("Version/\\d+\\.\\d+\\s*", "")
+                   .replaceAll("\\s+", " ")
+                   .trim();
             settings.setUserAgentString(ua);
         }
         settings.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
+        settings.setSafeBrowsingEnabled(false);
+        settings.setJavaScriptCanOpenWindowsAutomatically(true);
 
         // Enable debugging in debug builds
         if (DEBUG) {
             WebView.setWebContentsDebuggingEnabled(true);
+        }
+
+        // Enable ServiceWorker caching and storage access on Android N+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            try {
+                ServiceWorkerController swController = ServiceWorkerController.getInstance();
+                ServiceWorkerWebSettings swSettings = swController.getServiceWorkerWebSettings();
+                swSettings.setAllowContentAccess(true);
+                swSettings.setAllowFileAccess(true);
+                swSettings.setCacheMode(WebSettings.LOAD_DEFAULT);
+            } catch (Exception ignored) {}
         }
 
         // Set up asset loader for serving local assets
@@ -164,6 +199,47 @@ public class MainActivity extends AppCompatActivity {
 
         // Set up WebView client to intercept requests
         webView.setWebViewClient(new WebViewClient() {
+            @Override
+            public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
+                String scheme = request.getUrl().getScheme();
+                if ("http".equalsIgnoreCase(scheme) || "https".equalsIgnoreCase(scheme)) {
+                    // Keep all HTTP/HTTPS navigation directly inside this WebView
+                    return false;
+                }
+                try {
+                    Intent intent = new Intent(Intent.ACTION_VIEW, request.getUrl());
+                    view.getContext().startActivity(intent);
+                    return true;
+                } catch (Exception e) {
+                    return true;
+                }
+            }
+
+            @Override
+            public void onReceivedSslError(WebView view, SslErrorHandler handler, SslError error) {
+                // In POS / local network environments, proceed with self-signed or internal CA certs
+                if (DEBUG) Log.w(TAG, "SSL error ignored for POS network: " + error.toString());
+                handler.proceed();
+            }
+
+            @Override
+            public boolean onRenderProcessGone(WebView view, RenderProcessGoneDetail detail) {
+                Log.e(TAG, "WebView render process gone (didCrash=" + (detail != null && detail.didCrash()) + "). Recovering...");
+                if (view != null) {
+                    view.post(() -> {
+                        try {
+                            String currentUrl = view.getUrl();
+                            if (currentUrl != null && !currentUrl.isEmpty()) {
+                                view.loadUrl(currentUrl);
+                            } else {
+                                loadApplication();
+                            }
+                        } catch (Exception ignored) {}
+                    });
+                }
+                return true; // Prevents the host Android app from terminating!
+            }
+
             @Nullable
             @Override
             public WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest request) {
@@ -238,7 +314,7 @@ public class MainActivity extends AppCompatActivity {
         // Add JavaScript interface for Go communication
         webView.addJavascriptInterface(new WailsJSBridge(bridge, webView), "wails");
 
-        // Forward console logs to logcat
+        // Forward console logs to logcat and handle webapp permissions / dialogs
         webView.setWebChromeClient(new WebChromeClient() {
             @Override
             public boolean onConsoleMessage(ConsoleMessage consoleMessage) {
@@ -246,6 +322,70 @@ public class MainActivity extends AppCompatActivity {
                         + consoleMessage.lineNumber() + " of "
                         + consoleMessage.sourceId());
                 return true;
+            }
+
+            @Override
+            public boolean onJsBeforeUnload(WebView view, String url, String message, JsResult result) {
+                // Automatically confirm reload/navigation so location.reload() never blocks or hangs
+                result.confirm();
+                return true;
+            }
+
+            @Override
+            public boolean onJsAlert(WebView view, String url, String message, JsResult result) {
+                try {
+                    new androidx.appcompat.app.AlertDialog.Builder(MainActivity.this)
+                        .setMessage(message)
+                        .setPositiveButton(android.R.string.ok, (dialog, which) -> result.confirm())
+                        .setOnCancelListener(dialog -> result.cancel())
+                        .show();
+                } catch (Exception e) {
+                    result.confirm();
+                }
+                return true;
+            }
+
+            @Override
+            public boolean onJsConfirm(WebView view, String url, String message, JsResult result) {
+                try {
+                    new androidx.appcompat.app.AlertDialog.Builder(MainActivity.this)
+                        .setMessage(message)
+                        .setPositiveButton(android.R.string.ok, (dialog, which) -> result.confirm())
+                        .setNegativeButton(android.R.string.cancel, (dialog, which) -> result.cancel())
+                        .setOnCancelListener(dialog -> result.cancel())
+                        .show();
+                } catch (Exception e) {
+                    result.confirm();
+                }
+                return true;
+            }
+
+            @Override
+            public boolean onJsPrompt(WebView view, String url, String message, String defaultValue, JsPromptResult result) {
+                try {
+                    final android.widget.EditText input = new android.widget.EditText(MainActivity.this);
+                    input.setText(defaultValue);
+                    new androidx.appcompat.app.AlertDialog.Builder(MainActivity.this)
+                        .setMessage(message)
+                        .setView(input)
+                        .setPositiveButton(android.R.string.ok, (dialog, which) -> result.confirm(input.getText().toString()))
+                        .setNegativeButton(android.R.string.cancel, (dialog, which) -> result.cancel())
+                        .setOnCancelListener(dialog -> result.cancel())
+                        .show();
+                } catch (Exception e) {
+                    result.confirm(defaultValue != null ? defaultValue : "");
+                }
+                return true;
+            }
+
+            @Override
+            public void onPermissionRequest(final PermissionRequest request) {
+                runOnUiThread(() -> request.grant(request.getResources()));
+            }
+
+            @Override
+            public void onGeolocationPermissionsShowPrompt(String origin, GeolocationPermissions.Callback callback) {
+                callback.invoke(origin, true, false);
             }
         });
     }

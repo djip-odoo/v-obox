@@ -9,3 +9,7 @@ func SetNativeMenubarVisible(visible bool) {
 // RegisterKioskExitGesture is a no-op fallback on non-Linux platforms.
 func RegisterKioskExitGesture(callback func()) {
 }
+
+// ConfigureWebviewSettings is a no-op fallback on non-Linux platforms.
+func ConfigureWebviewSettings() {
+}
