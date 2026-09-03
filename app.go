@@ -413,8 +413,13 @@ func (a *App) NavigateToLocalUI() {
 		}
 		a.SetWindowFullscreen(false)
 		menubar.ApplyWebviewZoom(1.0)
-		a.mainWindow.SetURL("/")
-		a.mainWindow.ExecJS("document.documentElement.style.zoom = '1.0'; window.location.href = '/';")
+		port := 4545
+		if a.webserver != nil && a.webserver.Port > 0 {
+			port = a.webserver.Port
+		}
+		localURL := fmt.Sprintf("http://127.0.0.1:%d/", port)
+		a.mainWindow.SetURL(localURL)
+		a.mainWindow.ExecJS(fmt.Sprintf("document.documentElement.style.zoom = '1.0'; window.location.href = %q;", localURL))
 		a.EmitEvent("webview-config-changed")
 	}
 }

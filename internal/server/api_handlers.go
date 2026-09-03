@@ -4,6 +4,9 @@ import (
 	"fmt"
 	"os"
 	"runtime"
+	"strconv"
+	"sync"
+	"time"
 
 	"epos-proxy/internal/logger"
 	"epos-proxy/internal/printer"
@@ -351,7 +354,81 @@ func (s *Server) handleSetWebViewEnabled(c fiber.Ctx) error {
 	return c.JSON(fiber.Map{"ok": true})
 }
 
+type WebviewAction struct {
+	Action     string  `json:"action"` // "open", "close", "reload"
+	URL        string  `json:"url,omitempty"`
+	Fullscreen bool    `json:"fullscreen,omitempty"`
+	Zoom       float64 `json:"zoom,omitempty"`
+	ID         int64   `json:"id"`
+}
+
+var (
+	actionMu      sync.Mutex
+	actionCond    = sync.NewCond(&actionMu)
+	currentAction *WebviewAction
+	actionSeq     int64
+)
+
+func (s *Server) postWebviewAction(action string, url string, fullscreen bool, zoom float64) {
+	actionMu.Lock()
+	actionSeq++
+	currentAction = &WebviewAction{
+		Action:     action,
+		URL:        url,
+		Fullscreen: fullscreen,
+		Zoom:       zoom,
+		ID:         actionSeq,
+	}
+	actionCond.Broadcast()
+	actionMu.Unlock()
+}
+
+func (s *Server) handlePollWebviewAction(c fiber.Ctx) error {
+	lastID, _ := strconv.ParseInt(c.Query("lastId"), 10, 64)
+
+	actionMu.Lock()
+	if currentAction != nil && currentAction.ID > lastID {
+		act := *currentAction
+		actionMu.Unlock()
+		return c.JSON(act)
+	}
+
+	waitChan := make(chan *WebviewAction, 1)
+	go func() {
+		actionMu.Lock()
+		defer actionMu.Unlock()
+		for currentAction == nil || currentAction.ID <= lastID {
+			actionCond.Wait()
+			if currentAction != nil && currentAction.ID > lastID {
+				break
+			}
+		}
+		if currentAction != nil && currentAction.ID > lastID {
+			act := *currentAction
+			select {
+			case waitChan <- &act:
+			default:
+			}
+		}
+	}()
+	actionMu.Unlock()
+
+	select {
+	case act := <-waitChan:
+		if act != nil {
+			return c.JSON(act)
+		}
+		return c.JSON(fiber.Map{"action": "none", "id": lastID})
+	case <-time.After(25 * time.Second):
+		actionMu.Lock()
+		actionCond.Broadcast()
+		actionMu.Unlock()
+		return c.JSON(fiber.Map{"action": "none", "id": lastID})
+	}
+}
+
 func (s *Server) handleReloadWebView(c fiber.Ctx) error {
+	s.postWebviewAction("reload", "", false, 1.0)
 	s.mu.RLock()
 	cb := s.onKioskReload
 	s.mu.RUnlock()
@@ -376,6 +453,13 @@ func (s *Server) handleOpenWebView(c fiber.Ctx) error {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "no URL configured"})
 	}
 	s.SetWebappActive(true)
+	fullscreen := false
+	zoom := 1.0
+	if s.cfg != nil {
+		fullscreen = s.cfg.GetWebViewEnabled()
+		zoom = s.cfg.GetWebViewZoom()
+	}
+	s.postWebviewAction("open", targetURL, fullscreen, zoom)
 	s.mu.RLock()
 	cb := s.onOpenWebapp
 	s.mu.RUnlock()
@@ -387,6 +471,7 @@ func (s *Server) handleOpenWebView(c fiber.Ctx) error {
 
 func (s *Server) handleCloseWebView(c fiber.Ctx) error {
 	s.SetWebappActive(false)
+	s.postWebviewAction("close", "", false, 1.0)
 	s.mu.RLock()
 	cb := s.onCloseWebapp
 	s.mu.RUnlock()

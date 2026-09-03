@@ -135,6 +135,9 @@ public class MainActivity extends AppCompatActivity {
         // Set up WebView
         setupWebView();
 
+        // Start real-time remote action listener (open, close, reload)
+        startWebviewActionPoller();
+
         // Load the application
         loadApplication();
     }
@@ -1432,5 +1435,64 @@ public class MainActivity extends AppCompatActivity {
         } else {
             super.onBackPressed();
         }
+    }
+
+    private void startWebviewActionPoller() {
+        Thread t = new Thread(() -> {
+            long lastId = 0;
+            while (!isDestroyed() && !isFinishing()) {
+                try {
+                    java.net.URL url = new java.net.URL("http://127.0.0.1:4545/api/webview/poll-action?lastId=" + lastId);
+                    java.net.HttpURLConnection conn = (java.net.HttpURLConnection) url.openConnection();
+                    conn.setConnectTimeout(5000);
+                    conn.setReadTimeout(30000);
+                    if (conn.getResponseCode() == 200) {
+                        java.io.InputStream is = conn.getInputStream();
+                        java.util.Scanner s = new java.util.Scanner(is).useDelimiter("\\A");
+                        String resp = s.hasNext() ? s.next() : "";
+                        org.json.JSONObject obj = new org.json.JSONObject(resp);
+                        long id = obj.optLong("id", lastId);
+                        String action = obj.optString("action", "none");
+                        if (id > lastId) {
+                            lastId = id;
+                            if ("open".equals(action)) {
+                                String targetUrl = obj.optString("url", "");
+                                boolean fs = obj.optBoolean("fullscreen", false);
+                                runOnUiThread(() -> {
+                                    if (fs) {
+                                        setFullscreenMode(true);
+                                    } else {
+                                        setFullscreenMode(false);
+                                    }
+                                    if (webView != null && !targetUrl.isEmpty()) {
+                                        webView.loadUrl(targetUrl);
+                                    }
+                                });
+                            } else if ("close".equals(action)) {
+                                runOnUiThread(() -> {
+                                    setFullscreenMode(false);
+                                    if (webView != null) {
+                                        webView.loadUrl(WAILS_SCHEME + "://" + WAILS_HOST + "/");
+                                    }
+                                });
+                            } else if ("reload".equals(action)) {
+                                runOnUiThread(() -> {
+                                    if (webView != null) {
+                                        webView.reload();
+                                    }
+                                });
+                            }
+                        }
+                    } else {
+                        Thread.sleep(1000);
+                    }
+                } catch (Exception e) {
+                    try { Thread.sleep(1000); } catch (Exception ignored) {}
+                }
+            }
+        });
+        t.setName("WebviewActionPoller");
+        t.setDaemon(true);
+        t.start();
     }
 }

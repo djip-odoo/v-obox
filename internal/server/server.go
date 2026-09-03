@@ -178,6 +178,7 @@ func New(port int, mgr *printer.Manager, cfg *config.Manager, distFS fs.FS) *Ser
 	app.Get("/api/printers", srv.handleGetPrinters)
 	app.Get("/api/printers/lan/:ip/status", srv.handleGetLANPrinterStatus)
 	app.Get("/api/webview", srv.handleGetWebView)
+	app.Get("/api/webview/poll-action", srv.handlePollWebviewAction)
 	app.Get("/api/troubleshoot", srv.handleGetTroubleshoot)
 	app.Get("/api/device-info", srv.handleGetDeviceInfo)
 	app.Post("/api/device-info", srv.handlePostDeviceInfo)
