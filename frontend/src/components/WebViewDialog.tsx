@@ -112,11 +112,6 @@ export default function WebViewDialog() {
       return false;
     }
 
-    const pinVerified = await showPINDialog();
-    if (!pinVerified) {
-      return false;
-    }
-
     try {
       if (trimmedUrl) {
         await actions.saveURL(trimmedUrl);

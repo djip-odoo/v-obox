@@ -11,6 +11,7 @@ import (
 	"epos-proxy/internal/logger"
 	"epos-proxy/internal/printer"
 	"epos-proxy/internal/util"
+	"epos-proxy/override/menubar"
 
 	"github.com/gofiber/fiber/v3"
 )
@@ -324,6 +325,10 @@ func (s *Server) handleSetWebViewZoom(c fiber.Ctx) error {
 	if err := s.cfg.SetWebViewZoom(req.Zoom); err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
 	}
+	if s.IsWebappActive() {
+		menubar.ApplyWebviewZoom(req.Zoom)
+	}
+	s.PostWebviewAction("zoom", "", false, req.Zoom)
 	s.mu.RLock()
 	cb := s.onConfigChanged
 	s.mu.RUnlock()

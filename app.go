@@ -357,6 +357,9 @@ func (a *App) SetWebViewZoom(zoom float64) error {
 			a.mainWindow.ExecJS(fmt.Sprintf("document.documentElement.style.zoom = '%f';", zoom))
 		}
 	}
+	if a.webserver != nil {
+		a.webserver.PostWebviewAction("zoom", "", false, zoom)
+	}
 	a.EmitEvent("webview-config-changed")
 	return nil
 }

@@ -94,6 +94,8 @@ func main() {
 	appService.mainWindow = mainWindow
 
 	if isKiosk {
+		appService.isWebappActive.Store(true)
+		menubar.ApplyWebviewZoom(appService.config.GetWebViewZoom())
 		mainWindow.HideMenuBar()
 		menubar.SetNativeMenubarVisible(false)
 	}

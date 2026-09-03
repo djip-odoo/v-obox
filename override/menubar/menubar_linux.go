@@ -12,12 +12,23 @@ extern void onKioskExitGesture(void);
 static guint32 last_tap_time = 0;
 static int tap_count = 0;
 
+static double current_zoom_level = 1.0;
+
+static void on_webview_load_changed(WebKitWebView *web_view, WebKitLoadEvent load_event, gpointer user_data) {
+    if (load_event == WEBKIT_LOAD_COMMITTED || load_event == WEBKIT_LOAD_FINISHED) {
+        if (current_zoom_level > 0) {
+            webkit_web_view_set_zoom_level(web_view, current_zoom_level);
+        }
+    }
+}
+
 static void configure_webkit_view(GtkWidget *widget, gpointer data) {
     if (!widget) return;
     if (WEBKIT_IS_WEB_VIEW(widget)) {
         WebKitWebView *wv = WEBKIT_WEB_VIEW(widget);
         WebKitSettings *s = webkit_web_view_get_settings(wv);
         if (s) {
+            webkit_settings_set_zoom_text_only(s, FALSE);
             webkit_settings_set_enable_html5_local_storage(s, TRUE);
             webkit_settings_set_enable_html5_database(s, TRUE);
             webkit_settings_set_allow_universal_access_from_file_urls(s, TRUE);
@@ -30,6 +41,11 @@ static void configure_webkit_view(GtkWidget *widget, gpointer data) {
             webkit_settings_set_enable_encrypted_media(s, TRUE);
             webkit_settings_set_allow_modal_dialogs(s, TRUE);
         }
+        if (current_zoom_level > 0) {
+            webkit_web_view_set_zoom_level(wv, current_zoom_level);
+        }
+        g_signal_handlers_disconnect_by_func(wv, G_CALLBACK(on_webview_load_changed), NULL);
+        g_signal_connect(wv, "load-changed", G_CALLBACK(on_webview_load_changed), NULL);
     }
     for (GtkWidget *child = gtk_widget_get_first_child(widget); child != NULL; child = gtk_widget_get_next_sibling(child)) {
         configure_webkit_view(child, data);
@@ -157,6 +173,7 @@ static gboolean apply_zoom_idle(gpointer data) {
 }
 
 static void set_webview_zoom_level(double zoom) {
+    current_zoom_level = zoom;
     double *zoom_ptr = g_new(double, 1);
     *zoom_ptr = zoom;
     g_idle_add(apply_zoom_idle, zoom_ptr);

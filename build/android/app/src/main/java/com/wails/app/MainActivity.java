@@ -92,7 +92,6 @@ public class MainActivity extends AppCompatActivity {
     private static final int CAMERA_PERMISSION_REQUEST = 7010;
     private File pendingCaptureFile;
     private boolean pendingCaptureIsVideo;
-    private volatile double currentWebappZoom = 1.0;
 
     // System-event sources (battery/power, screen lock, network). Registered in
     // onCreate, torn down in onDestroy. Each forwards a "system:*" event to JS
@@ -315,17 +314,6 @@ public class MainActivity extends AppCompatActivity {
                 // Now that JS listeners are mounted, push a snapshot of the
                 // current battery / network / theme so the UI starts populated.
                 emitSystemSnapshot();
-
-                // Apply zoom effect strictly to the external Web App, and keep Wails UI at 100% standard zoom
-                if (url != null && !url.contains(WAILS_HOST)) {
-                    if (currentWebappZoom > 0 && Math.abs(currentWebappZoom - 1.0) > 0.01 && view != null) {
-                        view.getSettings().setTextZoom((int) Math.round(currentWebappZoom * 100));
-                        view.evaluateJavascript("document.documentElement.style.zoom = '" + currentWebappZoom + "';", null);
-                    }
-                } else if (view != null) {
-                    view.getSettings().setTextZoom(100);
-                    view.evaluateJavascript("document.documentElement.style.zoom = '1.0';", null);
-                }
             }
         });
 
