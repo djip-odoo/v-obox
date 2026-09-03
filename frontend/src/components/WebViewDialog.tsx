@@ -54,7 +54,7 @@ export default function WebViewDialog() {
   const isUrlValid = isValidUrl(url);
 
   const isKioskCurrentlyActive = isWails
-    ? data.isKioskActive
+    ? cfg?.isActive
     : Boolean(cfg?.enabled);
 
   const canEnable = Boolean(isUrlValid && cfg?.hasPIN);
@@ -227,15 +227,10 @@ export default function WebViewDialog() {
     setReloading(true);
 
     try {
-      const res = await gate(async () => {
-        await actions.reloadKiosk();
-        return true;
-      });
-      if (res) {
-        toastContext.actions.showToast("Kiosk view reloaded", "success");
-      }
+      await actions.reloadKiosk();
+      toastContext.actions.showToast("Web App reloaded", "success");
     } catch {
-      toastContext.actions.showToast("Failed to reload kiosk", "danger");
+      toastContext.actions.showToast("Failed to reload Web App", "danger");
     } finally {
       setTimeout(() => {
         setReloading(false);
@@ -248,8 +243,10 @@ export default function WebViewDialog() {
   };
 
   const getStatusText = () => {
-    if (isKioskCurrentlyActive) {
-      return "Lockdown mode is currently active (fullscreen kiosk).";
+    if (cfg?.isActive) {
+      return cfg?.enabled
+        ? "Web App is currently running in Fullscreen Lockdown mode."
+        : "Web App is currently running in standard windowed mode.";
     }
 
     if (!url.trim()) {
@@ -260,7 +257,9 @@ export default function WebViewDialog() {
       return "The URL format is not supported.";
     }
 
-    return "Web App configured and ready to open.";
+    return cfg?.enabled
+      ? "Web App configured (Lockdown mode enabled)."
+      : "Web App configured and ready to open.";
   };
 
   const dialogActions = [
@@ -539,7 +538,7 @@ export default function WebViewDialog() {
               </p>
             </div>
 
-            {/* Single Web App Action Button as per current state (SVG icon only, no text) */}
+            {/* Web App Action Controls (SVG icons only, no text) */}
             <div className="mt-4 flex items-center justify-between gap-3 rounded-xl border border-odoo/20 bg-odoo/5 p-3.5">
               <div>
                 <div className="text-xs font-semibold text-gray-900">
@@ -547,7 +546,7 @@ export default function WebViewDialog() {
                 </div>
                 <div className="text-[11px] text-gray-600">
                   {cfg?.isActive
-                    ? "Currently running. Click icon to close."
+                    ? "Currently running. Reload or close web view."
                     : cfg?.enabled
                       ? "Will open in Fullscreen Lockdown mode."
                       : "Will open in standard window mode."}
@@ -555,37 +554,89 @@ export default function WebViewDialog() {
               </div>
 
               {cfg?.isActive ? (
-                <button
-                  type="button"
-                  onClick={handleCloseWebapp}
-                  title="Close Web App & Return to Settings"
-                  aria-label="Close Web App"
-                  className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-red-600 text-white shadow-xs hover:bg-red-700 transition-colors cursor-pointer"
-                >
-                  <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
-                  </svg>
-                </button>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={handleReload}
+                    disabled={reloading}
+                    title="Reload Web App"
+                    aria-label="Reload Web App"
+                    className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-gray-300 bg-white text-gray-700 shadow-xs hover:bg-gray-50 transition-colors cursor-pointer disabled:opacity-60"
+                  >
+                    <svg
+                      className={`h-5 w-5 text-gray-600 ${reloading ? "animate-spin text-odoo" : ""}`}
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth="2"
+                        d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+                      />
+                    </svg>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={handleCloseWebapp}
+                    title="Close Web App & Return to Settings"
+                    aria-label="Close Web App"
+                    className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-red-600 text-white shadow-xs hover:bg-red-700 transition-colors cursor-pointer"
+                  >
+                    <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  </button>
+                </div>
               ) : (
-                <button
-                  type="button"
-                  disabled={!isUrlValid}
-                  onClick={handleLaunchWebapp}
-                  title="Open Web App"
-                  aria-label="Open Web App"
-                  className={`
-                    flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-white shadow-xs transition-colors
-                    ${isUrlValid
-                      ? "bg-odoo hover:bg-odoo-hover cursor-pointer"
-                      : "bg-gray-300 cursor-not-allowed opacity-60"
-                    }
-                  `}
-                >
-                  <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                  </svg>
-                </button>
+                <div className="flex items-center gap-2">
+                  {isUrlValid && (
+                    <button
+                      type="button"
+                      onClick={handleReload}
+                      disabled={reloading}
+                      title="Reload Web App"
+                      aria-label="Reload Web App"
+                      className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-gray-300 bg-white text-gray-700 shadow-xs hover:bg-gray-50 transition-colors cursor-pointer disabled:opacity-60"
+                    >
+                      <svg
+                        className={`h-5 w-5 text-gray-600 ${reloading ? "animate-spin text-odoo" : ""}`}
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth="2"
+                          d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+                        />
+                      </svg>
+                    </button>
+                  )}
+
+                  <button
+                    type="button"
+                    disabled={!isUrlValid}
+                    onClick={handleLaunchWebapp}
+                    title="Open Web App"
+                    aria-label="Open Web App"
+                    className={`
+                      flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-white shadow-xs transition-colors
+                      ${isUrlValid
+                        ? "bg-odoo hover:bg-odoo-hover cursor-pointer"
+                        : "bg-gray-300 cursor-not-allowed opacity-60"
+                      }
+                    `}
+                  >
+                    <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                  </button>
+                </div>
               )}
             </div>
 

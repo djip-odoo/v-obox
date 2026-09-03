@@ -185,18 +185,7 @@ func (a *App) startup() {
 	// Notify the desktop frontend when kiosk status or config is modified remotely
 	a.webserver.SetKioskCallback(func(enabled bool) {
 		a.EmitEvent("kiosk-state-changed", enabled)
-		if a.mainWindow != nil {
-			if enabled {
-				url := a.config.GetWebViewURL()
-				if url != "" {
-					a.SetWindowFullscreen(true)
-					a.NavigateToWebapp(url)
-				}
-			} else {
-				a.SetWindowFullscreen(false)
-				a.NavigateToLocalUI()
-			}
-		}
+		a.SetWindowFullscreen(enabled)
 	})
 	a.webserver.SetConfigCallback(func() {
 		a.EmitEvent("webview-config-changed")
@@ -424,23 +413,15 @@ func (a *App) NavigateToLocalUI() {
 	}
 }
 
-// SetWebViewEnabled persists the kiosk-enabled flag and navigates the top-level WebView.
+// SetWebViewEnabled persists the lockdown (fullscreen kiosk) mode flag and toggles fullscreen without navigating.
 func (a *App) SetWebViewEnabled(v bool) error {
-	logger.Debugf("Setting WebView enabled: %v", v)
+	logger.Debugf("Setting WebView lockdown enabled: %v", v)
 	if err := a.config.SetWebViewEnabled(v); err != nil {
 		return err
 	}
-	if a.mainWindow != nil {
-		if v {
-			url := a.config.GetWebViewURL()
-			if url != "" {
-				a.SetWindowFullscreen(true)
-				a.NavigateToWebapp(url)
-			}
-		} else {
-			a.SetWindowFullscreen(false)
-			a.NavigateToLocalUI()
-		}
+	a.SetWindowFullscreen(v)
+	if a.webserver != nil {
+		a.webserver.PostWebviewAction("lockdown", "", v, 1.0)
 	}
 	a.EmitEvent("kiosk-state-changed", v)
 	a.EmitEvent("webview-config-changed")

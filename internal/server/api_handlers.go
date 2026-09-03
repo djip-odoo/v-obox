@@ -345,13 +345,14 @@ func (s *Server) handleSetWebViewEnabled(c fiber.Ctx) error {
 	if err := s.cfg.SetWebViewEnabled(req.Enabled); err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
+	s.PostWebviewAction("lockdown", "", req.Enabled, 1.0)
 	s.mu.RLock()
 	cb := s.onKioskChanged
 	s.mu.RUnlock()
 	if cb != nil {
 		cb(req.Enabled)
 	}
-	return c.JSON(fiber.Map{"ok": true})
+	return c.JSON(fiber.Map{"ok": true, "enabled": req.Enabled})
 }
 
 type WebviewAction struct {
@@ -369,7 +370,7 @@ var (
 	actionSeq     int64
 )
 
-func (s *Server) postWebviewAction(action string, url string, fullscreen bool, zoom float64) {
+func (s *Server) PostWebviewAction(action string, url string, fullscreen bool, zoom float64) {
 	actionMu.Lock()
 	actionSeq++
 	currentAction = &WebviewAction{
@@ -428,7 +429,7 @@ func (s *Server) handlePollWebviewAction(c fiber.Ctx) error {
 }
 
 func (s *Server) handleReloadWebView(c fiber.Ctx) error {
-	s.postWebviewAction("reload", "", false, 1.0)
+	s.PostWebviewAction("reload", "", false, 1.0)
 	s.mu.RLock()
 	cb := s.onKioskReload
 	s.mu.RUnlock()
@@ -459,7 +460,7 @@ func (s *Server) handleOpenWebView(c fiber.Ctx) error {
 		fullscreen = s.cfg.GetWebViewEnabled()
 		zoom = s.cfg.GetWebViewZoom()
 	}
-	s.postWebviewAction("open", targetURL, fullscreen, zoom)
+	s.PostWebviewAction("open", targetURL, fullscreen, zoom)
 	s.mu.RLock()
 	cb := s.onOpenWebapp
 	s.mu.RUnlock()
@@ -471,7 +472,7 @@ func (s *Server) handleOpenWebView(c fiber.Ctx) error {
 
 func (s *Server) handleCloseWebView(c fiber.Ctx) error {
 	s.SetWebappActive(false)
-	s.postWebviewAction("close", "", false, 1.0)
+	s.PostWebviewAction("close", "", false, 1.0)
 	s.mu.RLock()
 	cb := s.onCloseWebapp
 	s.mu.RUnlock()

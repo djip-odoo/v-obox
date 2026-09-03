@@ -57,20 +57,7 @@ export const WebViewContextWrapper = ({
     try {
       const cfg = await backendService.getWebViewConfig();
       setConfig(cfg);
-
-      // Auto-activate kiosk ONCE on desktop initial startup if enabled in config
-      if (
-        !initialStartupChecked.current &&
-        backendService.isWails &&
-        cfg.enabled &&
-        cfg.url
-      ) {
-        initialStartupChecked.current = true;
-        setIsKioskActive(true);
-        await backendService.setWindowFullscreen(true);
-      } else {
-        initialStartupChecked.current = true;
-      }
+      setIsKioskActive(Boolean(cfg.enabled));
     } catch (err) {
       console.error("Failed to fetch WebView config:", err);
     }
@@ -87,7 +74,6 @@ export const WebViewContextWrapper = ({
     const unsubKiosk = Events.On("kiosk-state-changed", async (ev: { data: boolean }) => {
       const enabled = ev.data;
       setIsKioskActive(enabled);
-      await backendService.setWindowFullscreen(enabled);
       try {
         const cfg = await backendService.getWebViewConfig();
         setConfig(cfg);

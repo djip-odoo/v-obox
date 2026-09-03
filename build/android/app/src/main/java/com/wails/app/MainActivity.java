@@ -1481,6 +1481,11 @@ public class MainActivity extends AppCompatActivity {
                                         webView.reload();
                                     }
                                 });
+                            } else if ("lockdown".equals(action)) {
+                                boolean fs = obj.optBoolean("fullscreen", false);
+                                runOnUiThread(() -> {
+                                    setFullscreenMode(fs);
+                                });
                             }
                         }
                     } else {
