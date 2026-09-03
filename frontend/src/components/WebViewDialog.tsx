@@ -19,7 +19,7 @@ export function isValidUrl(urlStr: string): boolean {
   try {
     const parsed = new URL(trimmed);
 
-    if (parsed.protocol !== "https:") {
+    if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
       return false;
     }
 
@@ -114,7 +114,7 @@ export default function WebViewDialog() {
 
     if (!isValidUrl(trimmedUrl)) {
       setLocalError(
-        "Enter a valid HTTPS URL (must start with https://)."
+        "Enter a valid URL (must start with http:// or https://)."
       );
       return false;
     }
@@ -129,6 +129,10 @@ export default function WebViewDialog() {
       await actions.saveZoom(zoom);
       await actions.toggleEnabled(true);
 
+      if (isWails) {
+        window.location.href = trimmedUrl;
+      }
+
       toastContext.actions.showToast(
         "Kiosk settings saved and opened",
         "success"
@@ -141,10 +145,10 @@ export default function WebViewDialog() {
   };
 
   const handleOpenKiosk = async () => {
-    const targetUrl = url.trim() || cfg?.url;
+    const targetUrl = url.trim() || cfg?.url || "";
 
     if (!targetUrl || !isValidUrl(targetUrl)) {
-      setLocalError("Enter a valid kiosk URL first.");
+      setLocalError("Enter a valid URL (must start with http:// or https://).");
       return;
     }
 
@@ -153,16 +157,22 @@ export default function WebViewDialog() {
       return;
     }
 
-    if (url.trim() && url.trim() !== cfg?.url) {
-      await actions.saveURL(url.trim());
-    }
-    await actions.saveZoom(zoom);
-    await actions.toggleEnabled(true);
+    try {
+      await actions.saveURL(targetUrl);
+      await actions.saveZoom(zoom);
+      await actions.toggleEnabled(true);
 
-    toastContext.actions.showToast(
-      "Kiosk opened",
-      "success"
-    );
+      if (isWails) {
+        window.location.href = targetUrl;
+      }
+
+      toastContext.actions.showToast(
+        "Kiosk opened",
+        "success"
+      );
+    } catch (err: unknown) {
+      setLocalError(String(err) || "Failed to open kiosk.");
+    }
   };
 
   const handleCloseKiosk = async () => {
@@ -171,12 +181,16 @@ export default function WebViewDialog() {
       return;
     }
 
-    await actions.toggleEnabled(false);
+    try {
+      await actions.toggleEnabled(false);
 
-    toastContext.actions.showToast(
-      "Kiosk closed",
-      "success"
-    );
+      toastContext.actions.showToast(
+        "Kiosk closed",
+        "success"
+      );
+    } catch (err: unknown) {
+      setLocalError(String(err) || "Failed to close kiosk.");
+    }
   };
 
   const handleToggleKiosk = async () => {

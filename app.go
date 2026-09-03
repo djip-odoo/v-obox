@@ -370,6 +370,7 @@ func (a *App) ValidateWebViewPIN(pin string) bool {
 func (a *App) NavigateToWebapp(url string) {
 	if a.mainWindow != nil && url != "" {
 		a.mainWindow.SetURL(url)
+		a.mainWindow.ExecJS(fmt.Sprintf("window.location.href = %q;", url))
 	}
 }
 
@@ -377,6 +378,7 @@ func (a *App) NavigateToWebapp(url string) {
 func (a *App) NavigateToLocalUI() {
 	if a.mainWindow != nil {
 		a.mainWindow.SetURL("/")
+		a.mainWindow.ExecJS("window.location.href = '/';")
 	}
 }
 
