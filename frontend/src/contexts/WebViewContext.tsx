@@ -33,6 +33,8 @@ type WebViewContextType = {
     exitKiosk: () => Promise<void>;
     enterKiosk: () => Promise<void>;
     reloadKiosk: () => void;
+    openWebapp: (url?: string) => Promise<void>;
+    closeWebapp: () => Promise<void>;
     refresh: () => Promise<void>;
     setDefaultLauncher: () => Promise<void>;
   };
@@ -65,6 +67,11 @@ export const WebViewContextWrapper = ({
 
   useEffect(() => {
     refresh();
+    // Auto-refresh periodically so remote and local browser views stay in real-time sync
+    const interval = setInterval(() => {
+      refresh();
+    }, 1500);
+    return () => clearInterval(interval);
   }, [refresh]);
 
   // Listen for desktop events when config or kiosk state is modified
@@ -149,6 +156,24 @@ export const WebViewContextWrapper = ({
     }
   };
 
+  const openWebapp = async (url?: string) => {
+    setConfig((prev) => (prev ? { ...prev, isActive: true } : null));
+    try {
+      await backendService.openWebView(url);
+    } finally {
+      await refresh();
+    }
+  };
+
+  const closeWebapp = async () => {
+    setConfig((prev) => (prev ? { ...prev, isActive: false } : null));
+    try {
+      await backendService.closeWebView();
+    } finally {
+      await refresh();
+    }
+  };
+
   const validatePIN = async (pin: string): Promise<boolean> => {
     return backendService.validatePIN(pin);
   };
@@ -174,6 +199,8 @@ export const WebViewContextWrapper = ({
           enterKiosk,
           exitKiosk,
           reloadKiosk,
+          openWebapp,
+          closeWebapp,
           refresh,
           setDefaultLauncher,
         },

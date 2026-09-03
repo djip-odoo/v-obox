@@ -319,6 +319,22 @@ public class MainActivity extends AppCompatActivity {
                 if (url != null && !url.contains(WAILS_HOST)) {
                     new Thread(() -> {
                         try {
+                            java.net.URL openUrl = new java.net.URL("http://127.0.0.1:4545/api/webview/open");
+                            java.net.HttpURLConnection openConn = (java.net.HttpURLConnection) openUrl.openConnection();
+                            openConn.setRequestMethod("POST");
+                            openConn.setRequestProperty("Content-Type", "application/json");
+                            openConn.setDoOutput(true);
+                            openConn.setConnectTimeout(1000);
+                            String jsonBody = "{\"url\":\"" + url.replace("\"", "\\\"") + "\"}";
+                            try (java.io.OutputStream os = openConn.getOutputStream()) {
+                                os.write(jsonBody.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                            }
+                            openConn.getResponseCode();
+                        } catch (Exception ignored) {}
+                    }).start();
+
+                    new Thread(() -> {
+                        try {
                             java.net.URL cfgUrl = new java.net.URL("http://127.0.0.1:4545/api/webview");
                             java.net.HttpURLConnection conn = (java.net.HttpURLConnection) cfgUrl.openConnection();
                             conn.setConnectTimeout(1000);
@@ -343,6 +359,17 @@ public class MainActivity extends AppCompatActivity {
                 } else if (view != null) {
                     view.getSettings().setTextZoom(100);
                     view.evaluateJavascript("document.documentElement.style.zoom = '1.0';", null);
+
+                    new Thread(() -> {
+                        try {
+                            java.net.URL closeUrl = new java.net.URL("http://127.0.0.1:4545/api/webview/close");
+                            java.net.HttpURLConnection closeConn = (java.net.HttpURLConnection) closeUrl.openConnection();
+                            closeConn.setRequestMethod("POST");
+                            closeConn.setRequestProperty("Content-Type", "application/json");
+                            closeConn.setConnectTimeout(1000);
+                            closeConn.getResponseCode();
+                        } catch (Exception ignored) {}
+                    }).start();
                 }
             }
         });

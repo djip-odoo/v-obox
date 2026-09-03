@@ -173,16 +173,49 @@ class WailsBackendService implements IBackendService {
   async openWebView(url?: string): Promise<void> {
     const targetUrl = url || (await this.getWebViewConfig()).url;
     if (targetUrl) {
-      await WailsApp.NavigateToWebapp(targetUrl);
+      try {
+        await WailsApp.NavigateToWebapp(targetUrl);
+      } catch {
+        /* fallback */
+      }
+      try {
+        await apiOpenWebView(targetUrl);
+      } catch {
+        /* fallback */
+      }
+      if (typeof window !== "undefined") {
+        window.location.href = targetUrl;
+      }
     }
   }
 
   async closeWebView(): Promise<void> {
-    await WailsApp.NavigateToLocalUI();
+    try {
+      await WailsApp.NavigateToLocalUI();
+    } catch {
+      /* fallback */
+    }
+    try {
+      await apiCloseWebView();
+    } catch {
+      /* fallback */
+    }
+    if (typeof window !== "undefined") {
+      window.location.href = "/";
+    }
   }
 
   async reloadKiosk(): Promise<void> {
-    await WailsApp.ReloadKiosk();
+    try {
+      await WailsApp.ReloadKiosk();
+    } catch {
+      /* fallback */
+    }
+    try {
+      await apiReloadKiosk();
+    } catch {
+      /* fallback */
+    }
   }
 
   async quitApp(): Promise<void> {

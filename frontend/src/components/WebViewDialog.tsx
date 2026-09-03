@@ -148,17 +148,7 @@ export default function WebViewDialog() {
     try {
       await actions.saveURL(targetUrl);
       await actions.saveZoom(zoom);
-
-      if (isWails) {
-        if (cfg?.enabled) {
-          await backendService.setWindowFullscreen(true);
-        } else {
-          await backendService.setWindowFullscreen(false);
-        }
-        window.location.href = targetUrl;
-      } else {
-        await backendService.openWebView(targetUrl);
-      }
+      await actions.openWebapp(targetUrl);
 
       toastContext.actions.showToast(
         "Opening Web App...",
@@ -178,12 +168,7 @@ export default function WebViewDialog() {
     }
 
     try {
-      if (isWails) {
-        await backendService.setWindowFullscreen(false);
-        window.location.href = "/";
-      } else {
-        await backendService.closeWebView();
-      }
+      await actions.closeWebapp();
 
       toastContext.actions.showToast(
         "Returning to Proxy Settings...",
