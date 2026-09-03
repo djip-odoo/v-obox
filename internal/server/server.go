@@ -16,7 +16,6 @@ import (
 	"epos-proxy/internal/printer"
 
 	"github.com/gofiber/fiber/v3"
-	"github.com/gofiber/fiber/v3/middleware/cors"
 	"github.com/google/uuid"
 )
 
@@ -132,20 +131,15 @@ func New(port int, mgr *printer.Manager, cfg *config.Manager, distFS fs.FS) *Ser
 	})
 	srv.app = app
 
-	app.Use(cors.New(cors.Config{
-		AllowOrigins:        []string{"*"},
-		AllowMethods:        []string{"GET", "POST", "HEAD", "PUT", "DELETE", "PATCH", "OPTIONS"},
-		AllowHeaders:        []string{"*"},
-		AllowPrivateNetwork: true,
-	}))
-
-	// Ensure Access-Control-Allow-Private-Network is guaranteed on every response
+	// Comprehensive CORS & Private Network Access (PNA) middleware for local/remote webapps
 	app.Use(func(c fiber.Ctx) error {
+		c.Set("Access-Control-Allow-Origin", "*")
+		c.Set("Access-Control-Allow-Methods", "GET, POST, HEAD, PUT, DELETE, PATCH, OPTIONS")
+		c.Set("Access-Control-Allow-Headers", "*")
 		c.Set("Access-Control-Allow-Private-Network", "true")
+		c.Set("Access-Control-Max-Age", "86400")
+
 		if c.Method() == "OPTIONS" {
-			c.Set("Access-Control-Allow-Origin", "*")
-			c.Set("Access-Control-Allow-Methods", "GET, POST, HEAD, PUT, DELETE, PATCH, OPTIONS")
-			c.Set("Access-Control-Allow-Headers", "*")
 			return c.SendStatus(fiber.StatusNoContent)
 		}
 		return c.Next()

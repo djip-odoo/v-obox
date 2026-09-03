@@ -15,6 +15,15 @@ import (
 var assets embed.FS
 
 func main() {
+	if runtime.GOOS == "linux" {
+		if os.Getenv("WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS") == "" {
+			_ = os.Setenv("WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS", "1")
+		}
+		if os.Getenv("WEBKIT_DISABLE_DMABUF_RENDERER") == "" {
+			_ = os.Setenv("WEBKIT_DISABLE_DMABUF_RENDERER", "1")
+		}
+	}
+
 	logger.InitLogger()
 	logger.Debugf("Starting ePOS Proxy")
 
