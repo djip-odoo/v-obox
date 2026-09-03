@@ -2,33 +2,12 @@ import { useContext, useEffect, useState } from "react";
 import { QRCodeSVG } from "qrcode.react";
 import { WebViewContext } from "../contexts/WebViewContext";
 import { AppContext } from "../contexts/AppContext";
+import { PINContext } from "../contexts/PINContext";
 import { ToastContext } from "../contexts/ToastContext";
 import Dialog, { ActionType } from "./Dialog";
 import { usePINGate } from "../hooks/usePINGate";
 import { useClipboard } from "../hooks/useClipboard";
 import { backendService } from "../services/backend";
-
-/**
- * Supported URL formats for Kiosk mode.
- */
-export const KIOSK_URL_CONSTRAINTS = [
-  {
-    type: "odoo-pos-self",
-    name: "Odoo Self Order / Kiosk",
-    example:
-      "https://your-domain.odoo.com/pos-self/204?access_token=4fcea930b2a1479a",
-    validate: (url: URL) =>
-      /^\/pos-self\/[a-zA-Z0-9_-]+/i.test(url.pathname),
-  },
-  {
-    type: "odoo-pos",
-    name: "Odoo POS",
-    example:
-      "https://your-domain.odoo.com/pos/ui/199?from_backend=True",
-    validate: (url: URL) =>
-      /^\/pos\/ui\//i.test(url.pathname),
-  },
-];
 
 export function isValidUrl(urlStr: string): boolean {
   const trimmed = urlStr.trim();
@@ -54,6 +33,7 @@ export default function WebViewDialog() {
   const { data: { isWails } } = useContext(AppContext);
   const toastContext = useContext(ToastContext);
   const { data, actions } = useContext(WebViewContext);
+  const { showPINDialog } = useContext(PINContext);
   const { setDefaultLauncher } = actions;
   const gate = usePINGate();
   const cfg = data.config;
@@ -139,33 +119,25 @@ export default function WebViewDialog() {
       return false;
     }
 
-    const saved = await gate(async () => {
-      try {
-        await actions.saveURL(trimmedUrl);
-        await actions.saveZoom(zoom);
-        await actions.toggleEnabled(true);
-
-        if (isWails) {
-          await actions.enterKiosk();
-        }
-
-        return true;
-      } catch (err: unknown) {
-        setLocalError(String(err) || "Failed to save settings.");
-        return false;
-      }
-    });
-
-    if (saved === null || saved === false) {
+    const pinVerified = await showPINDialog();
+    if (!pinVerified) {
       return false;
     }
 
-    toastContext.actions.showToast(
-      "Kiosk settings saved and opened",
-      "success"
-    );
+    try {
+      await actions.saveURL(trimmedUrl);
+      await actions.saveZoom(zoom);
+      await actions.toggleEnabled(true);
 
-    return true;
+      toastContext.actions.showToast(
+        "Kiosk settings saved and opened",
+        "success"
+      );
+      return true;
+    } catch (err: unknown) {
+      setLocalError(String(err) || "Failed to save settings.");
+      return false;
+    }
   };
 
   const handleOpenKiosk = async () => {
@@ -176,17 +148,16 @@ export default function WebViewDialog() {
       return;
     }
 
-    await gate(async () => {
-      if (url.trim() && url.trim() !== cfg?.url) {
-        await actions.saveURL(url.trim());
-      }
-      await actions.saveZoom(zoom);
-      await actions.toggleEnabled(true);
+    const pinVerified = await showPINDialog();
+    if (!pinVerified) {
+      return;
+    }
 
-      if (isWails) {
-        await actions.enterKiosk();
-      }
-    });
+    if (url.trim() && url.trim() !== cfg?.url) {
+      await actions.saveURL(url.trim());
+    }
+    await actions.saveZoom(zoom);
+    await actions.toggleEnabled(true);
 
     toastContext.actions.showToast(
       "Kiosk opened",
@@ -195,13 +166,12 @@ export default function WebViewDialog() {
   };
 
   const handleCloseKiosk = async () => {
-    await gate(async () => {
-      await actions.toggleEnabled(false);
+    const pinVerified = await showPINDialog();
+    if (!pinVerified) {
+      return;
+    }
 
-      if (isWails) {
-        await actions.exitKiosk();
-      }
-    });
+    await actions.toggleEnabled(false);
 
     toastContext.actions.showToast(
       "Kiosk closed",
@@ -681,7 +651,7 @@ export default function WebViewDialog() {
             <div className="mt-4 flex items-center justify-between border-t border-gray-200 pt-3">
               <div>
                 <div className="text-xs font-medium text-gray-800">
-                  Enable kiosk mode
+                  Enable lockdown mode
                 </div>
 
                 <div className="text-[11px] text-gray-500">
@@ -695,8 +665,8 @@ export default function WebViewDialog() {
                 onClick={handleToggleKiosk}
                 aria-label={
                   isKioskCurrentlyActive
-                    ? "Disable kiosk mode"
-                    : "Enable kiosk mode"
+                    ? "Disable lockdown mode"
+                    : "Enable lockdown mode"
                 }
                 className={`
                   relative h-6 w-11 shrink-0 rounded-full

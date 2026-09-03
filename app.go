@@ -112,6 +112,7 @@ type UnavailablePrinter struct {
 type AppVariable struct {
 	ServerRunning bool   `json:"serverRunning"`
 	Os            string `json:"os"`
+	Mode          string `json:"mode"`
 }
 
 // WebViewConfig is the public view of kiosk settings (PIN is never exposed).
@@ -181,12 +182,29 @@ func (a *App) startup() {
 	// Notify the desktop frontend when kiosk status or config is modified remotely
 	a.webserver.SetKioskCallback(func(enabled bool) {
 		a.EmitEvent("kiosk-state-changed", enabled)
+		if a.mainWindow != nil {
+			if enabled {
+				url := a.config.GetWebViewURL()
+				if url != "" {
+					a.SetWindowFullscreen(true)
+					a.NavigateToWebapp(url)
+				}
+			} else {
+				a.SetWindowFullscreen(false)
+				a.NavigateToLocalUI()
+			}
+		}
 	})
 	a.webserver.SetConfigCallback(func() {
 		a.EmitEvent("webview-config-changed")
 	})
 	a.webserver.SetKioskReloadCallback(func() {
-		a.EmitEvent("kiosk-reload")
+		a.ReloadKiosk()
+	})
+
+	menubar.RegisterKioskExitGesture(func() {
+		logger.Infof("Native kiosk exit gesture triggered")
+		_ = a.SetWebViewEnabled(false)
 	})
 }
 
@@ -205,9 +223,14 @@ func (a *App) AppVariable() AppVariable {
 	if a.webserver != nil {
 		running = a.webserver.Running()
 	}
+	mode := "prod"
+	if a.config != nil {
+		mode = a.config.GetMode()
+	}
 	return AppVariable{
 		Os:            runtime.GOOS,
 		ServerRunning: running,
+		Mode:          mode,
 	}
 }
 
@@ -343,10 +366,41 @@ func (a *App) ValidateWebViewPIN(pin string) bool {
 	return a.config.CheckWebViewPIN(pin)
 }
 
-// SetWebViewEnabled persists the kiosk-enabled flag.
+// NavigateToWebapp navigates the main Wails WebView directly to the configured webapp URL.
+func (a *App) NavigateToWebapp(url string) {
+	if a.mainWindow != nil && url != "" {
+		a.mainWindow.SetURL(url)
+	}
+}
+
+// NavigateToLocalUI navigates the main Wails WebView back to the local administration UI.
+func (a *App) NavigateToLocalUI() {
+	if a.mainWindow != nil {
+		a.mainWindow.SetURL("/")
+	}
+}
+
+// SetWebViewEnabled persists the kiosk-enabled flag and navigates the top-level WebView.
 func (a *App) SetWebViewEnabled(v bool) error {
 	logger.Debugf("Setting WebView enabled: %v", v)
-	return a.config.SetWebViewEnabled(v)
+	if err := a.config.SetWebViewEnabled(v); err != nil {
+		return err
+	}
+	if a.mainWindow != nil {
+		if v {
+			url := a.config.GetWebViewURL()
+			if url != "" {
+				a.SetWindowFullscreen(true)
+				a.NavigateToWebapp(url)
+			}
+		} else {
+			a.SetWindowFullscreen(false)
+			a.NavigateToLocalUI()
+		}
+	}
+	a.EmitEvent("kiosk-state-changed", v)
+	a.EmitEvent("webview-config-changed")
+	return nil
 }
 
 // SetWindowFullscreen puts the main Wails window into or out of fullscreen
@@ -365,8 +419,11 @@ func (a *App) SetWindowFullscreen(fullscreen bool) {
 	}
 }
 
-// ReloadKiosk broadcasts a kiosk-reload event to reload the active kiosk iframe.
+// ReloadKiosk reloads the active top-level webview.
 func (a *App) ReloadKiosk() {
+	if a.mainWindow != nil {
+		a.mainWindow.Reload()
+	}
 	a.EmitEvent("kiosk-reload")
 }
 

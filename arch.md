@@ -203,8 +203,6 @@ Kiosk mode displays an embedded POS terminal fullscreen.
 1. **Desktop-Only View**: Fullscreen kiosk mode and the `<KioskOverlay />` iframe mount **strictly on the desktop Wails process** (`isWails === true`). The remote webview operates solely as an administrative console.
 2. **Secret Unlock Gesture**: While fullscreen on desktop, tapping the **top-right corner 4 times quickly** within 1000ms triggers the floating PIN unlock modal.
 3. **Instant Remote Triggering**: Remote browsers can open, close, or reload the desktop kiosk screen via authenticated API calls.
-4. **URL Constraint Validation**: URLs are validated against `KIOSK_URL_CONSTRAINTS` (supporting Odoo self-ordering formats like `https://domain.com/pos-self/204?access_token=...`). Empty or invalid URLs disable kiosk launch buttons automatically.
-
 ---
 
 ### 4.3. PIN Security & Management

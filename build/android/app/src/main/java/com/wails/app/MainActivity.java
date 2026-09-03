@@ -1141,8 +1141,34 @@ public class MainActivity extends AppCompatActivity {
         });
     }
 
+    private long lastCornerTapTime = 0;
+    private int cornerTapCount = 0;
+
     @Override
     public boolean dispatchTouchEvent(MotionEvent ev) {
+        if (isKioskFullscreen && ev.getAction() == MotionEvent.ACTION_DOWN) {
+            float x = ev.getX();
+            float y = ev.getY();
+            int width = getResources().getDisplayMetrics().widthPixels;
+            float radiusPx = 80 * getResources().getDisplayMetrics().density;
+            if (x >= width - radiusPx && y <= radiusPx) {
+                long now = System.currentTimeMillis();
+                if (now - lastCornerTapTime > 1000) {
+                    cornerTapCount = 0;
+                }
+                lastCornerTapTime = now;
+                cornerTapCount++;
+                if (cornerTapCount >= 4) {
+                    cornerTapCount = 0;
+                    runOnUiThread(() -> {
+                        setFullscreenMode(false);
+                        if (webView != null) {
+                            webView.loadUrl("https://wails.localhost/");
+                        }
+                    });
+                }
+            }
+        }
         return super.dispatchTouchEvent(ev);
     }
 

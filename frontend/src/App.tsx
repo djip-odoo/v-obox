@@ -1,4 +1,3 @@
-import KioskOverlay from "./components/KioskOverlay";
 import NetworkPrinting from "./components/NetworkPrinting";
 import NetworkPrintingEnabledDialog from "./components/NetworkPrintingEnabledDialog";
 import PrinterList from "./components/PrinterList";
@@ -22,8 +21,6 @@ function App() {
                 <NetworkPrinting />
                 <SetPinDialog />
               </div>
-              {/* KioskOverlay is full-screen; render outside the padded container */}
-              <KioskOverlay />
             </PrinterContextWrapper>
           </PINContextWrapper>
         </WebViewContextWrapper>

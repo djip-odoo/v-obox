@@ -33,6 +33,11 @@ func createMenu(app *application.App, appService *App) *application.Menu {
 		appService.DownloadLogs()
 	})
 
+	appMenu.Add("Exit Kiosk").SetAccelerator("Escape").OnClick(func(_ *application.Context) {
+		logger.Infof("Exit Kiosk requested from menu")
+		_ = appService.SetWebViewEnabled(false)
+	})
+
 	appMenu.AddSeparator()
 
 	appMenu.Add("Quit").OnClick(func(_ *application.Context) {

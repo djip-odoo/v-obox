@@ -17,6 +17,7 @@ import (
 type apiAppVariable struct {
 	ServerRunning bool   `json:"serverRunning"`
 	Os            string `json:"os"`
+	Mode          string `json:"mode"`
 }
 
 type apiPrinter struct {
@@ -73,9 +74,14 @@ type apiDeviceInfo struct {
 // ── Read-only handlers ─────────────────────────────────────────────────────────
 
 func (s *Server) handleGetApp(c fiber.Ctx) error {
+	mode := "prod"
+	if s.cfg != nil {
+		mode = s.cfg.GetMode()
+	}
 	return c.JSON(apiAppVariable{
 		ServerRunning: true, // server is running — we received the request
 		Os:            runtime.GOOS,
+		Mode:          mode,
 	})
 }
 

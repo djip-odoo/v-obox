@@ -6,6 +6,7 @@ import (
 	"runtime"
 
 	"epos-proxy/internal/logger"
+	"epos-proxy/override/menubar"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
 )
@@ -44,18 +45,36 @@ func main() {
 		}
 	}
 
+	startURL := "/"
+	isKiosk := appService.config.GetWebViewEnabled() && appService.config.GetWebViewURL() != ""
+	if isKiosk {
+		startURL = appService.config.GetWebViewURL()
+		if startState != application.WindowStateMinimised {
+			startState = application.WindowStateFullscreen
+		}
+	}
+
+	isDev := appService.config.IsDevMode()
+
 	mainWindow := app.Window.NewWithOptions(application.WebviewWindowOptions{
-		Title:              "ePOS Proxy",
-		Width:              800,
-		Height:             600,
-		MinWidth:           700,
-		MinHeight:          500,
-		StartState:         startState,
-		BackgroundColour:   application.NewRGB(255, 255, 255),
-		URL:                "/",
-		UseApplicationMenu: true,
+		Title:                      "ePOS Proxy",
+		Width:                      800,
+		Height:                     600,
+		MinWidth:                   700,
+		MinHeight:                  500,
+		StartState:                 startState,
+		BackgroundColour:           application.NewRGB(255, 255, 255),
+		URL:                        startURL,
+		UseApplicationMenu:         true,
+		DevToolsEnabled:            isDev,
+		DefaultContextMenuDisabled: !isDev,
 	})
 	appService.mainWindow = mainWindow
+
+	if isKiosk {
+		mainWindow.HideMenuBar()
+		menubar.SetNativeMenubarVisible(false)
+	}
 
 	if runtime.GOOS != "android" {
 		appMenu := createMenu(app, appService)

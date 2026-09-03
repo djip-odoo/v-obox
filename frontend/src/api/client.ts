@@ -49,6 +49,7 @@ export interface ApiWebViewConfig {
 export interface ApiAppVariable {
   serverRunning: boolean;
   os: string;
+  mode?: string;
 }
 
 export interface ApiTroubleshootInfo {
