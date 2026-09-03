@@ -92,6 +92,7 @@ public class MainActivity extends AppCompatActivity {
     private static final int CAMERA_PERMISSION_REQUEST = 7010;
     private File pendingCaptureFile;
     private boolean pendingCaptureIsVideo;
+    private volatile double currentWebappZoom = 1.0;
 
     // System-event sources (battery/power, screen lock, network). Registered in
     // onCreate, torn down in onDestroy. Each forwards a "system:*" event to JS
@@ -317,59 +318,13 @@ public class MainActivity extends AppCompatActivity {
 
                 // Apply zoom effect strictly to the external Web App, and keep Wails UI at 100% standard zoom
                 if (url != null && !url.contains(WAILS_HOST)) {
-                    new Thread(() -> {
-                        try {
-                            java.net.URL openUrl = new java.net.URL("http://127.0.0.1:4545/api/webview/open");
-                            java.net.HttpURLConnection openConn = (java.net.HttpURLConnection) openUrl.openConnection();
-                            openConn.setRequestMethod("POST");
-                            openConn.setRequestProperty("Content-Type", "application/json");
-                            openConn.setDoOutput(true);
-                            openConn.setConnectTimeout(1000);
-                            String jsonBody = "{\"url\":\"" + url.replace("\"", "\\\"") + "\"}";
-                            try (java.io.OutputStream os = openConn.getOutputStream()) {
-                                os.write(jsonBody.getBytes(java.nio.charset.StandardCharsets.UTF_8));
-                            }
-                            openConn.getResponseCode();
-                        } catch (Exception ignored) {}
-                    }).start();
-
-                    new Thread(() -> {
-                        try {
-                            java.net.URL cfgUrl = new java.net.URL("http://127.0.0.1:4545/api/webview");
-                            java.net.HttpURLConnection conn = (java.net.HttpURLConnection) cfgUrl.openConnection();
-                            conn.setConnectTimeout(1000);
-                            conn.setReadTimeout(1000);
-                            if (conn.getResponseCode() == 200) {
-                                java.io.InputStream is = conn.getInputStream();
-                                java.util.Scanner s = new java.util.Scanner(is).useDelimiter("\\A");
-                                String resp = s.hasNext() ? s.next() : "";
-                                org.json.JSONObject obj = new org.json.JSONObject(resp);
-                                double zoom = obj.optDouble("zoom", 1.0);
-                                if (zoom > 0 && Math.abs(zoom - 1.0) > 0.01) {
-                                    runOnUiThread(() -> {
-                                        if (view != null) {
-                                            view.getSettings().setTextZoom((int) Math.round(zoom * 100));
-                                            view.evaluateJavascript("document.documentElement.style.zoom = '" + zoom + "';", null);
-                                        }
-                                    });
-                                }
-                            }
-                        } catch (Exception ignored) {}
-                    }).start();
+                    if (currentWebappZoom > 0 && Math.abs(currentWebappZoom - 1.0) > 0.01 && view != null) {
+                        view.getSettings().setTextZoom((int) Math.round(currentWebappZoom * 100));
+                        view.evaluateJavascript("document.documentElement.style.zoom = '" + currentWebappZoom + "';", null);
+                    }
                 } else if (view != null) {
                     view.getSettings().setTextZoom(100);
                     view.evaluateJavascript("document.documentElement.style.zoom = '1.0';", null);
-
-                    new Thread(() -> {
-                        try {
-                            java.net.URL closeUrl = new java.net.URL("http://127.0.0.1:4545/api/webview/close");
-                            java.net.HttpURLConnection closeConn = (java.net.HttpURLConnection) closeUrl.openConnection();
-                            closeConn.setRequestMethod("POST");
-                            closeConn.setRequestProperty("Content-Type", "application/json");
-                            closeConn.setConnectTimeout(1000);
-                            closeConn.getResponseCode();
-                        } catch (Exception ignored) {}
-                    }).start();
                 }
             }
         });
@@ -1380,24 +1335,46 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void promptPINToCloseWebapp() {
-        runOnUiThread(() -> {
-            final android.widget.EditText pinInput = new android.widget.EditText(this);
-            pinInput.setInputType(android.text.InputType.TYPE_CLASS_NUMBER | android.text.InputType.TYPE_NUMBER_VARIATION_PASSWORD);
-            pinInput.setHint("Enter Admin PIN");
-            pinInput.setPadding(60, 40, 60, 40);
+        new Thread(() -> {
+            boolean hasPIN = false;
+            try {
+                java.net.URL cfgUrl = new java.net.URL("http://127.0.0.1:4545/api/webview");
+                java.net.HttpURLConnection conn = (java.net.HttpURLConnection) cfgUrl.openConnection();
+                conn.setConnectTimeout(1000);
+                conn.setReadTimeout(1000);
+                if (conn.getResponseCode() == 200) {
+                    java.io.InputStream is = conn.getInputStream();
+                    java.util.Scanner s = new java.util.Scanner(is).useDelimiter("\\A");
+                    String resp = s.hasNext() ? s.next() : "";
+                    org.json.JSONObject obj = new org.json.JSONObject(resp);
+                    hasPIN = obj.optBoolean("hasPIN", false);
+                }
+            } catch (Exception ignored) {}
 
-            new androidx.appcompat.app.AlertDialog.Builder(this)
-                .setTitle("Close Web Application")
-                .setMessage("Enter the administrator PIN to close the web app and return to settings:")
-                .setView(pinInput)
-                .setPositiveButton("Unlock & Exit", (dialog, which) -> {
-                    String enteredPin = pinInput.getText().toString().trim();
-                    verifyPinAndExit(enteredPin);
-                })
-                .setNegativeButton("Cancel", (dialog, which) -> dialog.dismiss())
-                .setCancelable(true)
-                .show();
-        });
+            if (!hasPIN) {
+                verifyPinAndExit("");
+                return;
+            }
+
+            runOnUiThread(() -> {
+                final android.widget.EditText pinInput = new android.widget.EditText(this);
+                pinInput.setInputType(android.text.InputType.TYPE_CLASS_NUMBER | android.text.InputType.TYPE_NUMBER_VARIATION_PASSWORD);
+                pinInput.setHint("Enter Admin PIN");
+                pinInput.setPadding(60, 40, 60, 40);
+
+                new androidx.appcompat.app.AlertDialog.Builder(this)
+                    .setTitle("Close Web Application")
+                    .setMessage("Enter the administrator PIN to close the web app and return to settings:")
+                    .setView(pinInput)
+                    .setPositiveButton("Unlock & Exit", (dialog, which) -> {
+                        String enteredPin = pinInput.getText().toString().trim();
+                        verifyPinAndExit(enteredPin);
+                    })
+                    .setNegativeButton("Cancel", (dialog, which) -> dialog.dismiss())
+                    .setCancelable(true)
+                    .show();
+            });
+        }).start();
     }
 
     private void verifyPinAndExit(String pin) {
@@ -1424,6 +1401,16 @@ public class MainActivity extends AppCompatActivity {
             }
 
             final boolean isSuccess = valid;
+            if (isSuccess) {
+                try {
+                    java.net.URL closeUrl = new java.net.URL("http://127.0.0.1:4545/api/webview/close");
+                    java.net.HttpURLConnection closeConn = (java.net.HttpURLConnection) closeUrl.openConnection();
+                    closeConn.setRequestMethod("POST");
+                    closeConn.setRequestProperty("Content-Type", "application/json");
+                    closeConn.setConnectTimeout(2000);
+                    closeConn.getResponseCode();
+                } catch (Exception ignored) {}
+            }
             runOnUiThread(() -> {
                 if (isSuccess) {
                     setFullscreenMode(false);

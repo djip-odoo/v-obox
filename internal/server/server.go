@@ -116,6 +116,12 @@ func (s *Server) CreatePINSession(pin string) (string, bool) {
 // isAuthenticated returns true when c carries either the Wails token or a
 // valid PIN-session token.
 func (s *Server) isAuthenticated(c fiber.Ctx) bool {
+	// Localhost requests on the host machine/device are trusted
+	ip := c.IP()
+	if ip == "127.0.0.1" || ip == "::1" || ip == "localhost" {
+		return true
+	}
+
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 

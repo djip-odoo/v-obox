@@ -202,7 +202,7 @@ func (a *App) startup() {
 
 	menubar.RegisterKioskExitGesture(func() {
 		logger.Infof("Native kiosk exit gesture triggered")
-		_ = a.SetWebViewEnabled(false)
+		a.NavigateToLocalUI()
 	})
 
 	menubar.ConfigureWebviewSettings()

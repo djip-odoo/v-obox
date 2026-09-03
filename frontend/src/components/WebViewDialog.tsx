@@ -53,9 +53,7 @@ export default function WebViewDialog() {
 
   const isUrlValid = isValidUrl(url);
 
-  const isKioskCurrentlyActive = isWails
-    ? cfg?.isActive
-    : Boolean(cfg?.enabled);
+  const isKioskCurrentlyActive = cfg?.isActive
 
   const canEnable = Boolean(isUrlValid && cfg?.hasPIN);
 
@@ -434,42 +432,6 @@ export default function WebViewDialog() {
                   </div>
                 </div>
               </div>
-
-              {isKioskCurrentlyActive && (
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={handleReload}
-                    title="Reload kiosk"
-                    className="
-                      inline-flex items-center gap-1.5
-                      rounded-lg border border-gray-300
-                      bg-white px-2.5 py-1.5
-                      text-xs font-medium text-gray-600
-                      shadow-xs transition-colors
-                      hover:border-gray-400 hover:bg-gray-50
-                      cursor-pointer
-                    "
-                  >
-                    <svg
-                      className={`h-3.5 w-3.5 ${reloading ? "animate-spin" : ""
-                        }`}
-                      fill="none"
-                      stroke="currentColor"
-                      viewBox="0 0 24 24"
-                    >
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth="2"
-                        d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
-                      />
-                    </svg>
-
-                    {reloading ? "Reloading" : "Reload"}
-                  </button>
-                </div>
-              )}
             </div>
 
             {/* URL */}
