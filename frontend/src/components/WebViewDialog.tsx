@@ -2,33 +2,12 @@ import { useContext, useEffect, useState } from "react";
 import { QRCodeSVG } from "qrcode.react";
 import { WebViewContext } from "../contexts/WebViewContext";
 import { AppContext } from "../contexts/AppContext";
+import { PINContext } from "../contexts/PINContext";
 import { ToastContext } from "../contexts/ToastContext";
 import Dialog, { ActionType } from "./Dialog";
 import { usePINGate } from "../hooks/usePINGate";
 import { useClipboard } from "../hooks/useClipboard";
 import { backendService } from "../services/backend";
-
-/**
- * Supported URL formats for Kiosk mode.
- */
-export const KIOSK_URL_CONSTRAINTS = [
-  {
-    type: "odoo-pos-self",
-    name: "Odoo Self Order / Kiosk",
-    example:
-      "https://your-domain.odoo.com/pos-self/204?access_token=4fcea930b2a1479a",
-    validate: (url: URL) =>
-      /^\/pos-self\/[a-zA-Z0-9_-]+/i.test(url.pathname),
-  },
-  {
-    type: "odoo-pos",
-    name: "Odoo POS",
-    example:
-      "https://your-domain.odoo.com/pos/ui/199?from_backend=True",
-    validate: (url: URL) =>
-      /^\/pos\/ui\//i.test(url.pathname),
-  },
-];
 
 export function isValidUrl(urlStr: string): boolean {
   const trimmed = urlStr.trim();
@@ -40,7 +19,7 @@ export function isValidUrl(urlStr: string): boolean {
   try {
     const parsed = new URL(trimmed);
 
-    if (parsed.protocol !== "https:") {
+    if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
       return false;
     }
 
@@ -54,6 +33,7 @@ export default function WebViewDialog() {
   const { data: { isWails } } = useContext(AppContext);
   const toastContext = useContext(ToastContext);
   const { data, actions } = useContext(WebViewContext);
+  const { showPINDialog } = useContext(PINContext);
   const { setDefaultLauncher } = actions;
   const gate = usePINGate();
   const cfg = data.config;
@@ -73,9 +53,7 @@ export default function WebViewDialog() {
 
   const isUrlValid = isValidUrl(url);
 
-  const isKioskCurrentlyActive = isWails
-    ? data.isKioskActive
-    : Boolean(cfg?.enabled);
+  const isKioskCurrentlyActive = cfg?.isActive
 
   const canEnable = Boolean(isUrlValid && cfg?.hasPIN);
 
@@ -127,93 +105,104 @@ export default function WebViewDialog() {
 
     const trimmedUrl = url.trim();
 
-    if (!trimmedUrl) {
-      setLocalError("URL cannot be empty.");
-      return false;
-    }
-
-    if (!isValidUrl(trimmedUrl)) {
+    if (trimmedUrl && !isValidUrl(trimmedUrl)) {
       setLocalError(
-        "Enter a valid HTTPS URL (must start with https://)."
+        "Enter a valid URL (must start with http:// or https://)."
       );
       return false;
     }
 
-    const saved = await gate(async () => {
-      try {
-        await actions.saveURL(trimmedUrl);
-        await actions.saveZoom(zoom);
-        await actions.toggleEnabled(true);
-
-        if (isWails) {
-          await actions.enterKiosk();
-        }
-
-        return true;
-      } catch (err: unknown) {
-        setLocalError(String(err) || "Failed to save settings.");
-        return false;
-      }
-    });
-
-    if (saved === null || saved === false) {
+    const pinVerified = await showPINDialog();
+    if (!pinVerified) {
       return false;
     }
 
-    toastContext.actions.showToast(
-      "Kiosk settings saved and opened",
-      "success"
-    );
+    try {
+      if (trimmedUrl) {
+        await actions.saveURL(trimmedUrl);
+      }
+      await actions.saveZoom(zoom);
 
-    return true;
+      toastContext.actions.showToast(
+        "Settings saved successfully",
+        "success"
+      );
+      return true;
+    } catch (err: unknown) {
+      setLocalError(String(err) || "Failed to save settings.");
+      return false;
+    }
   };
 
-  const handleOpenKiosk = async () => {
-    const targetUrl = url.trim() || cfg?.url;
+  const handleLaunchWebapp = async () => {
+    setLocalError(null);
+    const targetUrl = url.trim() || cfg?.url || "";
 
     if (!targetUrl || !isValidUrl(targetUrl)) {
-      setLocalError("Enter a valid kiosk URL first.");
+      setLocalError("Enter a valid URL (must start with http:// or https://).");
       return;
     }
 
-    await gate(async () => {
-      if (url.trim() && url.trim() !== cfg?.url) {
+    try {
+      await actions.saveURL(targetUrl);
+      await actions.saveZoom(zoom);
+      await actions.openWebapp(targetUrl);
+
+      toastContext.actions.showToast(
+        "Opening Web App...",
+        "success"
+      );
+    } catch (err: unknown) {
+      setLocalError(String(err) || "Failed to launch Web App.");
+    }
+  };
+
+  const handleCloseWebapp = async () => {
+    if (cfg?.hasPIN) {
+      const pinVerified = await showPINDialog();
+      if (!pinVerified) {
+        return;
+      }
+    }
+
+    try {
+      await actions.closeWebapp();
+
+      toastContext.actions.showToast(
+        "Returning to Proxy Settings...",
+        "success"
+      );
+    } catch (err: unknown) {
+      setLocalError(String(err) || "Failed to close Web App.");
+    }
+  };
+
+  const handleToggleLockdown = async () => {
+    setLocalError(null);
+    const newEnabled = !cfg?.enabled;
+
+    if (newEnabled && !cfg?.hasPIN) {
+      setLocalError("Set an admin PIN before enabling lockdown mode.");
+      return;
+    }
+
+    const pinVerified = await showPINDialog();
+    if (!pinVerified) {
+      return;
+    }
+
+    try {
+      if (url.trim() && isValidUrl(url.trim())) {
         await actions.saveURL(url.trim());
       }
-      await actions.saveZoom(zoom);
-      await actions.toggleEnabled(true);
+      await actions.toggleEnabled(newEnabled);
 
-      if (isWails) {
-        await actions.enterKiosk();
-      }
-    });
-
-    toastContext.actions.showToast(
-      "Kiosk opened",
-      "success"
-    );
-  };
-
-  const handleCloseKiosk = async () => {
-    await gate(async () => {
-      await actions.toggleEnabled(false);
-
-      if (isWails) {
-        await actions.exitKiosk();
-      }
-    });
-
-    toastContext.actions.showToast(
-      "Kiosk closed",
-      "success"
-    );
-  };
-
-  const handleToggleKiosk = async () => {
-    if (isKioskCurrentlyActive) {
-      await handleCloseKiosk();
-    } else {
-      await handleOpenKiosk();
+      toastContext.actions.showToast(
+        newEnabled ? "Lockdown mode enabled" : "Lockdown mode disabled",
+        "success"
+      );
+    } catch (err: unknown) {
+      setLocalError(String(err) || "Failed to toggle lockdown mode.");
     }
   };
 
@@ -221,15 +210,10 @@ export default function WebViewDialog() {
     setReloading(true);
 
     try {
-      const res = await gate(async () => {
-        await actions.reloadKiosk();
-        return true;
-      });
-      if (res) {
-        toastContext.actions.showToast("Kiosk view reloaded", "success");
-      }
+      await actions.reloadKiosk();
+      toastContext.actions.showToast("Web App reloaded", "success");
     } catch {
-      toastContext.actions.showToast("Failed to reload kiosk", "danger");
+      toastContext.actions.showToast("Failed to reload Web App", "danger");
     } finally {
       setTimeout(() => {
         setReloading(false);
@@ -242,8 +226,10 @@ export default function WebViewDialog() {
   };
 
   const getStatusText = () => {
-    if (isKioskCurrentlyActive) {
-      return "Kiosk mode is currently running.";
+    if (cfg?.isActive) {
+      return cfg?.enabled
+        ? "Web App is currently running in Fullscreen Lockdown mode."
+        : "Web App is currently running in standard windowed mode.";
     }
 
     if (!url.trim()) {
@@ -254,11 +240,9 @@ export default function WebViewDialog() {
       return "The URL format is not supported.";
     }
 
-    if (!cfg?.hasPIN) {
-      return "Set an admin PIN before enabling kiosk mode.";
-    }
-
-    return "Ready to launch kiosk mode.";
+    return cfg?.enabled
+      ? "Web App configured (Lockdown mode enabled)."
+      : "Web App configured and ready to open.";
   };
 
   const dialogActions = [
@@ -270,11 +254,9 @@ export default function WebViewDialog() {
     },
     {
       name: "save",
-      label: isKioskCurrentlyActive
-        ? "Save Changes"
-        : "Save & Open Kiosk",
+      label: "Save Settings",
       onClick: saveSettings,
-      disabled: !isUrlValid,
+      disabled: Boolean(url.trim() && !isUrlValid),
       variant: "primary" as ActionType,
     },
   ];
@@ -450,52 +432,30 @@ export default function WebViewDialog() {
                   </div>
                 </div>
               </div>
-
-              {isKioskCurrentlyActive && (
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={handleReload}
-                    title="Reload kiosk"
-                    className="
-                      inline-flex items-center gap-1.5
-                      rounded-lg border border-gray-300
-                      bg-white px-2.5 py-1.5
-                      text-xs font-medium text-gray-600
-                      shadow-xs transition-colors
-                      hover:border-gray-400 hover:bg-gray-50
-                      cursor-pointer
-                    "
-                  >
-                    <svg
-                      className={`h-3.5 w-3.5 ${reloading ? "animate-spin" : ""
-                        }`}
-                      fill="none"
-                      stroke="currentColor"
-                      viewBox="0 0 24 24"
-                    >
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth="2"
-                        d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
-                      />
-                    </svg>
-
-                    {reloading ? "Reloading" : "Reload"}
-                  </button>
-                </div>
-              )}
             </div>
 
             {/* URL */}
             <div className="mt-4">
-              <label
-                htmlFor="kiosk-url"
-                className="mb-1.5 block text-xs font-medium text-gray-700"
-              >
-                POS Web Application URL
-              </label>
+              <div className="flex items-center justify-between mb-1.5">
+                <label
+                  htmlFor="kiosk-url"
+                  className="block text-xs font-medium text-gray-700"
+                >
+                  POS Web Application URL
+                </label>
+                {isUrlValid && (
+                  <button
+                    type="button"
+                    onClick={handleLaunchWebapp}
+                    className="inline-flex items-center gap-1 text-xs font-semibold text-odoo hover:text-odoo-hover transition-colors cursor-pointer"
+                  >
+                    <span>Launch</span>
+                    <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                    </svg>
+                  </button>
+                )}
+              </div>
 
               <div className="relative">
                 <input
@@ -521,8 +481,110 @@ export default function WebViewDialog() {
               </div>
 
               <p className="mt-1.5 text-[11px] text-gray-500">
-                Use the URL of your Odoo POS Self Order / Kiosk page.
+                Enter your Odoo POS URL (HTTP or HTTPS). You can open it anytime in standard windowed mode or locked down in fullscreen.
               </p>
+            </div>
+
+            {/* Web App Action Controls (SVG icons only, no text) */}
+            <div className="mt-4 flex items-center justify-between gap-3 rounded-xl border border-odoo/20 bg-odoo/5 p-3.5">
+              <div>
+                <div className="text-xs font-semibold text-gray-900">
+                  {cfg?.isActive ? "Web Application is Active" : "Web Application"}
+                </div>
+                <div className="text-[11px] text-gray-600">
+                  {cfg?.isActive
+                    ? "Currently running. Reload or close web view."
+                    : cfg?.enabled
+                      ? "Will open in Fullscreen Lockdown mode."
+                      : "Will open in standard window mode."}
+                </div>
+              </div>
+
+              {cfg?.isActive ? (
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={handleReload}
+                    disabled={reloading}
+                    title="Reload Web App"
+                    aria-label="Reload Web App"
+                    className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-gray-300 bg-white text-gray-700 shadow-xs hover:bg-gray-50 transition-colors cursor-pointer disabled:opacity-60"
+                  >
+                    <svg
+                      className={`h-5 w-5 text-gray-600 ${reloading ? "animate-spin text-odoo" : ""}`}
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth="2"
+                        d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+                      />
+                    </svg>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={handleCloseWebapp}
+                    title="Close Web App & Return to Settings"
+                    aria-label="Close Web App"
+                    className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-red-600 text-white shadow-xs hover:bg-red-700 transition-colors cursor-pointer"
+                  >
+                    <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  </button>
+                </div>
+              ) : (
+                <div className="flex items-center gap-2">
+                  {isUrlValid && (
+                    <button
+                      type="button"
+                      onClick={handleReload}
+                      disabled={reloading}
+                      title="Reload Web App"
+                      aria-label="Reload Web App"
+                      className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-gray-300 bg-white text-gray-700 shadow-xs hover:bg-gray-50 transition-colors cursor-pointer disabled:opacity-60"
+                    >
+                      <svg
+                        className={`h-5 w-5 text-gray-600 ${reloading ? "animate-spin text-odoo" : ""}`}
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth="2"
+                          d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+                        />
+                      </svg>
+                    </button>
+                  )}
+
+                  <button
+                    type="button"
+                    disabled={!isUrlValid}
+                    onClick={handleLaunchWebapp}
+                    title="Open Web App"
+                    aria-label="Open Web App"
+                    className={`
+                      flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-white shadow-xs transition-colors
+                      ${isUrlValid
+                        ? "bg-odoo hover:bg-odoo-hover cursor-pointer"
+                        : "bg-gray-300 cursor-not-allowed opacity-60"
+                      }
+                    `}
+                  >
+                    <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                  </button>
+                </div>
+              )}
             </div>
 
             {/* Display Zoom */}
@@ -533,7 +595,7 @@ export default function WebViewDialog() {
                     htmlFor="kiosk-zoom"
                     className="block text-xs font-medium text-gray-700"
                   >
-                    Iframe Display Zoom
+                    Display Zoom
                   </label>
                   <p className="text-[11px] text-gray-500">
                     Scale the POS interface up or down to fit your display.
@@ -671,37 +733,37 @@ export default function WebViewDialog() {
                     Admin PIN required
                   </div>
                   <div className="mt-0.5 text-amber-700">
-                    Set a PIN in the App settings before enabling kiosk mode.
+                    Set a PIN in the App settings before enabling lockdown mode.
                   </div>
                 </div>
               </div>
             )}
 
-            {/* Toggle */}
+            {/* Lockdown Mode Toggle */}
             <div className="mt-4 flex items-center justify-between border-t border-gray-200 pt-3">
               <div>
                 <div className="text-xs font-medium text-gray-800">
-                  Enable kiosk mode
+                  Lockdown mode (Fullscreen Kiosk)
                 </div>
 
                 <div className="text-[11px] text-gray-500">
-                  Open the configured page in fullscreen.
+                  When enabled, running the web app locks down the display in fullscreen and requires admin PIN to exit.
                 </div>
               </div>
 
               <button
                 type="button"
                 disabled={!canEnable}
-                onClick={handleToggleKiosk}
+                onClick={handleToggleLockdown}
                 aria-label={
-                  isKioskCurrentlyActive
-                    ? "Disable kiosk mode"
-                    : "Enable kiosk mode"
+                  cfg?.enabled
+                    ? "Disable lockdown mode"
+                    : "Enable lockdown mode"
                 }
                 className={`
                   relative h-6 w-11 shrink-0 rounded-full
                   transition-colors
-                  ${isKioskCurrentlyActive
+                  ${cfg?.enabled
                     ? "bg-odoo"
                     : "bg-gray-300"
                   }
@@ -716,7 +778,7 @@ export default function WebViewDialog() {
                     absolute top-1 h-4 w-4
                     rounded-full bg-white shadow-sm
                     transition-transform
-                    ${isKioskCurrentlyActive
+                    ${cfg?.enabled
                       ? "left-6"
                       : "left-1"
                     }

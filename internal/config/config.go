@@ -23,6 +23,7 @@ const (
 )
 
 type AppConfig struct {
+	Mode            string   `json:"mode,omitempty"`
 	Port            int      `json:"port"`
 	LANPrinters     []string `json:"lan_printers,omitempty"`
 	WebViewURL      string   `json:"webview_url,omitempty"`
@@ -34,6 +35,7 @@ type AppConfig struct {
 
 func defaults() AppConfig {
 	return AppConfig{
+		Mode:            "prod",
 		Port:            0,
 		NetworkPrinting: false,
 		WebViewPIN:      "0000",
@@ -310,4 +312,35 @@ func (cm *Manager) GetLANPrinters() []string {
 	result := make([]string, len(cm.Data.LANPrinters))
 	copy(result, cm.Data.LANPrinters)
 	return result
+}
+
+// GetMode returns the configured application mode ("dev" or "prod"). Defaults to "prod".
+func (cm *Manager) GetMode() string {
+	cm.mu.RLock()
+	defer cm.mu.RUnlock()
+	mode := strings.TrimSpace(cm.Data.Mode)
+	if mode == "" {
+		mode = strings.TrimSpace(os.Getenv("MODE"))
+	}
+	if strings.EqualFold(mode, "dev") {
+		return "dev"
+	}
+	return "prod"
+}
+
+// IsDevMode returns true if the app is configured in "dev" mode.
+func (cm *Manager) IsDevMode() bool {
+	return cm.GetMode() == "dev"
+}
+
+// SetMode sets and persists the application mode ("dev" or "prod").
+func (cm *Manager) SetMode(mode string) error {
+	cm.mu.Lock()
+	defer cm.mu.Unlock()
+	if strings.EqualFold(strings.TrimSpace(mode), "dev") {
+		cm.Data.Mode = "dev"
+	} else {
+		cm.Data.Mode = "prod"
+	}
+	return cm.saveLocked()
 }

@@ -29,6 +29,16 @@ import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.webkit.WebChromeClient;
 import android.webkit.ConsoleMessage;
+import android.webkit.CookieManager;
+import android.webkit.GeolocationPermissions;
+import android.webkit.PermissionRequest;
+import android.webkit.SslErrorHandler;
+import android.webkit.ServiceWorkerController;
+import android.webkit.ServiceWorkerWebSettings;
+import android.webkit.RenderProcessGoneDetail;
+import android.webkit.JsResult;
+import android.webkit.JsPromptResult;
+import android.net.http.SslError;
 
 import android.app.ActivityManager;
 import android.app.admin.DevicePolicyManager;
@@ -82,6 +92,7 @@ public class MainActivity extends AppCompatActivity {
     private static final int CAMERA_PERMISSION_REQUEST = 7010;
     private File pendingCaptureFile;
     private boolean pendingCaptureIsVideo;
+    private volatile double currentWebappZoom = 1.0;
 
     // System-event sources (battery/power, screen lock, network). Registered in
     // onCreate, torn down in onDestroy. Each forwards a "system:*" event to JS
@@ -125,6 +136,9 @@ public class MainActivity extends AppCompatActivity {
         // Set up WebView
         setupWebView();
 
+        // Start real-time remote action listener (open, close, reload)
+        startWebviewActionPoller();
+
         // Load the application
         loadApplication();
     }
@@ -134,26 +148,54 @@ public class MainActivity extends AppCompatActivity {
         webView = findViewById(R.id.webview);
         bridge.setWebView(webView);
 
+        // Enable third-party cookies for seamless cross-origin and Odoo POS session syncing
+        CookieManager cookieManager = CookieManager.getInstance();
+        cookieManager.setAcceptCookie(true);
+        cookieManager.setAcceptThirdPartyCookies(webView, true);
+
         // Configure WebView settings
         WebSettings settings = webView.getSettings();
         settings.setJavaScriptEnabled(true);
         settings.setDomStorageEnabled(true);
         settings.setDatabaseEnabled(true);
-        settings.setAllowFileAccess(false);
-        settings.setAllowContentAccess(false);
+        settings.setAllowFileAccess(true);
+        settings.setAllowContentAccess(true);
+        settings.setAllowFileAccessFromFileURLs(true);
+        settings.setAllowUniversalAccessFromFileURLs(true);
+        settings.setCacheMode(WebSettings.LOAD_DEFAULT);
+        settings.setGeolocationEnabled(true);
+        settings.setSupportZoom(true);
+        settings.setBuiltInZoomControls(false);
+        settings.setDisplayZoomControls(false);
         settings.setMediaPlaybackRequiresUserGesture(false);
         // Configure UserAgent to present as full Google Chrome Mobile (strip '; wv' and 'Version/4.0'
         // which mark it as an embedded webview and cause web apps like Odoo POS to disable LNA).
         String ua = settings.getUserAgentString();
         if (ua != null) {
-            ua = ua.replace("; wv", "").replaceAll("Version/\\d+\\.\\d+\\s*", "");
+            ua = ua.replace("; wv", "")
+                   .replaceAll("Version/\\d+\\.\\d+\\s*", "")
+                   .replaceAll("\\s+", " ")
+                   .trim();
             settings.setUserAgentString(ua);
         }
         settings.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
+        settings.setSafeBrowsingEnabled(false);
+        settings.setJavaScriptCanOpenWindowsAutomatically(true);
 
         // Enable debugging in debug builds
         if (DEBUG) {
             WebView.setWebContentsDebuggingEnabled(true);
+        }
+
+        // Enable ServiceWorker caching and storage access on Android N+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            try {
+                ServiceWorkerController swController = ServiceWorkerController.getInstance();
+                ServiceWorkerWebSettings swSettings = swController.getServiceWorkerWebSettings();
+                swSettings.setAllowContentAccess(true);
+                swSettings.setAllowFileAccess(true);
+                swSettings.setCacheMode(WebSettings.LOAD_DEFAULT);
+            } catch (Exception ignored) {}
         }
 
         // Set up asset loader for serving local assets
@@ -164,6 +206,47 @@ public class MainActivity extends AppCompatActivity {
 
         // Set up WebView client to intercept requests
         webView.setWebViewClient(new WebViewClient() {
+            @Override
+            public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
+                String scheme = request.getUrl().getScheme();
+                if ("http".equalsIgnoreCase(scheme) || "https".equalsIgnoreCase(scheme)) {
+                    // Keep all HTTP/HTTPS navigation directly inside this WebView
+                    return false;
+                }
+                try {
+                    Intent intent = new Intent(Intent.ACTION_VIEW, request.getUrl());
+                    view.getContext().startActivity(intent);
+                    return true;
+                } catch (Exception e) {
+                    return true;
+                }
+            }
+
+            @Override
+            public void onReceivedSslError(WebView view, SslErrorHandler handler, SslError error) {
+                // In POS / local network environments, proceed with self-signed or internal CA certs
+                if (DEBUG) Log.w(TAG, "SSL error ignored for POS network: " + error.toString());
+                handler.proceed();
+            }
+
+            @Override
+            public boolean onRenderProcessGone(WebView view, RenderProcessGoneDetail detail) {
+                Log.e(TAG, "WebView render process gone (didCrash=" + (detail != null && detail.didCrash()) + "). Recovering...");
+                if (view != null) {
+                    view.post(() -> {
+                        try {
+                            String currentUrl = view.getUrl();
+                            if (currentUrl != null && !currentUrl.isEmpty()) {
+                                view.loadUrl(currentUrl);
+                            } else {
+                                loadApplication();
+                            }
+                        } catch (Exception ignored) {}
+                    });
+                }
+                return true; // Prevents the host Android app from terminating!
+            }
+
             @Nullable
             @Override
             public WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest request) {
@@ -232,13 +315,24 @@ public class MainActivity extends AppCompatActivity {
                 // Now that JS listeners are mounted, push a snapshot of the
                 // current battery / network / theme so the UI starts populated.
                 emitSystemSnapshot();
+
+                // Apply zoom effect strictly to the external Web App, and keep Wails UI at 100% standard zoom
+                if (url != null && !url.contains(WAILS_HOST)) {
+                    if (currentWebappZoom > 0 && Math.abs(currentWebappZoom - 1.0) > 0.01 && view != null) {
+                        view.getSettings().setTextZoom((int) Math.round(currentWebappZoom * 100));
+                        view.evaluateJavascript("document.documentElement.style.zoom = '" + currentWebappZoom + "';", null);
+                    }
+                } else if (view != null) {
+                    view.getSettings().setTextZoom(100);
+                    view.evaluateJavascript("document.documentElement.style.zoom = '1.0';", null);
+                }
             }
         });
 
         // Add JavaScript interface for Go communication
         webView.addJavascriptInterface(new WailsJSBridge(bridge, webView), "wails");
 
-        // Forward console logs to logcat
+        // Forward console logs to logcat and handle webapp permissions / dialogs
         webView.setWebChromeClient(new WebChromeClient() {
             @Override
             public boolean onConsoleMessage(ConsoleMessage consoleMessage) {
@@ -246,6 +340,70 @@ public class MainActivity extends AppCompatActivity {
                         + consoleMessage.lineNumber() + " of "
                         + consoleMessage.sourceId());
                 return true;
+            }
+
+            @Override
+            public boolean onJsBeforeUnload(WebView view, String url, String message, JsResult result) {
+                // Automatically confirm reload/navigation so location.reload() never blocks or hangs
+                result.confirm();
+                return true;
+            }
+
+            @Override
+            public boolean onJsAlert(WebView view, String url, String message, JsResult result) {
+                try {
+                    new androidx.appcompat.app.AlertDialog.Builder(MainActivity.this)
+                        .setMessage(message)
+                        .setPositiveButton(android.R.string.ok, (dialog, which) -> result.confirm())
+                        .setOnCancelListener(dialog -> result.cancel())
+                        .show();
+                } catch (Exception e) {
+                    result.confirm();
+                }
+                return true;
+            }
+
+            @Override
+            public boolean onJsConfirm(WebView view, String url, String message, JsResult result) {
+                try {
+                    new androidx.appcompat.app.AlertDialog.Builder(MainActivity.this)
+                        .setMessage(message)
+                        .setPositiveButton(android.R.string.ok, (dialog, which) -> result.confirm())
+                        .setNegativeButton(android.R.string.cancel, (dialog, which) -> result.cancel())
+                        .setOnCancelListener(dialog -> result.cancel())
+                        .show();
+                } catch (Exception e) {
+                    result.confirm();
+                }
+                return true;
+            }
+
+            @Override
+            public boolean onJsPrompt(WebView view, String url, String message, String defaultValue, JsPromptResult result) {
+                try {
+                    final android.widget.EditText input = new android.widget.EditText(MainActivity.this);
+                    input.setText(defaultValue);
+                    new androidx.appcompat.app.AlertDialog.Builder(MainActivity.this)
+                        .setMessage(message)
+                        .setView(input)
+                        .setPositiveButton(android.R.string.ok, (dialog, which) -> result.confirm(input.getText().toString()))
+                        .setNegativeButton(android.R.string.cancel, (dialog, which) -> result.cancel())
+                        .setOnCancelListener(dialog -> result.cancel())
+                        .show();
+                } catch (Exception e) {
+                    result.confirm(defaultValue != null ? defaultValue : "");
+                }
+                return true;
+            }
+
+            @Override
+            public void onPermissionRequest(final PermissionRequest request) {
+                runOnUiThread(() -> request.grant(request.getResources()));
+            }
+
+            @Override
+            public void onGeolocationPermissionsShowPrompt(String origin, GeolocationPermissions.Callback callback) {
+                callback.invoke(origin, true, false);
             }
         });
     }
@@ -1141,9 +1299,130 @@ public class MainActivity extends AppCompatActivity {
         });
     }
 
+    private long lastCornerTapTime = 0;
+    private int cornerTapCount = 0;
+
     @Override
     public boolean dispatchTouchEvent(MotionEvent ev) {
+        if (ev.getAction() == MotionEvent.ACTION_DOWN) {
+            String currentUrl = webView != null ? webView.getUrl() : null;
+            boolean isExternalWebapp = currentUrl != null && !currentUrl.startsWith(WAILS_SCHEME + "://" + WAILS_HOST);
+            if (isKioskFullscreen || isExternalWebapp) {
+                float x = ev.getX();
+                float y = ev.getY();
+                int width = getResources().getDisplayMetrics().widthPixels;
+                int height = getResources().getDisplayMetrics().heightPixels;
+                float radiusPx = 80 * getResources().getDisplayMetrics().density;
+                boolean isCorner = (x <= radiusPx && y <= radiusPx) // Top-Left
+                                || (x >= width - radiusPx && y <= radiusPx) // Top-Right
+                                || (x <= radiusPx && y >= height - radiusPx) // Bottom-Left
+                                || (x >= width - radiusPx && y >= height - radiusPx); // Bottom-Right
+                if (isCorner) {
+                    long now = System.currentTimeMillis();
+                    if (now - lastCornerTapTime > 1200) {
+                        cornerTapCount = 0;
+                    }
+                    lastCornerTapTime = now;
+                    cornerTapCount++;
+                    if (cornerTapCount >= 4) {
+                        cornerTapCount = 0;
+                        promptPINToCloseWebapp();
+                    }
+                }
+            }
+        }
         return super.dispatchTouchEvent(ev);
+    }
+
+    private void promptPINToCloseWebapp() {
+        new Thread(() -> {
+            boolean hasPIN = false;
+            try {
+                java.net.URL cfgUrl = new java.net.URL("http://127.0.0.1:4545/api/webview");
+                java.net.HttpURLConnection conn = (java.net.HttpURLConnection) cfgUrl.openConnection();
+                conn.setConnectTimeout(1000);
+                conn.setReadTimeout(1000);
+                if (conn.getResponseCode() == 200) {
+                    java.io.InputStream is = conn.getInputStream();
+                    java.util.Scanner s = new java.util.Scanner(is).useDelimiter("\\A");
+                    String resp = s.hasNext() ? s.next() : "";
+                    org.json.JSONObject obj = new org.json.JSONObject(resp);
+                    hasPIN = obj.optBoolean("hasPIN", false);
+                }
+            } catch (Exception ignored) {}
+
+            if (!hasPIN) {
+                verifyPinAndExit("");
+                return;
+            }
+
+            runOnUiThread(() -> {
+                final android.widget.EditText pinInput = new android.widget.EditText(this);
+                pinInput.setInputType(android.text.InputType.TYPE_CLASS_NUMBER | android.text.InputType.TYPE_NUMBER_VARIATION_PASSWORD);
+                pinInput.setHint("Enter Admin PIN");
+                pinInput.setPadding(60, 40, 60, 40);
+
+                new androidx.appcompat.app.AlertDialog.Builder(this)
+                    .setTitle("Close Web Application")
+                    .setMessage("Enter the administrator PIN to close the web app and return to settings:")
+                    .setView(pinInput)
+                    .setPositiveButton("Unlock & Exit", (dialog, which) -> {
+                        String enteredPin = pinInput.getText().toString().trim();
+                        verifyPinAndExit(enteredPin);
+                    })
+                    .setNegativeButton("Cancel", (dialog, which) -> dialog.dismiss())
+                    .setCancelable(true)
+                    .show();
+            });
+        }).start();
+    }
+
+    private void verifyPinAndExit(String pin) {
+        new Thread(() -> {
+            boolean valid = false;
+            try {
+                java.net.URL url = new java.net.URL("http://127.0.0.1:4545/api/auth/session");
+                java.net.HttpURLConnection conn = (java.net.HttpURLConnection) url.openConnection();
+                conn.setRequestMethod("POST");
+                conn.setRequestProperty("Content-Type", "application/json");
+                conn.setDoOutput(true);
+                conn.setConnectTimeout(2000);
+                conn.setReadTimeout(2000);
+                String jsonBody = "{\"pin\":\"" + pin.replace("\"", "\\\"") + "\"}";
+                try (java.io.OutputStream os = conn.getOutputStream()) {
+                    os.write(jsonBody.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                }
+                int code = conn.getResponseCode();
+                valid = (code == 200);
+            } catch (Exception e) {
+                Log.e(TAG, "PIN check error", e);
+                // Fallback to exit if backend not reachable
+                valid = true;
+            }
+
+            final boolean isSuccess = valid;
+            if (isSuccess) {
+                try {
+                    java.net.URL closeUrl = new java.net.URL("http://127.0.0.1:4545/api/webview/close");
+                    java.net.HttpURLConnection closeConn = (java.net.HttpURLConnection) closeUrl.openConnection();
+                    closeConn.setRequestMethod("POST");
+                    closeConn.setRequestProperty("Content-Type", "application/json");
+                    closeConn.setConnectTimeout(2000);
+                    closeConn.getResponseCode();
+                } catch (Exception ignored) {}
+            }
+            runOnUiThread(() -> {
+                if (isSuccess) {
+                    setFullscreenMode(false);
+                    if (webView != null) {
+                        webView.loadUrl(WAILS_SCHEME + "://" + WAILS_HOST + "/");
+                    }
+                } else {
+                    android.widget.Toast.makeText(this, "Incorrect PIN", android.widget.Toast.LENGTH_SHORT).show();
+                    promptPINToCloseWebapp();
+                }
+            });
+        }).start();
     }
 
     @Override
@@ -1170,5 +1449,69 @@ public class MainActivity extends AppCompatActivity {
         } else {
             super.onBackPressed();
         }
+    }
+
+    private void startWebviewActionPoller() {
+        Thread t = new Thread(() -> {
+            long lastId = 0;
+            while (!isDestroyed() && !isFinishing()) {
+                try {
+                    java.net.URL url = new java.net.URL("http://127.0.0.1:4545/api/webview/poll-action?lastId=" + lastId);
+                    java.net.HttpURLConnection conn = (java.net.HttpURLConnection) url.openConnection();
+                    conn.setConnectTimeout(5000);
+                    conn.setReadTimeout(30000);
+                    if (conn.getResponseCode() == 200) {
+                        java.io.InputStream is = conn.getInputStream();
+                        java.util.Scanner s = new java.util.Scanner(is).useDelimiter("\\A");
+                        String resp = s.hasNext() ? s.next() : "";
+                        org.json.JSONObject obj = new org.json.JSONObject(resp);
+                        long id = obj.optLong("id", lastId);
+                        String action = obj.optString("action", "none");
+                        if (id > lastId) {
+                            lastId = id;
+                            if ("open".equals(action)) {
+                                String targetUrl = obj.optString("url", "");
+                                boolean fs = obj.optBoolean("fullscreen", false);
+                                runOnUiThread(() -> {
+                                    if (fs) {
+                                        setFullscreenMode(true);
+                                    } else {
+                                        setFullscreenMode(false);
+                                    }
+                                    if (webView != null && !targetUrl.isEmpty()) {
+                                        webView.loadUrl(targetUrl);
+                                    }
+                                });
+                            } else if ("close".equals(action)) {
+                                runOnUiThread(() -> {
+                                    setFullscreenMode(false);
+                                    if (webView != null) {
+                                        webView.loadUrl(WAILS_SCHEME + "://" + WAILS_HOST + "/");
+                                    }
+                                });
+                            } else if ("reload".equals(action)) {
+                                runOnUiThread(() -> {
+                                    if (webView != null) {
+                                        webView.reload();
+                                    }
+                                });
+                            } else if ("lockdown".equals(action)) {
+                                boolean fs = obj.optBoolean("fullscreen", false);
+                                runOnUiThread(() -> {
+                                    setFullscreenMode(fs);
+                                });
+                            }
+                        }
+                    } else {
+                        Thread.sleep(1000);
+                    }
+                } catch (Exception e) {
+                    try { Thread.sleep(1000); } catch (Exception ignored) {}
+                }
+            }
+        });
+        t.setName("WebviewActionPoller");
+        t.setDaemon(true);
+        t.start();
     }
 }

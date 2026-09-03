@@ -21,6 +21,8 @@ import {
   ApiTroubleshootInfo,
   ApiWebViewConfig,
   apiReloadKiosk,
+  apiOpenWebView,
+  apiCloseWebView,
   apiGetDeviceInfo,
   apiSetDeviceInfo,
 } from "../api/client";
@@ -62,6 +64,8 @@ export interface IBackendService {
   setWebViewPIN(pin: string): Promise<void>;
   validatePIN(pin: string): Promise<boolean>;
   setWindowFullscreen(fullscreen: boolean): Promise<void>;
+  openWebView(url?: string): Promise<void>;
+  closeWebView(): Promise<void>;
   reloadKiosk(): Promise<void>;
   quitApp(): Promise<void>;
 
@@ -166,8 +170,52 @@ class WailsBackendService implements IBackendService {
     await WailsApp.SetWindowFullscreen(fullscreen);
   }
 
+  async openWebView(url?: string): Promise<void> {
+    const targetUrl = url || (await this.getWebViewConfig()).url;
+    if (targetUrl) {
+      try {
+        await WailsApp.NavigateToWebapp(targetUrl);
+      } catch {
+        /* fallback */
+      }
+      try {
+        await apiOpenWebView(targetUrl);
+      } catch {
+        /* fallback */
+      }
+      if (typeof window !== "undefined") {
+        window.location.href = targetUrl;
+      }
+    }
+  }
+
+  async closeWebView(): Promise<void> {
+    try {
+      await WailsApp.NavigateToLocalUI();
+    } catch {
+      /* fallback */
+    }
+    try {
+      await apiCloseWebView();
+    } catch {
+      /* fallback */
+    }
+    if (typeof window !== "undefined") {
+      window.location.href = "/";
+    }
+  }
+
   async reloadKiosk(): Promise<void> {
-    await WailsApp.ReloadKiosk();
+    try {
+      await WailsApp.ReloadKiosk();
+    } catch {
+      /* fallback */
+    }
+    try {
+      await apiReloadKiosk();
+    } catch {
+      /* fallback */
+    }
   }
 
   async quitApp(): Promise<void> {
@@ -320,6 +368,14 @@ class RemoteBackendService implements IBackendService {
     return Promise.resolve();
   }
 
+  async openWebView(url?: string): Promise<void> {
+    await apiOpenWebView(url);
+  }
+
+  async closeWebView(): Promise<void> {
+    await apiCloseWebView();
+  }
+
   async reloadKiosk(): Promise<void> {
     await apiReloadKiosk();
   }
@@ -381,6 +437,8 @@ class DynamicBackendService implements IBackendService {
   setWebViewEnabled(enabled: boolean) { return this.active.setWebViewEnabled(enabled); }
   setWebViewPIN(pin: string) { return this.active.setWebViewPIN(pin); }
   validatePIN(pin: string) { return this.active.validatePIN(pin); }
+  openWebView(url?: string) { return this.active.openWebView(url); }
+  closeWebView() { return this.active.closeWebView(); }
   setWindowFullscreen(fullscreen: boolean) {
     const w = window as unknown as Record<string, unknown>;
     const wails = w["wails"] as Record<string, unknown> | undefined;

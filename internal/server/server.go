@@ -16,7 +16,6 @@ import (
 	"epos-proxy/internal/printer"
 
 	"github.com/gofiber/fiber/v3"
-	"github.com/gofiber/fiber/v3/middleware/cors"
 	"github.com/google/uuid"
 )
 
@@ -42,6 +41,19 @@ type Server struct {
 	onKioskChanged  func(enabled bool)
 	onConfigChanged func()
 	onKioskReload   func()
+	onOpenWebapp    func(url string)
+	onCloseWebapp   func()
+	webappActive    atomic.Bool
+}
+
+// SetWebappActive updates the tracked state of whether the web application is open.
+func (s *Server) SetWebappActive(active bool) {
+	s.webappActive.Store(active)
+}
+
+// IsWebappActive returns true if the host webview is currently displaying the web application.
+func (s *Server) IsWebappActive() bool {
+	return s.webappActive.Load()
 }
 
 // SetKioskCallback registers a callback invoked when kiosk enabled status changes via HTTP API.
@@ -63,6 +75,20 @@ func (s *Server) SetKioskReloadCallback(cb func()) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.onKioskReload = cb
+}
+
+// SetOpenWebappCallback registers a callback invoked when remote open webapp is requested.
+func (s *Server) SetOpenWebappCallback(cb func(string)) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.onOpenWebapp = cb
+}
+
+// SetCloseWebappCallback registers a callback invoked when remote close webapp is requested.
+func (s *Server) SetCloseWebappCallback(cb func()) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.onCloseWebapp = cb
 }
 
 // SetSessionToken registers the trusted Wails session token.
@@ -90,6 +116,12 @@ func (s *Server) CreatePINSession(pin string) (string, bool) {
 // isAuthenticated returns true when c carries either the Wails token or a
 // valid PIN-session token.
 func (s *Server) isAuthenticated(c fiber.Ctx) bool {
+	// Localhost requests on the host machine/device are trusted
+	ip := c.IP()
+	if ip == "127.0.0.1" || ip == "::1" || ip == "localhost" {
+		return true
+	}
+
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -132,20 +164,15 @@ func New(port int, mgr *printer.Manager, cfg *config.Manager, distFS fs.FS) *Ser
 	})
 	srv.app = app
 
-	app.Use(cors.New(cors.Config{
-		AllowOrigins:        []string{"*"},
-		AllowMethods:        []string{"GET", "POST", "HEAD", "PUT", "DELETE", "PATCH", "OPTIONS"},
-		AllowHeaders:        []string{"*"},
-		AllowPrivateNetwork: true,
-	}))
-
-	// Ensure Access-Control-Allow-Private-Network is guaranteed on every response
+	// Comprehensive CORS & Private Network Access (PNA) middleware for local/remote webapps
 	app.Use(func(c fiber.Ctx) error {
+		c.Set("Access-Control-Allow-Origin", "*")
+		c.Set("Access-Control-Allow-Methods", "GET, POST, HEAD, PUT, DELETE, PATCH, OPTIONS")
+		c.Set("Access-Control-Allow-Headers", "*")
 		c.Set("Access-Control-Allow-Private-Network", "true")
+		c.Set("Access-Control-Max-Age", "86400")
+
 		if c.Method() == "OPTIONS" {
-			c.Set("Access-Control-Allow-Origin", "*")
-			c.Set("Access-Control-Allow-Methods", "GET, POST, HEAD, PUT, DELETE, PATCH, OPTIONS")
-			c.Set("Access-Control-Allow-Headers", "*")
 			return c.SendStatus(fiber.StatusNoContent)
 		}
 		return c.Next()
@@ -157,6 +184,7 @@ func New(port int, mgr *printer.Manager, cfg *config.Manager, distFS fs.FS) *Ser
 	app.Get("/api/printers", srv.handleGetPrinters)
 	app.Get("/api/printers/lan/:ip/status", srv.handleGetLANPrinterStatus)
 	app.Get("/api/webview", srv.handleGetWebView)
+	app.Get("/api/webview/poll-action", srv.handlePollWebviewAction)
 	app.Get("/api/troubleshoot", srv.handleGetTroubleshoot)
 	app.Get("/api/device-info", srv.handleGetDeviceInfo)
 	app.Post("/api/device-info", srv.handlePostDeviceInfo)
@@ -172,6 +200,8 @@ func New(port int, mgr *printer.Manager, cfg *config.Manager, distFS fs.FS) *Ser
 	app.Post("/api/webview/zoom", srv.requireAuth, srv.handleSetWebViewZoom)
 	app.Post("/api/webview/enabled", srv.requireAuth, srv.handleSetWebViewEnabled)
 	app.Post("/api/webview/reload", srv.requireAuth, srv.handleReloadWebView)
+	app.Post("/api/webview/open", srv.requireAuth, srv.handleOpenWebView)
+	app.Post("/api/webview/close", srv.requireAuth, srv.handleCloseWebView)
 
 	// Test-print / cash-drawer via proxy — privileged so random remote callers
 	// can't trigger prints, while Odoo POS continues to use the open /p/…
