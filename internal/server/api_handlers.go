@@ -375,23 +375,25 @@ func (s *Server) handleOpenWebView(c fiber.Ctx) error {
 	if targetURL == "" {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "no URL configured"})
 	}
+	s.SetWebappActive(true)
 	s.mu.RLock()
 	cb := s.onOpenWebapp
 	s.mu.RUnlock()
 	if cb != nil {
 		cb(targetURL)
 	}
-	return c.JSON(fiber.Map{"ok": true, "url": targetURL})
+	return c.JSON(fiber.Map{"ok": true, "url": targetURL, "isActive": true})
 }
 
 func (s *Server) handleCloseWebView(c fiber.Ctx) error {
+	s.SetWebappActive(false)
 	s.mu.RLock()
 	cb := s.onCloseWebapp
 	s.mu.RUnlock()
 	if cb != nil {
 		cb()
 	}
-	return c.JSON(fiber.Map{"ok": true})
+	return c.JSON(fiber.Map{"ok": true, "isActive": false})
 }
 
 // ── Privileged print-test / cash-drawer routes ────────────────────────────────

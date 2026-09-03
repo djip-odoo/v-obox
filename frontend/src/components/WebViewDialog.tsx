@@ -68,12 +68,6 @@ export default function WebViewDialog() {
     }
     if (cfg?.zoom && cfg.zoom > 0) {
       setZoom(cfg.zoom);
-      try {
-        (document.documentElement.style as any).zoom = String(cfg.zoom);
-        (document.body.style as any).zoom = String(cfg.zoom);
-      } catch {
-        /* ignore */
-      }
     }
   }, [cfg?.url, cfg?.zoom]);
 
@@ -101,12 +95,6 @@ export default function WebViewDialog() {
   const handleZoomChange = async (newZoom: number) => {
     const clamped = Math.round(Math.min(2.0, Math.max(0.5, newZoom)) * 100) / 100;
     setZoom(clamped);
-    try {
-      (document.documentElement.style as any).zoom = String(clamped);
-      (document.body.style as any).zoom = String(clamped);
-    } catch {
-      /* ignore */
-    }
     try {
       await actions.saveZoom(clamped);
     } catch (err) {

@@ -311,6 +311,36 @@ public class MainActivity extends AppCompatActivity {
                 // Now that JS listeners are mounted, push a snapshot of the
                 // current battery / network / theme so the UI starts populated.
                 emitSystemSnapshot();
+
+                // Apply zoom effect strictly to the external Web App, and keep Wails UI at 100% standard zoom
+                if (url != null && !url.contains(WAILS_HOST)) {
+                    new Thread(() -> {
+                        try {
+                            java.net.URL cfgUrl = new java.net.URL("http://127.0.0.1:4545/api/webview");
+                            java.net.HttpURLConnection conn = (java.net.HttpURLConnection) cfgUrl.openConnection();
+                            conn.setConnectTimeout(1000);
+                            conn.setReadTimeout(1000);
+                            if (conn.getResponseCode() == 200) {
+                                java.io.InputStream is = conn.getInputStream();
+                                java.util.Scanner s = new java.util.Scanner(is).useDelimiter("\\A");
+                                String resp = s.hasNext() ? s.next() : "";
+                                org.json.JSONObject obj = new org.json.JSONObject(resp);
+                                double zoom = obj.optDouble("zoom", 1.0);
+                                if (zoom > 0 && Math.abs(zoom - 1.0) > 0.01) {
+                                    runOnUiThread(() -> {
+                                        if (view != null) {
+                                            view.getSettings().setTextZoom((int) Math.round(zoom * 100));
+                                            view.evaluateJavascript("document.documentElement.style.zoom = '" + zoom + "';", null);
+                                        }
+                                    });
+                                }
+                            }
+                        } catch (Exception ignored) {}
+                    }).start();
+                } else if (view != null) {
+                    view.getSettings().setTextZoom(100);
+                    view.evaluateJavascript("document.documentElement.style.zoom = '1.0';", null);
+                }
             }
         });
 

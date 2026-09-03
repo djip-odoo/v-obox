@@ -356,15 +356,17 @@ func (a *App) SetWebViewURL(url string) error {
 	return a.config.SetWebViewURL(url)
 }
 
-// SetWebViewZoom persists the kiosk display zoom level and applies it to the active WebView.
+// SetWebViewZoom persists the kiosk display zoom level. If the Web App is currently active, it applies zoom immediately.
 func (a *App) SetWebViewZoom(zoom float64) error {
 	logger.Debugf("Setting WebView zoom: %v", zoom)
 	if err := a.config.SetWebViewZoom(zoom); err != nil {
 		return err
 	}
-	menubar.ApplyWebviewZoom(zoom)
-	if a.mainWindow != nil {
-		a.mainWindow.ExecJS(fmt.Sprintf("document.documentElement.style.zoom = '%f';", zoom))
+	if a.isWebappActive.Load() {
+		menubar.ApplyWebviewZoom(zoom)
+		if a.mainWindow != nil {
+			a.mainWindow.ExecJS(fmt.Sprintf("document.documentElement.style.zoom = '%f';", zoom))
+		}
 	}
 	a.EmitEvent("webview-config-changed")
 	return nil
@@ -398,6 +400,7 @@ func (a *App) NavigateToWebapp(url string) {
 		menubar.ApplyWebviewZoom(a.config.GetWebViewZoom())
 		a.mainWindow.SetURL(url)
 		a.mainWindow.ExecJS(fmt.Sprintf("window.location.href = %q;", url))
+		a.EmitEvent("webview-config-changed")
 	}
 }
 
@@ -409,8 +412,10 @@ func (a *App) NavigateToLocalUI() {
 			a.webserver.SetWebappActive(false)
 		}
 		a.SetWindowFullscreen(false)
+		menubar.ApplyWebviewZoom(1.0)
 		a.mainWindow.SetURL("/")
-		a.mainWindow.ExecJS("window.location.href = '/';")
+		a.mainWindow.ExecJS("document.documentElement.style.zoom = '1.0'; window.location.href = '/';")
+		a.EmitEvent("webview-config-changed")
 	}
 }
 
