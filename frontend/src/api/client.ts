@@ -44,6 +44,7 @@ export interface ApiWebViewConfig {
   enabled: boolean;
   hasPIN: boolean;
   zoom?: number;
+  isActive?: boolean;
 }
 
 export interface ApiAppVariable {

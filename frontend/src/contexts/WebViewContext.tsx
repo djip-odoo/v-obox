@@ -15,6 +15,7 @@ export type WebViewConfig = {
   enabled: boolean;
   hasPIN: boolean;
   zoom?: number;
+  isActive?: boolean;
 };
 
 type WebViewContextType = {
@@ -56,6 +57,14 @@ export const WebViewContextWrapper = ({
     try {
       const cfg = await backendService.getWebViewConfig();
       setConfig(cfg);
+      if (cfg.zoom && cfg.zoom > 0) {
+        try {
+          (document.documentElement.style as any).zoom = String(cfg.zoom);
+          (document.body.style as any).zoom = String(cfg.zoom);
+        } catch {
+          /* ignore */
+        }
+      }
 
       // Auto-activate kiosk ONCE on desktop initial startup if enabled in config
       if (
@@ -124,6 +133,12 @@ export const WebViewContextWrapper = ({
   };
 
   const saveZoom = async (zoom: number) => {
+    try {
+      (document.documentElement.style as any).zoom = String(zoom);
+      (document.body.style as any).zoom = String(zoom);
+    } catch {
+      /* ignore */
+    }
     await backendService.setWebViewZoom(zoom);
     const cfg = await backendService.getWebViewConfig();
     setConfig(cfg);

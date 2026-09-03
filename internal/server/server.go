@@ -43,6 +43,17 @@ type Server struct {
 	onKioskReload   func()
 	onOpenWebapp    func(url string)
 	onCloseWebapp   func()
+	webappActive    atomic.Bool
+}
+
+// SetWebappActive updates the tracked state of whether the web application is open.
+func (s *Server) SetWebappActive(active bool) {
+	s.webappActive.Store(active)
+}
+
+// IsWebappActive returns true if the host webview is currently displaying the web application.
+func (s *Server) IsWebappActive() bool {
+	return s.webappActive.Load()
 }
 
 // SetKioskCallback registers a callback invoked when kiosk enabled status changes via HTTP API.

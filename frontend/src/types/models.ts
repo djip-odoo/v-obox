@@ -40,6 +40,7 @@ export interface WebViewConfig {
   enabled: boolean;
   hasPIN: boolean;
   zoom?: number;
+  isActive?: boolean;
 }
 
 export interface DeviceInfo {

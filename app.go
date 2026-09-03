@@ -6,6 +6,7 @@ import (
 	"io/fs"
 	"os"
 	"runtime"
+	"sync/atomic"
 	"time"
 
 	"epos-proxy/internal/config"
@@ -69,6 +70,7 @@ type App struct {
 	autoStart      *autostart.App
 	dialogs        dialoger
 	sessionToken   string // trusted Wails-origin token set once in startup()
+	isWebappActive atomic.Bool
 }
 
 func (a *App) dlg() dialoger {
@@ -117,10 +119,11 @@ type AppVariable struct {
 
 // WebViewConfig is the public view of kiosk settings (PIN is never exposed).
 type WebViewConfig struct {
-	URL     string  `json:"url"`
-	Enabled bool    `json:"enabled"`
-	HasPIN  bool    `json:"hasPIN"`
-	Zoom    float64 `json:"zoom"`
+	URL      string  `json:"url"`
+	Enabled  bool    `json:"enabled"`
+	HasPIN   bool    `json:"hasPIN"`
+	Zoom     float64 `json:"zoom"`
+	IsActive bool    `json:"isActive"`
 }
 
 type Printers struct {
@@ -339,10 +342,11 @@ func (a *App) AddLANPrinter(ip string) error {
 // and whether a PIN has been set). The PIN itself is never returned.
 func (a *App) GetWebViewConfig() WebViewConfig {
 	return WebViewConfig{
-		URL:     a.config.GetWebViewURL(),
-		Enabled: a.config.GetWebViewEnabled(),
-		HasPIN:  a.config.HasWebViewPIN(),
-		Zoom:    a.config.GetWebViewZoom(),
+		URL:      a.config.GetWebViewURL(),
+		Enabled:  a.config.GetWebViewEnabled(),
+		HasPIN:   a.config.HasWebViewPIN(),
+		Zoom:     a.config.GetWebViewZoom(),
+		IsActive: a.isWebappActive.Load(),
 	}
 }
 
@@ -352,11 +356,15 @@ func (a *App) SetWebViewURL(url string) error {
 	return a.config.SetWebViewURL(url)
 }
 
-// SetWebViewZoom persists the kiosk display zoom level.
+// SetWebViewZoom persists the kiosk display zoom level and applies it to the active WebView.
 func (a *App) SetWebViewZoom(zoom float64) error {
 	logger.Debugf("Setting WebView zoom: %v", zoom)
 	if err := a.config.SetWebViewZoom(zoom); err != nil {
 		return err
+	}
+	menubar.ApplyWebviewZoom(zoom)
+	if a.mainWindow != nil {
+		a.mainWindow.ExecJS(fmt.Sprintf("document.documentElement.style.zoom = '%f';", zoom))
 	}
 	a.EmitEvent("webview-config-changed")
 	return nil
@@ -377,12 +385,17 @@ func (a *App) ValidateWebViewPIN(pin string) bool {
 // NavigateToWebapp navigates the main Wails WebView directly to the configured webapp URL.
 func (a *App) NavigateToWebapp(url string) {
 	if a.mainWindow != nil && url != "" {
+		a.isWebappActive.Store(true)
+		if a.webserver != nil {
+			a.webserver.SetWebappActive(true)
+		}
 		if a.config.GetWebViewEnabled() {
 			a.SetWindowFullscreen(true)
 		} else {
 			a.SetWindowFullscreen(false)
 		}
 		menubar.ConfigureWebviewSettings()
+		menubar.ApplyWebviewZoom(a.config.GetWebViewZoom())
 		a.mainWindow.SetURL(url)
 		a.mainWindow.ExecJS(fmt.Sprintf("window.location.href = %q;", url))
 	}
@@ -391,6 +404,10 @@ func (a *App) NavigateToWebapp(url string) {
 // NavigateToLocalUI navigates the main Wails WebView back to the local administration UI.
 func (a *App) NavigateToLocalUI() {
 	if a.mainWindow != nil {
+		a.isWebappActive.Store(false)
+		if a.webserver != nil {
+			a.webserver.SetWebappActive(false)
+		}
 		a.SetWindowFullscreen(false)
 		a.mainWindow.SetURL("/")
 		a.mainWindow.ExecJS("window.location.href = '/';")

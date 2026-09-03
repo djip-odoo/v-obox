@@ -13,3 +13,7 @@ func RegisterKioskExitGesture(callback func()) {
 // ConfigureWebviewSettings is a no-op fallback on non-Linux platforms.
 func ConfigureWebviewSettings() {
 }
+
+// ApplyWebviewZoom is a no-op fallback on non-Linux platforms.
+func ApplyWebviewZoom(zoom float64) {
+}

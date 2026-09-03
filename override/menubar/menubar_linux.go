@@ -130,6 +130,37 @@ static gboolean configure_webviews_idle(gpointer data) {
 static void configure_webviews(void) {
     g_idle_add(configure_webviews_idle, NULL);
 }
+
+static void apply_zoom_to_webview(GtkWidget *widget, gpointer data) {
+    if (!widget) return;
+    if (WEBKIT_IS_WEB_VIEW(widget)) {
+        double zoom = *(double *)data;
+        webkit_web_view_set_zoom_level(WEBKIT_WEB_VIEW(widget), zoom);
+    }
+    for (GtkWidget *child = gtk_widget_get_first_child(widget); child != NULL; child = gtk_widget_get_next_sibling(child)) {
+        apply_zoom_to_webview(child, data);
+    }
+}
+
+static gboolean apply_zoom_idle(gpointer data) {
+    GListModel *toplevels = gtk_window_get_toplevels();
+    guint n = g_list_model_get_n_items(toplevels);
+    for (guint i = 0; i < n; i++) {
+        GtkWindow *w = GTK_WINDOW(g_list_model_get_item(toplevels, i));
+        if (w) {
+            apply_zoom_to_webview(GTK_WIDGET(w), data);
+            g_object_unref(w);
+        }
+    }
+    g_free(data);
+    return G_SOURCE_REMOVE;
+}
+
+static void set_webview_zoom_level(double zoom) {
+    double *zoom_ptr = g_new(double, 1);
+    *zoom_ptr = zoom;
+    g_idle_add(apply_zoom_idle, zoom_ptr);
+}
 */
 import "C"
 
@@ -160,4 +191,11 @@ func SetNativeMenubarVisible(visible bool) {
 // ConfigureWebviewSettings ensures WebKitGTK settings for localStorage, indexedDB, and media are enabled.
 func ConfigureWebviewSettings() {
 	C.configure_webviews()
+}
+
+// ApplyWebviewZoom applies the given zoom level to all WebKit WebViews on Linux.
+func ApplyWebviewZoom(zoom float64) {
+	if zoom > 0 {
+		C.set_webview_zoom_level(C.double(zoom))
+	}
 }

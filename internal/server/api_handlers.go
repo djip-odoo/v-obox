@@ -44,10 +44,11 @@ type apiPrintersResponse struct {
 }
 
 type apiWebViewConfig struct {
-	URL     string  `json:"url"`
-	Enabled bool    `json:"enabled"`
-	HasPIN  bool    `json:"hasPIN"`
-	Zoom    float64 `json:"zoom"`
+	URL      string  `json:"url"`
+	Enabled  bool    `json:"enabled"`
+	HasPIN   bool    `json:"hasPIN"`
+	Zoom     float64 `json:"zoom"`
+	IsActive bool    `json:"isActive"`
 }
 
 type apiTroubleshootInfo struct {
@@ -189,10 +190,11 @@ func (s *Server) handleGetWebView(c fiber.Ctx) error {
 		return c.JSON(apiWebViewConfig{})
 	}
 	return c.JSON(apiWebViewConfig{
-		URL:     s.cfg.GetWebViewURL(),
-		Enabled: s.cfg.GetWebViewEnabled(),
-		HasPIN:  s.cfg.HasWebViewPIN(),
-		Zoom:    s.cfg.GetWebViewZoom(),
+		URL:      s.cfg.GetWebViewURL(),
+		Enabled:  s.cfg.GetWebViewEnabled(),
+		HasPIN:   s.cfg.HasWebViewPIN(),
+		Zoom:     s.cfg.GetWebViewZoom(),
+		IsActive: s.IsWebappActive(),
 	})
 }
 
