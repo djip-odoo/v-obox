@@ -369,6 +369,11 @@ func (a *App) ValidateWebViewPIN(pin string) bool {
 // NavigateToWebapp navigates the main Wails WebView directly to the configured webapp URL.
 func (a *App) NavigateToWebapp(url string) {
 	if a.mainWindow != nil && url != "" {
+		if a.config.GetWebViewEnabled() {
+			a.SetWindowFullscreen(true)
+		} else {
+			a.SetWindowFullscreen(false)
+		}
 		a.mainWindow.SetURL(url)
 		a.mainWindow.ExecJS(fmt.Sprintf("window.location.href = %q;", url))
 	}
@@ -377,6 +382,7 @@ func (a *App) NavigateToWebapp(url string) {
 // NavigateToLocalUI navigates the main Wails WebView back to the local administration UI.
 func (a *App) NavigateToLocalUI() {
 	if a.mainWindow != nil {
+		a.SetWindowFullscreen(false)
 		a.mainWindow.SetURL("/")
 		a.mainWindow.ExecJS("window.location.href = '/';")
 	}

@@ -33,9 +33,21 @@ func createMenu(app *application.App, appService *App) *application.Menu {
 		appService.DownloadLogs()
 	})
 
-	appMenu.Add("Exit Kiosk").SetAccelerator("Escape").OnClick(func(_ *application.Context) {
-		logger.Infof("Exit Kiosk requested from menu")
+	appMenu.Add("Open Web App").OnClick(func(_ *application.Context) {
+		url := appService.config.GetWebViewURL()
+		if url != "" {
+			appService.NavigateToWebapp(url)
+		}
+	})
+
+	appMenu.Add("Switch to App UI").OnClick(func(_ *application.Context) {
+		appService.NavigateToLocalUI()
+	})
+
+	appMenu.Add("Exit Lockdown").SetAccelerator("Escape").OnClick(func(_ *application.Context) {
+		logger.Infof("Exit Lockdown requested from menu")
 		_ = appService.SetWebViewEnabled(false)
+		appService.NavigateToLocalUI()
 	})
 
 	appMenu.AddSeparator()

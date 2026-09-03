@@ -107,12 +107,7 @@ export default function WebViewDialog() {
 
     const trimmedUrl = url.trim();
 
-    if (!trimmedUrl) {
-      setLocalError("URL cannot be empty.");
-      return false;
-    }
-
-    if (!isValidUrl(trimmedUrl)) {
+    if (trimmedUrl && !isValidUrl(trimmedUrl)) {
       setLocalError(
         "Enter a valid URL (must start with http:// or https://)."
       );
@@ -125,16 +120,13 @@ export default function WebViewDialog() {
     }
 
     try {
-      await actions.saveURL(trimmedUrl);
-      await actions.saveZoom(zoom);
-      await actions.toggleEnabled(true);
-
-      if (isWails) {
-        window.location.href = trimmedUrl;
+      if (trimmedUrl) {
+        await actions.saveURL(trimmedUrl);
       }
+      await actions.saveZoom(zoom);
 
       toastContext.actions.showToast(
-        "Kiosk settings saved and opened",
+        "Settings saved successfully",
         "success"
       );
       return true;
@@ -144,7 +136,8 @@ export default function WebViewDialog() {
     }
   };
 
-  const handleOpenKiosk = async () => {
+  const handleLaunchWebapp = async () => {
+    setLocalError(null);
     const targetUrl = url.trim() || cfg?.url || "";
 
     if (!targetUrl || !isValidUrl(targetUrl)) {
@@ -152,52 +145,54 @@ export default function WebViewDialog() {
       return;
     }
 
-    const pinVerified = await showPINDialog();
-    if (!pinVerified) {
-      return;
-    }
-
     try {
       await actions.saveURL(targetUrl);
       await actions.saveZoom(zoom);
-      await actions.toggleEnabled(true);
 
       if (isWails) {
+        if (cfg?.enabled) {
+          await backendService.setWindowFullscreen(true);
+        } else {
+          await backendService.setWindowFullscreen(false);
+        }
         window.location.href = targetUrl;
       }
 
       toastContext.actions.showToast(
-        "Kiosk opened",
+        "Opening Web App...",
         "success"
       );
     } catch (err: unknown) {
-      setLocalError(String(err) || "Failed to open kiosk.");
+      setLocalError(String(err) || "Failed to launch Web App.");
     }
   };
 
-  const handleCloseKiosk = async () => {
+  const handleToggleLockdown = async () => {
+    setLocalError(null);
+    const newEnabled = !cfg?.enabled;
+
+    if (newEnabled && !cfg?.hasPIN) {
+      setLocalError("Set an admin PIN before enabling lockdown mode.");
+      return;
+    }
+
     const pinVerified = await showPINDialog();
     if (!pinVerified) {
       return;
     }
 
     try {
-      await actions.toggleEnabled(false);
+      if (url.trim() && isValidUrl(url.trim())) {
+        await actions.saveURL(url.trim());
+      }
+      await actions.toggleEnabled(newEnabled);
 
       toastContext.actions.showToast(
-        "Kiosk closed",
+        newEnabled ? "Lockdown mode enabled" : "Lockdown mode disabled",
         "success"
       );
     } catch (err: unknown) {
-      setLocalError(String(err) || "Failed to close kiosk.");
-    }
-  };
-
-  const handleToggleKiosk = async () => {
-    if (isKioskCurrentlyActive) {
-      await handleCloseKiosk();
-    } else {
-      await handleOpenKiosk();
+      setLocalError(String(err) || "Failed to toggle lockdown mode.");
     }
   };
 
@@ -227,7 +222,7 @@ export default function WebViewDialog() {
 
   const getStatusText = () => {
     if (isKioskCurrentlyActive) {
-      return "Kiosk mode is currently running.";
+      return "Lockdown mode is currently active (fullscreen kiosk).";
     }
 
     if (!url.trim()) {
@@ -238,11 +233,7 @@ export default function WebViewDialog() {
       return "The URL format is not supported.";
     }
 
-    if (!cfg?.hasPIN) {
-      return "Set an admin PIN before enabling kiosk mode.";
-    }
-
-    return "Ready to launch kiosk mode.";
+    return "Web App configured and ready to open.";
   };
 
   const dialogActions = [
@@ -254,10 +245,15 @@ export default function WebViewDialog() {
     },
     {
       name: "save",
-      label: isKioskCurrentlyActive
-        ? "Save Changes"
-        : "Save & Open Kiosk",
+      label: "Save Settings",
       onClick: saveSettings,
+      disabled: Boolean(url.trim() && !isUrlValid),
+      variant: "secondary" as ActionType,
+    },
+    {
+      name: "launch",
+      label: "Open Web App",
+      onClick: handleLaunchWebapp,
       disabled: !isUrlValid,
       variant: "primary" as ActionType,
     },
@@ -474,12 +470,26 @@ export default function WebViewDialog() {
 
             {/* URL */}
             <div className="mt-4">
-              <label
-                htmlFor="kiosk-url"
-                className="mb-1.5 block text-xs font-medium text-gray-700"
-              >
-                POS Web Application URL
-              </label>
+              <div className="flex items-center justify-between mb-1.5">
+                <label
+                  htmlFor="kiosk-url"
+                  className="block text-xs font-medium text-gray-700"
+                >
+                  POS Web Application URL
+                </label>
+                {isUrlValid && (
+                  <button
+                    type="button"
+                    onClick={handleLaunchWebapp}
+                    className="inline-flex items-center gap-1 text-xs font-semibold text-odoo hover:text-odoo-hover transition-colors cursor-pointer"
+                  >
+                    <span>Launch</span>
+                    <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                    </svg>
+                  </button>
+                )}
+              </div>
 
               <div className="relative">
                 <input
@@ -505,8 +515,41 @@ export default function WebViewDialog() {
               </div>
 
               <p className="mt-1.5 text-[11px] text-gray-500">
-                Use the URL of your Odoo POS Self Order / Kiosk page.
+                Enter your Odoo POS URL (HTTP or HTTPS). You can open it anytime in standard windowed mode or locked down in fullscreen.
               </p>
+            </div>
+
+            {/* Launch Web App Card */}
+            <div className="mt-4 flex items-center justify-between gap-3 rounded-xl border border-odoo/20 bg-odoo/5 p-3.5">
+              <div>
+                <div className="text-xs font-semibold text-gray-900">
+                  Switch to Web Application
+                </div>
+                <div className="text-[11px] text-gray-600">
+                  {cfg?.enabled
+                    ? "Opens the Web App in Fullscreen Lockdown Mode."
+                    : "Opens the Web App in standard window mode."}
+                </div>
+              </div>
+
+              <button
+                type="button"
+                disabled={!isUrlValid}
+                onClick={handleLaunchWebapp}
+                className={`
+                  inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-semibold text-white shadow-xs transition-colors
+                  ${isUrlValid
+                    ? "bg-odoo hover:bg-odoo-hover cursor-pointer"
+                    : "bg-gray-300 cursor-not-allowed opacity-60"
+                  }
+                `}
+              >
+                <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                <span>Open Web App</span>
+              </button>
             </div>
 
             {/* Display Zoom */}
@@ -517,7 +560,7 @@ export default function WebViewDialog() {
                     htmlFor="kiosk-zoom"
                     className="block text-xs font-medium text-gray-700"
                   >
-                    Iframe Display Zoom
+                    Display Zoom
                   </label>
                   <p className="text-[11px] text-gray-500">
                     Scale the POS interface up or down to fit your display.
@@ -655,37 +698,37 @@ export default function WebViewDialog() {
                     Admin PIN required
                   </div>
                   <div className="mt-0.5 text-amber-700">
-                    Set a PIN in the App settings before enabling kiosk mode.
+                    Set a PIN in the App settings before enabling lockdown mode.
                   </div>
                 </div>
               </div>
             )}
 
-            {/* Toggle */}
+            {/* Lockdown Mode Toggle */}
             <div className="mt-4 flex items-center justify-between border-t border-gray-200 pt-3">
               <div>
                 <div className="text-xs font-medium text-gray-800">
-                  Enable lockdown mode
+                  Lockdown mode (Fullscreen Kiosk)
                 </div>
 
                 <div className="text-[11px] text-gray-500">
-                  Open the configured page in fullscreen.
+                  When enabled, running the web app locks down the display in fullscreen and requires admin PIN to exit.
                 </div>
               </div>
 
               <button
                 type="button"
                 disabled={!canEnable}
-                onClick={handleToggleKiosk}
+                onClick={handleToggleLockdown}
                 aria-label={
-                  isKioskCurrentlyActive
+                  cfg?.enabled
                     ? "Disable lockdown mode"
                     : "Enable lockdown mode"
                 }
                 className={`
                   relative h-6 w-11 shrink-0 rounded-full
                   transition-colors
-                  ${isKioskCurrentlyActive
+                  ${cfg?.enabled
                     ? "bg-odoo"
                     : "bg-gray-300"
                   }
@@ -700,7 +743,7 @@ export default function WebViewDialog() {
                     absolute top-1 h-4 w-4
                     rounded-full bg-white shadow-sm
                     transition-transform
-                    ${isKioskCurrentlyActive
+                    ${cfg?.enabled
                       ? "left-6"
                       : "left-1"
                     }
