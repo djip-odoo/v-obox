@@ -324,6 +324,7 @@ public class MainActivity extends AppCompatActivity {
 
                 if (view != null && url != null) {
                     if (isExternalWebapp(url)) {
+                        isWebappActive = true;
                         view.setInitialScale(0);
                         if (currentWebappZoom > 0 && Math.abs(currentWebappZoom - 1.0) > 0.01) {
                             view.evaluateJavascript(
@@ -332,8 +333,11 @@ public class MainActivity extends AppCompatActivity {
                             view.evaluateJavascript(
                                 "document.documentElement.style.zoom = '1.0';", null);
                         }
+                        checkAndEnforceExternalWebappLockdown();
                     } else {
-                        // Wails UI: always 100% standard mobile scale
+                        // Wails UI: always 100% standard mobile scale, unpinned and non-fullscreen
+                        isWebappActive = false;
+                        setFullscreenMode(false);
                         view.setInitialScale(0);
                         view.evaluateJavascript(
                             "document.documentElement.style.zoom = '1.0';", null);
@@ -1043,6 +1047,7 @@ public class MainActivity extends AppCompatActivity {
 
     @Override
     protected void onDestroy() {
+        stopKioskLockTask();
         super.onDestroy();
         unregisterSystemEventReceivers();
         if (bridge != null) {
@@ -1187,11 +1192,12 @@ public class MainActivity extends AppCompatActivity {
     public void stopKioskLockTask() {
         try {
             int state = getLockTaskModeState();
-            if (state != ActivityManager.LOCK_TASK_MODE_NONE) {
-                Log.i(TAG, "Stopping LockTask (current state=" + state + ")");
-                stopLockTask();
-            }
+            Log.i(TAG, "Stopping LockTask (current state=" + state + ")");
+            stopLockTask();
         } catch (Exception e) {
+            try {
+                stopLockTask();
+            } catch (Exception ignored) {}
             Log.e(TAG, "Failed to stop LockTask", e);
         }
     }
@@ -1325,6 +1331,7 @@ public class MainActivity extends AppCompatActivity {
     public void quitAppWithLauncherPrompt() {
         runOnUiThread(() -> {
             try {
+                stopKioskLockTask();
                 try {
                     getPackageManager().clearPackagePreferredActivities(getPackageName());
                 } catch (Exception ignored) {}
@@ -1340,6 +1347,7 @@ public class MainActivity extends AppCompatActivity {
                 finishAndRemoveTask();
             } catch (Exception e) {
                 Log.e(TAG, "Error during quitAppWithLauncherPrompt", e);
+                stopKioskLockTask();
                 finishAndRemoveTask();
             }
         });
@@ -1379,6 +1387,30 @@ public class MainActivity extends AppCompatActivity {
             }
         }
         return super.dispatchTouchEvent(ev);
+    }
+
+    private void checkAndEnforceExternalWebappLockdown() {
+        new Thread(() -> {
+            try {
+                java.net.URL cfgUrl = new java.net.URL("http://127.0.0.1:4545/api/webview");
+                java.net.HttpURLConnection conn = (java.net.HttpURLConnection) cfgUrl.openConnection();
+                conn.setConnectTimeout(1000);
+                conn.setReadTimeout(1000);
+                if (conn.getResponseCode() == 200) {
+                    java.io.InputStream is = conn.getInputStream();
+                    java.util.Scanner s = new java.util.Scanner(is).useDelimiter("\\A");
+                    String resp = s.hasNext() ? s.next() : "";
+                    org.json.JSONObject obj = new org.json.JSONObject(resp);
+                    boolean enabled = obj.optBoolean("enabled", false);
+                    runOnUiThread(() -> {
+                        String currentUrl = webView != null ? webView.getUrl() : "";
+                        if (isExternalWebapp(currentUrl)) {
+                            setFullscreenMode(enabled);
+                        }
+                    });
+                }
+            } catch (Exception ignored) {}
+        }).start();
     }
 
     private void promptPINToCloseWebapp() {
@@ -1450,7 +1482,7 @@ public class MainActivity extends AppCompatActivity {
             final boolean isSuccess = valid;
             if (isSuccess) {
                 try {
-                    java.net.URL closeUrl = new java.net.URL("http://127.0.0.1:4545/api/webview/close");
+                    java.net.URL closeUrl = new java.net.URL("http://127.0.0.1:4545/api/webview/close?pin=" + java.net.URLEncoder.encode(pin, "UTF-8"));
                     java.net.HttpURLConnection closeConn = (java.net.HttpURLConnection) closeUrl.openConnection();
                     closeConn.setRequestMethod("POST");
                     closeConn.setRequestProperty("Content-Type", "application/json");
@@ -1462,6 +1494,7 @@ public class MainActivity extends AppCompatActivity {
                 if (isSuccess) {
                     isWebappActive = false;
                     setFullscreenMode(false);
+                    stopKioskLockTask();
                     if (webView != null) {
                         webView.setInitialScale(0);
                         webView.evaluateJavascript("document.documentElement.style.zoom = '1.0';", null);
@@ -1497,6 +1530,7 @@ public class MainActivity extends AppCompatActivity {
         if (webView != null && webView.canGoBack()) {
             webView.goBack();
         } else {
+            stopKioskLockTask();
             super.onBackPressed();
         }
     }
@@ -1563,13 +1597,17 @@ public class MainActivity extends AppCompatActivity {
                                     }
                                     if (webView != null && !targetUrl.isEmpty()) {
                                         webView.setInitialScale(0);
-                                        webView.loadUrl(targetUrl);
+                                        String currentUrl = webView.getUrl();
+                                        if (!targetUrl.equals(currentUrl)) {
+                                            webView.loadUrl(targetUrl);
+                                        }
                                     }
                                 });
                             } else if ("close".equals(action)) {
                                 isWebappActive = false;
                                 runOnUiThread(() -> {
                                     setFullscreenMode(false);
+                                    stopKioskLockTask();
                                     if (webView != null) {
                                         webView.setInitialScale(0);
                                         webView.evaluateJavascript("document.documentElement.style.zoom = '1.0';", null);
@@ -1585,7 +1623,14 @@ public class MainActivity extends AppCompatActivity {
                             } else if ("lockdown".equals(action)) {
                                 boolean fs = obj.optBoolean("fullscreen", false);
                                 runOnUiThread(() -> {
-                                    setFullscreenMode(fs);
+                                    if (fs) {
+                                        String currentUrl = webView != null ? webView.getUrl() : "";
+                                        if (isWebappActive || isExternalWebapp(currentUrl)) {
+                                            setFullscreenMode(true);
+                                        }
+                                    } else {
+                                        setFullscreenMode(false);
+                                    }
                                 });
                             } else if ("zoom".equals(action)) {
                                 double zoomLevel = obj.optDouble("zoom", 1.0);

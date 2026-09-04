@@ -57,13 +57,14 @@ static void on_gesture_pressed(GtkGestureClick *gesture, int n_press, double x, 
     if (!widget) return;
     int width = gtk_widget_get_width(widget);
     int height = gtk_widget_get_height(widget);
-    gboolean is_corner = (x <= 80 && y <= 80) // Top-Left
-                      || (x >= (width - 80) && y <= 80 && width > 80) // Top-Right
-                      || (x <= 80 && y >= (height - 80) && height > 80) // Bottom-Left
-                      || (x >= (width - 80) && y >= (height - 80) && width > 80 && height > 80); // Bottom-Right
+    int r = 120;
+    gboolean is_corner = (x <= r && y <= r) // Top-Left
+                      || (x >= (width - r) && y <= r && width > r) // Top-Right
+                      || (x <= r && y >= (height - r) && height > r) // Bottom-Left
+                      || (x >= (width - r) && y >= (height - r) && width > r && height > r); // Bottom-Right
     if (is_corner) {
         guint32 now = (guint32)(g_get_monotonic_time() / 1000);
-        if (now - last_tap_time > 1200) {
+        if (now - last_tap_time > 2000) {
             tap_count = 0;
         }
         last_tap_time = now;
@@ -78,8 +79,13 @@ static void on_gesture_pressed(GtkGestureClick *gesture, int n_press, double x, 
 static void attach_gesture_listener(GtkWidget *widget, gpointer data) {
     if (!widget) return;
     configure_webkit_view(widget, data);
+    if (g_object_get_data(G_OBJECT(widget), "kiosk_gesture_attached")) {
+        return;
+    }
+    g_object_set_data(G_OBJECT(widget), "kiosk_gesture_attached", GINT_TO_POINTER(1));
     GtkGesture *click = gtk_gesture_click_new();
-    gtk_gesture_single_set_button(GTK_GESTURE_SINGLE(click), GDK_BUTTON_PRIMARY);
+    gtk_gesture_single_set_button(GTK_GESTURE_SINGLE(click), 0);
+    gtk_event_controller_set_propagation_phase(GTK_EVENT_CONTROLLER(click), GTK_PHASE_CAPTURE);
     g_signal_connect(click, "pressed", G_CALLBACK(on_gesture_pressed), NULL);
     gtk_widget_add_controller(widget, GTK_EVENT_CONTROLLER(click));
 }
@@ -94,11 +100,11 @@ static gboolean setup_gestures_idle(gpointer data) {
             g_object_unref(w);
         }
     }
-    return G_SOURCE_REMOVE;
+    return G_SOURCE_CONTINUE;
 }
 
 static void setup_kiosk_gestures(void) {
-    g_idle_add(setup_gestures_idle, NULL);
+    g_timeout_add(500, setup_gestures_idle, NULL);
 }
 
 static gboolean contains_or_is_webview(GtkWidget *widget) {

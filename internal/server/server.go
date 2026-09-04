@@ -202,6 +202,7 @@ func New(port int, mgr *printer.Manager, cfg *config.Manager, distFS fs.FS) *Ser
 	app.Post("/api/webview/reload", srv.requireAuth, srv.handleReloadWebView)
 	app.Post("/api/webview/open", srv.requireAuth, srv.handleOpenWebView)
 	app.Post("/api/webview/close", srv.requireAuth, srv.handleCloseWebView)
+	app.Get("/api/webview/close", srv.requireAuth, srv.handleCloseWebView)
 
 	// Test-print / cash-drawer via proxy — privileged so random remote callers
 	// can't trigger prints, while Odoo POS continues to use the open /p/…

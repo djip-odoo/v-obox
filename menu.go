@@ -85,3 +85,47 @@ func handleNetworkPrintingToggle(appService *App, ctx *application.Context) {
 func (a *App) ConfirmQuit() bool {
 	return a.dlg().Question("Quit ePOS Proxy", "Stopping the proxy will prevent POS from printing receipts.\n\nAre you sure you want to quit?")
 }
+
+func createTrayMenu(app *application.App, appService *App) *application.Menu {
+	trayMenu := app.NewMenu()
+
+	trayMenu.Add("Open ePOS Proxy").OnClick(func(_ *application.Context) {
+		showMainWindow(appService)
+	})
+
+	trayMenu.AddSeparator()
+
+	trayMenu.AddCheckbox("Auto Start", appService.IsAutostartEnabled()).OnClick(func(ctx *application.Context) {
+		handleAutoStartToggle(appService, ctx)
+	})
+
+	trayMenu.AddCheckbox("Allow Network Printing", appService.IsNetworkPrintingEnabled()).OnClick(func(ctx *application.Context) {
+		handleNetworkPrintingToggle(appService, ctx)
+	})
+
+	trayMenu.Add("Download Logs").OnClick(func(_ *application.Context) {
+		appService.DownloadLogs()
+	})
+
+	trayMenu.AddSeparator()
+
+	trayMenu.Add("Quit").OnClick(func(_ *application.Context) {
+		if appService.ConfirmQuit() {
+			logger.Infof("Quit requested by user")
+			app.Quit()
+		}
+	})
+
+	return trayMenu
+}
+
+func showMainWindow(appService *App) {
+	if appService.mainWindow != nil {
+		if appService.mainWindow.IsMinimised() {
+			appService.mainWindow.UnMinimise()
+		}
+		appService.mainWindow.Show()
+		appService.mainWindow.Focus()
+	}
+}
+

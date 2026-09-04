@@ -201,6 +201,12 @@ func (a *App) startup() {
 	a.webserver.SetKioskReloadCallback(func() {
 		a.ReloadKiosk()
 	})
+	a.webserver.SetKioskCallback(func(enabled bool) {
+		if a.isWebappActive.Load() {
+			a.SetWindowFullscreen(enabled)
+		}
+		a.EmitEvent("webview-config-changed")
+	})
 	a.webserver.SetOpenWebappCallback(func(url string) {
 		a.NavigateToWebapp(url)
 	})
@@ -210,7 +216,26 @@ func (a *App) startup() {
 
 	menubar.RegisterKioskExitGesture(func() {
 		logger.Infof("Native kiosk exit gesture triggered")
-		a.NavigateToLocalUI()
+		if !a.isWebappActive.Load() {
+			return
+		}
+		if a.config != nil && a.config.HasWebViewPIN() {
+			port := 4545
+			if a.webserver != nil && a.webserver.Port > 0 {
+				port = a.webserver.Port
+			}
+			promptJS := fmt.Sprintf(`(function() {
+				var pin = window.prompt("Enter Admin PIN to return to Wails app:");
+				if (pin) {
+					window.location.href = "http://127.0.0.1:%d/api/webview/close?pin=" + encodeURIComponent(pin);
+				}
+			})();`, port)
+			if a.mainWindow != nil {
+				a.mainWindow.ExecJS(promptJS)
+			}
+		} else {
+			a.NavigateToLocalUI()
+		}
 	})
 
 	menubar.ConfigureWebviewSettings()
@@ -386,18 +411,25 @@ func (a *App) ValidateWebViewPIN(pin string) bool {
 
 // NavigateToWebapp navigates the main Wails WebView directly to the configured webapp URL.
 func (a *App) NavigateToWebapp(url string) {
-	if a.mainWindow != nil && url != "" {
-		a.isWebappActive.Store(true)
-		if a.webserver != nil {
-			a.webserver.SetWebappActive(true)
-		}
-		if a.config.GetWebViewEnabled() {
-			a.SetWindowFullscreen(true)
-		} else {
-			a.SetWindowFullscreen(false)
-		}
+	if url == "" {
+		return
+	}
+	a.isWebappActive.Store(true)
+	if a.webserver != nil {
+		a.webserver.SetWebappActive(true)
+	}
+	fullscreen := a.config.GetWebViewEnabled()
+	zoom := a.config.GetWebViewZoom()
+	if fullscreen {
+		a.SetWindowFullscreen(true)
+	} else {
+		a.SetWindowFullscreen(false)
+	}
+	if a.webserver != nil {
+		a.webserver.PostWebviewAction("open", url, fullscreen, zoom)
+	}
+	if a.mainWindow != nil {
 		menubar.ConfigureWebviewSettings()
-		zoom := a.config.GetWebViewZoom()
 		menubar.ApplyWebviewZoom(zoom)
 		a.mainWindow.SetURL(url)
 		a.mainWindow.ExecJS(fmt.Sprintf("window.location.href = %q;", url))
@@ -405,7 +437,7 @@ func (a *App) NavigateToWebapp(url string) {
 		if a.webserver != nil && a.webserver.Port > 0 {
 			port = a.webserver.Port
 		}
-		gestureScript := cornerGestureJS(port)
+		gestureScript := cornerGestureJS(port, a.config.HasWebViewPIN())
 		go func() {
 			time.Sleep(500 * time.Millisecond)
 			if a.isWebappActive.Load() && a.mainWindow != nil {
@@ -422,34 +454,29 @@ func (a *App) NavigateToWebapp(url string) {
 				}
 			}
 		}()
-		a.EmitEvent("webview-config-changed")
 	}
+	a.EmitEvent("webview-config-changed")
 }
 
 // NavigateToLocalUI navigates the main Wails WebView back to the local administration UI.
 func (a *App) NavigateToLocalUI() {
+	a.isWebappActive.Store(false)
+	if a.webserver != nil {
+		a.webserver.SetWebappActive(false)
+		a.webserver.PostWebviewAction("close", "", false, 1.0)
+	}
+	a.SetWindowFullscreen(false)
+	menubar.ApplyWebviewZoom(1.0)
 	if a.mainWindow != nil {
-		a.isWebappActive.Store(false)
-		if a.webserver != nil {
-			a.webserver.SetWebappActive(false)
-		}
-		a.SetWindowFullscreen(false)
-		menubar.ApplyWebviewZoom(1.0)
-		port := 4545
-		if a.webserver != nil && a.webserver.Port > 0 {
-			port = a.webserver.Port
-		}
-		localURL := fmt.Sprintf("http://127.0.0.1:%d/", port)
-		a.mainWindow.SetURL(localURL)
-		a.mainWindow.ExecJS(fmt.Sprintf("document.documentElement.style.zoom = '1.0'; window.location.href = %q;", localURL))
+		a.mainWindow.SetURL("/")
 		go func() {
-			time.Sleep(500 * time.Millisecond)
+			time.Sleep(300 * time.Millisecond)
 			if !a.isWebappActive.Load() && a.mainWindow != nil {
 				a.mainWindow.ExecJS("document.documentElement.style.zoom = '1.0';")
 			}
 		}()
-		a.EmitEvent("webview-config-changed")
 	}
+	a.EmitEvent("webview-config-changed")
 }
 
 // SetWebViewEnabled persists the lockdown (fullscreen kiosk) mode flag and toggles fullscreen if webapp is active.
@@ -457,6 +484,12 @@ func (a *App) SetWebViewEnabled(v bool) error {
 	logger.Debugf("Setting WebView lockdown enabled: %v", v)
 	if err := a.config.SetWebViewEnabled(v); err != nil {
 		return err
+	}
+	if a.isWebappActive.Load() {
+		a.SetWindowFullscreen(v)
+	}
+	if a.webserver != nil {
+		a.webserver.PostWebviewAction("lockdown", "", v, 1.0)
 	}
 	a.EmitEvent("webview-config-changed")
 	return nil
@@ -469,19 +502,12 @@ func (a *App) SetWindowFullscreen(fullscreen bool) {
 		if fullscreen {
 			a.mainWindow.Fullscreen()
 			a.mainWindow.HideMenuBar()
-			a.mainWindow.SetMenu(nil)
-			if a.wailsApp != nil {
-				a.wailsApp.Menu.Set(nil)
-			}
 			menubar.SetNativeMenubarVisible(false)
 			menubar.SetNativeFullscreen(true)
 			go func() {
 				for _, delay := range []time.Duration{100 * time.Millisecond, 300 * time.Millisecond, 800 * time.Millisecond} {
 					time.Sleep(delay)
 					if a.isWebappActive.Load() || a.config.GetWebViewEnabled() {
-						a.mainWindow.Fullscreen()
-						a.mainWindow.HideMenuBar()
-						a.mainWindow.SetMenu(nil)
 						menubar.SetNativeMenubarVisible(false)
 						menubar.SetNativeFullscreen(true)
 					}
@@ -490,11 +516,6 @@ func (a *App) SetWindowFullscreen(fullscreen bool) {
 		} else {
 			a.mainWindow.UnFullscreen()
 			a.mainWindow.ShowMenuBar()
-			if a.wailsApp != nil && runtime.GOOS != "android" {
-				appMenu := createMenu(a.wailsApp, a)
-				a.wailsApp.Menu.Set(appMenu)
-				a.mainWindow.SetMenu(appMenu)
-			}
 			menubar.SetNativeMenubarVisible(true)
 			menubar.SetNativeFullscreen(false)
 		}

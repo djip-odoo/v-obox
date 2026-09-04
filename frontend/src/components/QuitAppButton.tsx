@@ -75,7 +75,7 @@ export default function QuitAppButton() {
                 Quit Application
               </h3>
               <p className="text-sm text-gray-600 mb-6">
-                Are you sure you want to close and exit the application?
+                Stopping the proxy will prevent POS from printing receipts. Are you sure you want to quit?
               </p>
               <div className="flex gap-3 justify-end">
                 <button

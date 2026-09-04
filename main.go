@@ -11,10 +11,15 @@ import (
 	"epos-proxy/override/menubar"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
+	"github.com/wailsapp/wails/v3/pkg/events"
+	"github.com/wailsapp/wails/v3/pkg/icons"
 )
 
 //go:embed all:frontend/dist
 var assets embed.FS
+
+//go:embed build/appicon.png
+var appIcon []byte
 
 func main() {
 	if runtime.GOOS == "linux" {
@@ -97,34 +102,59 @@ func main() {
 		UseApplicationMenu:         !isKiosk,
 		DevToolsEnabled:            isDev,
 		DefaultContextMenuDisabled: !isDev,
-		JS:                         cornerGestureJS(port),
+		JS:                         cornerGestureJS(port, appService.config.HasWebViewPIN()),
 	})
 	appService.mainWindow = mainWindow
+
+	var isQuitting bool
+	mainWindow.RegisterHook(events.Common.WindowClosing, func(e *application.WindowEvent) {
+		if isQuitting {
+			return
+		}
+		if appService.ConfirmQuit() {
+			isQuitting = true
+			logger.Infof("Quit requested by user")
+			app.Quit()
+		} else {
+			e.Cancel()
+		}
+	})
 
 	if isKiosk {
 		appService.isWebappActive.Store(true)
 		menubar.ApplyWebviewZoom(appService.config.GetWebViewZoom())
-		mainWindow.Fullscreen()
-		mainWindow.HideMenuBar()
-		mainWindow.SetMenu(nil)
 		menubar.SetNativeMenubarVisible(false)
 		menubar.SetNativeFullscreen(true)
 		go func() {
 			for _, delay := range []time.Duration{100 * time.Millisecond, 300 * time.Millisecond, 800 * time.Millisecond, 1500 * time.Millisecond} {
 				time.Sleep(delay)
 				if appService.isWebappActive.Load() {
-					mainWindow.Fullscreen()
-					mainWindow.HideMenuBar()
-					mainWindow.SetMenu(nil)
 					menubar.SetNativeMenubarVisible(false)
 					menubar.SetNativeFullscreen(true)
 					menubar.ApplyWebviewZoom(appService.config.GetWebViewZoom())
 				}
 			}
 		}()
-	} else if runtime.GOOS != "android" {
-		appMenu := createMenu(app, appService)
-		app.Menu.Set(appMenu)
+	}
+
+	if runtime.GOOS != "android" {
+		if !isKiosk {
+			appMenu := createMenu(app, appService)
+			app.Menu.Set(appMenu)
+		}
+
+		systemTray := app.SystemTray.New()
+		if len(appIcon) > 0 {
+			systemTray.SetIcon(appIcon)
+		}
+		if runtime.GOOS == "darwin" {
+			systemTray.SetTemplateIcon(icons.SystrayMacTemplate)
+		}
+		systemTray.SetTooltip("ePOS Proxy")
+		systemTray.SetMenu(createTrayMenu(app, appService))
+		systemTray.OnClick(func() {
+			showMainWindow(appService)
+		})
 	}
 
 	if err := app.Run(); err != nil {
@@ -132,61 +162,58 @@ func main() {
 	}
 }
 
-func cornerGestureJS(port int) string {
+func cornerGestureJS(port int, hasPIN bool) string {
 	return fmt.Sprintf(`(function() {
     if (window.__kioskGestureInitialized) return;
     window.__kioskGestureInitialized = true;
     var lastTap = 0;
     var tapCount = 0;
     var port = %d;
-    window.addEventListener('pointerdown', function(e) {
+    var requiresPIN = %t;
+    function handleTap(e) {
         if (window.location.pathname === '/' && (window.location.hostname === '127.0.0.1' || window.location.hostname === 'localhost')) {
             return;
         }
         var x = e.clientX;
         var y = e.clientY;
+        if (x === undefined && e.touches && e.touches.length > 0) {
+            x = e.touches[0].clientX;
+            y = e.touches[0].clientY;
+        }
+        if (x === undefined && e.changedTouches && e.changedTouches.length > 0) {
+            x = e.changedTouches[0].clientX;
+            y = e.changedTouches[0].clientY;
+        }
+        if (x === undefined || y === undefined) return;
         var w = window.innerWidth;
         var h = window.innerHeight;
-        var r = 80;
+        var r = 120;
         var isCorner = (x <= r && y <= r) ||
                        (x >= w - r && y <= r) ||
                        (x <= r && y >= h - r) ||
                        (x >= w - r && y >= h - r);
         if (isCorner) {
             var now = Date.now();
-            if (now - lastTap > 1200) {
+            if (now - lastTap < 80) return;
+            if (now - lastTap > 2000) {
                 tapCount = 0;
             }
             lastTap = now;
             tapCount++;
             if (tapCount >= 4) {
                 tapCount = 0;
-                fetch('http://127.0.0.1:' + port + '/api/webview')
-                    .then(function(res) { return res.json(); })
-                    .then(function(cfg) {
-                        if (cfg && cfg.hasPIN) {
-                            var pin = window.prompt("Enter Admin PIN to exit web application:");
-                            if (!pin) return;
-                            fetch('http://127.0.0.1:' + port + '/api/auth/session', {
-                                method: 'POST',
-                                headers: { 'Content-Type': 'application/json' },
-                                body: JSON.stringify({ pin: pin })
-                            }).then(function(authRes) {
-                                if (authRes.ok) {
-                                    fetch('http://127.0.0.1:' + port + '/api/webview/close', { method: 'POST' });
-                                } else {
-                                    alert("Incorrect PIN");
-                                }
-                            });
-                        } else {
-                            fetch('http://127.0.0.1:' + port + '/api/webview/close', { method: 'POST' });
-                        }
-                    })
-                    .catch(function() {
-                        fetch('http://127.0.0.1:' + port + '/api/webview/close', { method: 'POST' });
-                    });
+                var target = 'http://127.0.0.1:' + port + '/api/webview/close';
+                if (requiresPIN) {
+                    var pin = window.prompt("Enter Admin PIN to return to Wails app:");
+                    if (!pin) return;
+                    target += '?pin=' + encodeURIComponent(pin);
+                }
+                window.location.href = target;
             }
         }
-    }, true);
-})();`, port)
+    }
+    window.addEventListener('pointerdown', handleTap, true);
+    window.addEventListener('touchstart', handleTap, true);
+    window.addEventListener('mousedown', handleTap, true);
+})();`, port, hasPIN)
 }

@@ -33,6 +33,7 @@ import {
   Printer,
   Printers,
   TroubleshootInfo,
+  UnavailablePrinter,
   WebViewConfig,
 } from "../types/models";
 
@@ -80,17 +81,33 @@ class WailsBackendService implements IBackendService {
   readonly isWails = true;
 
   async getAppVariable(): Promise<AppVariable> {
-    const res = await WailsApp.AppVariable();
-    return res as unknown as AppVariable;
+    try {
+      const res = await WailsApp.AppVariable();
+      return res as unknown as AppVariable;
+    } catch (err) {
+      console.warn("WailsApp.AppVariable failed, falling back to HTTP API:", err);
+      const res = await apiGetAppVariable();
+      return res as unknown as AppVariable;
+    }
   }
 
   async getTroubleshootInfo(): Promise<TroubleshootInfo> {
-    const res = await WailsApp.GetTroubleshootInfo();
-    return res as unknown as TroubleshootInfo;
+    try {
+      const res = await WailsApp.GetTroubleshootInfo();
+      return res as unknown as TroubleshootInfo;
+    } catch (err) {
+      console.warn("WailsApp.GetTroubleshootInfo failed, falling back to HTTP API:", err);
+      const res = await apiGetTroubleshootInfo();
+      return res as unknown as TroubleshootInfo;
+    }
   }
 
   async getNetworkPrintingEnabled(): Promise<boolean> {
-    return await WailsApp.IsNetworkPrintingEnabled();
+    try {
+      return await WailsApp.IsNetworkPrintingEnabled();
+    } catch {
+      return false;
+    }
   }
 
   async setNetworkPrintingEnabled(v: boolean): Promise<void> {
@@ -98,7 +115,11 @@ class WailsBackendService implements IBackendService {
   }
 
   async getAutostart(): Promise<boolean> {
-    return await WailsApp.IsAutostartEnabled();
+    try {
+      return await WailsApp.IsAutostartEnabled();
+    } catch {
+      return false;
+    }
   }
 
   async setAutostart(v: boolean): Promise<void> {
@@ -110,13 +131,27 @@ class WailsBackendService implements IBackendService {
   }
 
   async getPrinters(): Promise<Printers> {
-    const p = await WailsApp.Printers();
-    return (p ?? { printers: [], unavailablePrinters: [], errorMsg: "" }) as unknown as Printers;
+    try {
+      const p = await WailsApp.Printers();
+      return (p ?? { printers: [], unavailablePrinters: [], errorMsg: "" }) as unknown as Printers;
+    } catch (err) {
+      console.warn("WailsApp.Printers failed, falling back to HTTP API:", err);
+      const res = await apiGetPrinters();
+      return {
+        printers: res.printers as unknown as Printer[],
+        unavailablePrinters: (res.unavailablePrinters || []) as unknown as UnavailablePrinter[],
+        errorMsg: res.errorMsg || "",
+      };
+    }
   }
 
   async checkLANPrinterStatus(ip: string): Promise<{ online: boolean }> {
-    const online = await WailsApp.CheckLANPrinterStatus(ip);
-    return { online: Boolean(online) };
+    try {
+      const online = await WailsApp.CheckLANPrinterStatus(ip);
+      return { online: Boolean(online) };
+    } catch {
+      return await apiGetLANPrinterStatus(ip);
+    }
   }
 
   async addLANPrinter(ip: string): Promise<void> {
@@ -137,8 +172,14 @@ class WailsBackendService implements IBackendService {
   }
 
   async getWebViewConfig(): Promise<WebViewConfig> {
-    const res = await WailsApp.GetWebViewConfig();
-    return res as unknown as WebViewConfig;
+    try {
+      const res = await WailsApp.GetWebViewConfig();
+      return res as unknown as WebViewConfig;
+    } catch (err) {
+      console.warn("WailsApp.GetWebViewConfig failed, falling back to HTTP API:", err);
+      const res = await apiGetWebViewConfig();
+      return res as unknown as WebViewConfig;
+    }
   }
 
   async setWebViewURL(url: string): Promise<void> {
@@ -150,7 +191,28 @@ class WailsBackendService implements IBackendService {
   }
 
   async setWebViewEnabled(enabled: boolean): Promise<void> {
-    await WailsApp.SetWebViewEnabled(enabled);
+    const w = window as unknown as Record<string, unknown>;
+    const wails = w["wails"] as Record<string, unknown> | undefined;
+    if (typeof wails?.["setFullscreen"] === "function") {
+      try {
+        const cfg = await this.getWebViewConfig();
+        if (cfg.isActive) {
+          (wails["setFullscreen"] as (v: boolean) => void)(enabled);
+        }
+      } catch {
+        /* ignore */
+      }
+    }
+    try {
+      await WailsApp.SetWebViewEnabled(enabled);
+    } catch {
+      /* fallback */
+    }
+    try {
+      await apiSetWebViewEnabled(enabled);
+    } catch {
+      /* fallback */
+    }
   }
 
   async setWebViewPIN(pin: string): Promise<void> {
@@ -171,8 +233,14 @@ class WailsBackendService implements IBackendService {
   }
 
   async openWebView(url?: string): Promise<void> {
-    const targetUrl = url || (await this.getWebViewConfig()).url;
+    const cfg = await this.getWebViewConfig();
+    const targetUrl = url || cfg.url;
     if (targetUrl) {
+      const w = window as unknown as Record<string, unknown>;
+      const wails = w["wails"] as Record<string, unknown> | undefined;
+      if (cfg.enabled && typeof wails?.["setFullscreen"] === "function") {
+        (wails["setFullscreen"] as (v: boolean) => void)(true);
+      }
       try {
         await WailsApp.NavigateToWebapp(targetUrl);
       } catch {
@@ -190,6 +258,11 @@ class WailsBackendService implements IBackendService {
   }
 
   async closeWebView(): Promise<void> {
+    const w = window as unknown as Record<string, unknown>;
+    const wails = w["wails"] as Record<string, unknown> | undefined;
+    if (typeof wails?.["setFullscreen"] === "function") {
+      (wails["setFullscreen"] as (v: boolean) => void)(false);
+    }
     try {
       await WailsApp.NavigateToLocalUI();
     } catch {

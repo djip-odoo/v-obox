@@ -5,6 +5,7 @@ import (
 	"os"
 	"runtime"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -351,6 +352,8 @@ func (s *Server) handleSetWebViewEnabled(c fiber.Ctx) error {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
 
+	s.PostWebviewAction("lockdown", "", req.Enabled, 1.0)
+
 	s.mu.RLock()
 	cb := s.onKioskChanged
 	s.mu.RUnlock()
@@ -476,6 +479,35 @@ func (s *Server) handleOpenWebView(c fiber.Ctx) error {
 }
 
 func (s *Server) handleCloseWebView(c fiber.Ctx) error {
+	if s.cfg != nil && s.cfg.HasWebViewPIN() {
+		authHeader := c.Get("Authorization")
+		token := strings.TrimPrefix(authHeader, "Bearer ")
+		isSessionValid := false
+		if token != "" {
+			s.mu.RLock()
+			isSessionValid = s.sessions[token]
+			s.mu.RUnlock()
+		}
+
+		pin := c.Query("pin")
+		if pin == "" {
+			var body struct {
+				PIN string `json:"pin"`
+			}
+			_ = bindJSON(c, &body)
+			pin = body.PIN
+		}
+
+		if !isSessionValid && !s.cfg.CheckWebViewPIN(pin) {
+			logger.Warn("Invalid PIN provided to close webapp")
+			if c.Method() == "GET" {
+				c.Set("Content-Type", "text/html")
+				return c.Status(fiber.StatusUnauthorized).SendString("<script>alert('Incorrect Admin PIN'); window.history.back();</script>")
+			}
+			return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "invalid pin"})
+		}
+	}
+
 	s.SetWebappActive(false)
 	s.PostWebviewAction("close", "", false, 1.0)
 	s.mu.RLock()
@@ -483,6 +515,9 @@ func (s *Server) handleCloseWebView(c fiber.Ctx) error {
 	s.mu.RUnlock()
 	if cb != nil {
 		cb()
+	}
+	if c.Method() == "GET" {
+		return c.Redirect().To("/")
 	}
 	return c.JSON(fiber.Map{"ok": true, "isActive": false})
 }
