@@ -10,11 +10,11 @@
     <Installer
         Path="epos-proxy"
         Arguments=""
-        InstallLocation="C:\Program Files\My Company\My Product">
+        InstallLocation="C:\Program Files\My Company\Obox App">
     </Installer>
     <PackageInformation
-        PackageName="My Product"
-        PackageDisplayName="My Product"
+        PackageName="Obox App"
+        PackageDisplayName="Obox App"
         PublisherName="CN=My Company"
         PublisherDisplayName="My Company"
         Version="0.1.0.0"
@@ -27,7 +27,7 @@
             <Application
                 Id="com.example.epos-proxy"
                 Description="A epos-proxy application"
-                DisplayName="My Product"
+                DisplayName="Obox App"
                 ExecutableName="epos-proxy"
                 EntryPoint="Windows.FullTrustApplication">
                 
@@ -41,7 +41,7 @@
         </Dependencies>
         <Properties>
             <Framework>false</Framework>
-            <DisplayName>My Product</DisplayName>
+            <DisplayName>Obox App</DisplayName>
             <PublisherDisplayName>My Company</PublisherDisplayName>
             <Description>A epos-proxy application</Description>
             <Logo>Assets\AppIcon.png</Logo>

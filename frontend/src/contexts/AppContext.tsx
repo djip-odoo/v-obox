@@ -36,6 +36,7 @@ export type AppContextType = {
     isWindows: boolean;
     isMac: boolean;
     isLinux: boolean;
+    isAndroid: boolean;
     serverIsRunning: boolean;
   };
   actions: Record<string, never>;
@@ -69,6 +70,7 @@ export const AppContextWrapper = ({ children }: AppContextWrapperProps) => {
     isWindows: os === "windows",
     isMac: os === "darwin",
     isLinux: os === "linux",
+    isAndroid: os === "android",
     serverIsRunning: app?.serverRunning ?? false,
   };
   const setters = {} as Record<string, never>;

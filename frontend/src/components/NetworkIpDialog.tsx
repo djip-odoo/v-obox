@@ -135,7 +135,7 @@ export default function NetworkIpDialog() {
             <input
               ref={(element) => {
                 inputRefs.current[index] = element;
-                if (index === 0) {
+                if (index === 0 && !ipParts.some((part) => part)) {
                   element?.focus();
                 }
               }}

@@ -14,7 +14,7 @@
     ProcessorArchitecture="x64" />
   
   <Properties>
-    <DisplayName>My Product</DisplayName>
+    <DisplayName>Obox App</DisplayName>
     <PublisherDisplayName>My Company</PublisherDisplayName>
     <Description>A epos-proxy application</Description>
     <Logo>Assets\StoreLogo.png</Logo>
@@ -31,7 +31,7 @@
   <Applications>
     <Application Id="com.example.epos-proxy" Executable="epos-proxy" EntryPoint="Windows.FullTrustApplication">
       <uap:VisualElements
-        DisplayName="My Product"
+        DisplayName="Obox App"
         Description="A epos-proxy application"
         BackgroundColor="transparent"
         Square150x150Logo="Assets\Square150x150Logo.png"

@@ -29,7 +29,7 @@ export function isValidUrl(urlStr: string): boolean {
 }
 
 export default function WebViewDialog() {
-  const { data: { isWails } } = useContext(AppContext);
+  const { data: { isWails, isAndroid } } = useContext(AppContext);
   const toastContext = useContext(ToastContext);
   const { data, actions } = useContext(WebViewContext);
   const { showPINDialog } = useContext(PINContext);
@@ -316,9 +316,8 @@ export default function WebViewDialog() {
               `}
             >
               <span
-                className={`h-1.5 w-1.5 rounded-full ${
-                  isKioskCurrentlyActive ? "bg-emerald-500 animate-pulse" : "bg-gray-400"
-                }`}
+                className={`h-1.5 w-1.5 rounded-full ${isKioskCurrentlyActive ? "bg-emerald-500 animate-pulse" : "bg-gray-400"
+                  }`}
               />
               {isKioskCurrentlyActive ? "Active" : "Standby"}
             </span>
@@ -603,7 +602,7 @@ export default function WebViewDialog() {
         {/* ============================================================
             LOCKDOWN & SECURITY TOGGLE
         ============================================================ */}
-        <section className="rounded-xl border border-gray-200 bg-white p-4 shadow-xs">
+        {isAndroid && <section className="rounded-xl border border-gray-200 bg-white p-4 shadow-xs">
           <div className="flex items-center justify-between">
             <div className="pr-4">
               <div className="flex items-center gap-2">
@@ -664,7 +663,7 @@ export default function WebViewDialog() {
               </button>
             </div>
           )}
-        </section>
+        </section>}
 
         {/* ============================================================
             REMOTE ACCESS SECTION (QR + IP)
@@ -691,24 +690,23 @@ export default function WebViewDialog() {
               <div className="shrink-0 rounded-lg border border-gray-200 bg-white p-2 shadow-xs">
                 <QRCodeSVG value={serverUrl} size={105} level="M" />
               </div>
-
-              <div className="min-w-0 flex-1 text-center sm:text-left">
-                <div className="text-xs font-bold text-gray-800">Direct Network Address</div>
-                <div className="mt-1.5 flex items-center gap-2 rounded-lg border border-gray-300 bg-white p-1.5 shadow-xs">
-                  <span className="min-w-0 flex-1 px-2 py-0.5 text-xs font-mono text-gray-800 select-all break-all">
-                    {serverUrl}
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => copyServerUrl(serverUrl)}
-                    className={`
+            </div>
+            <div className="min-w-0 flex-1 text-center sm:text-left">
+              <div className="text-xs font-bold text-gray-800">Direct Network Address</div>
+              <div className="mt-1.5 flex items-center gap-2 rounded-lg border border-gray-300 bg-white p-1.5 shadow-xs">
+                <span className="min-w-0 flex-1 px-2 py-0.5 text-xs font-mono text-gray-800 select-all break-all">
+                  {serverUrl}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => copyServerUrl(serverUrl)}
+                  className={`
                       inline-flex shrink-0 items-center gap-1 rounded-md px-2.5 py-1 text-xs font-medium text-white shadow-xs transition-colors cursor-pointer
                       ${copiedUrl ? "bg-emerald-600 hover:bg-emerald-700" : "bg-odoo hover:bg-odoo-dark"}
                     `}
-                  >
-                    {copiedUrl ? "Copied!" : "Copy"}
-                  </button>
-                </div>
+                >
+                  {copiedUrl ? "Copied!" : "Copy"}
+                </button>
               </div>
             </div>
           </section>
@@ -717,16 +715,19 @@ export default function WebViewDialog() {
         {/* ============================================================
             SECURITY / GESTURE NOTICE
         ============================================================ */}
-        <div className="flex items-start gap-2.5 rounded-xl bg-slate-50 border border-slate-200/80 p-3 text-xs text-slate-600">
-          <svg className="mt-0.5 h-4 w-4 shrink-0 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-          </svg>
-          <p className="text-[11px] leading-relaxed">
-            {isWails
-              ? "To exit fullscreen kiosk mode while running the POS, quickly tap any screen corner 4 times and enter your admin PIN."
-              : "Kiosk fullscreen mode runs directly on the local display. You can control and configure settings remotely from this interface."}
-          </p>
-        </div>
+        {
+          isAndroid &&
+          <div className="flex items-start gap-2.5 rounded-xl bg-slate-50 border border-slate-200/80 p-3 text-xs text-slate-600">
+            <svg className="mt-0.5 h-4 w-4 shrink-0 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            <p className="text-[11px] leading-relaxed">
+              {isWails
+                ? "To exit fullscreen kiosk mode while running the POS, quickly tap any screen corner 4 times and enter your admin PIN."
+                : "Kiosk fullscreen mode runs directly on the local display. You can control and configure settings remotely from this interface."}
+            </p>
+          </div>
+        }
 
       </div>
     </Dialog>

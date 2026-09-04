@@ -185,6 +185,7 @@ func (a *App) startup() {
 	// Notify the desktop frontend when kiosk status or config is modified remotely
 	a.webserver.SetKioskCallback(func(enabled bool) {
 		a.EmitEvent("kiosk-state-changed", enabled)
+		a.SetWindowFullscreen(enabled)
 	})
 	a.webserver.SetConfigCallback(func() {
 		// Re-apply zoom to the desktop webview when config is changed remotely

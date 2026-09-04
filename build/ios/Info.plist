@@ -7,9 +7,9 @@
     <key>CFBundleIdentifier</key>
     <string>com.epos-proxy.app</string>
     <key>CFBundleName</key>
-    <string>My Product</string>
+    <string>Obox App</string>
     <key>CFBundleDisplayName</key>
-    <string>My Product</string>
+    <string>Obox App</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>
