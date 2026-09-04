@@ -58,9 +58,7 @@ static void on_gesture_pressed(GtkGestureClick *gesture, int n_press, double x, 
     int width = gtk_widget_get_width(widget);
     int height = gtk_widget_get_height(widget);
     int r = 120;
-    gboolean is_corner = (x <= r && y <= r) // Top-Left
-                      || (x >= (width - r) && y <= r && width > r) // Top-Right
-                      || (x <= r && y >= (height - r) && height > r) // Bottom-Left
+    gboolean is_corner = (x <= r && y >= (height - r) && height > r) // Bottom-Left
                       || (x >= (width - r) && y >= (height - r) && width > r && height > r); // Bottom-Right
     if (is_corner) {
         guint32 now = (guint32)(g_get_monotonic_time() / 1000);

@@ -727,7 +727,7 @@ export default function WebViewDialog() {
           </svg>
           <p className="text-[11px] leading-relaxed">
             {isWails
-              ? "To exit fullscreen kiosk mode while running the POS, quickly tap any screen corner 4 times and enter your admin PIN."
+              ? "To exit fullscreen kiosk mode while running the POS, quickly tap either bottom corner 4 times and enter your admin PIN."
               : "Kiosk fullscreen mode runs directly on the local display. You can control and configure settings remotely from this interface."}
           </p>
         </div>

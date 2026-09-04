@@ -193,9 +193,7 @@ func cornerGestureJS(port int, hasPIN bool) string {
         var w = window.innerWidth;
         var h = window.innerHeight;
         var r = 120;
-        var isCorner = (x <= r && y <= r) ||
-                       (x >= w - r && y <= r) ||
-                       (x <= r && y >= h - r) ||
+        var isCorner = (x <= r && y >= h - r) ||
                        (x >= w - r && y >= h - r);
         if (isCorner) {
             var now = Date.now();

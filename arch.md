@@ -15,7 +15,7 @@
 2. **Dual Execution Runtime**:
    - **Desktop Application (Wails POS Station)**: Runs native windowed UI or fullscreen Kiosk mode on the physical POS terminal.
    - **Remote Webview (Admin Panel)**: Serves the exact same React management interface over LAN at `http://<lan-ip>:<port>/` for remote administration from phones, tablets, or other workstations.
-3. **Hardware Kiosk Mode**: Fullscreen POS kiosk execution with a secret 4-tap corner unlock gesture, configurable URL validation patterns, and remote open/close/reload triggers.
+3. **Hardware Kiosk Mode**: Fullscreen POS kiosk execution with a secret 4-tap bottom corner unlock gesture, configurable URL validation patterns, and remote open/close/reload triggers.
 4. **Security & Privilege Model**: Read-only monitoring over LAN; privileged operations (printing, drawer triggers, LAN printer modification, kiosk configuration) are gated behind a 4-digit security PIN with session-based tokens.
 
 ---
@@ -201,7 +201,7 @@ Kiosk mode displays an embedded POS terminal fullscreen.
 
 #### Key Rules of Kiosk Execution:
 1. **Desktop-Only View**: Fullscreen kiosk mode and the `<KioskOverlay />` iframe mount **strictly on the desktop Wails process** (`isWails === true`). The remote webview operates solely as an administrative console.
-2. **Secret Unlock Gesture**: While fullscreen on desktop, tapping the **top-right corner 4 times quickly** within 1000ms triggers the floating PIN unlock modal.
+2. **Secret Unlock Gesture**: While fullscreen on desktop, tapping either **bottom corner 4 times quickly** within 2000ms triggers the PIN exit flow.
 3. **Instant Remote Triggering**: Remote browsers can open, close, or reload the desktop kiosk screen via authenticated API calls.
 ---
 

@@ -1552,9 +1552,7 @@ public class MainActivity extends AppCompatActivity {
                 int width = getResources().getDisplayMetrics().widthPixels;
                 int height = getResources().getDisplayMetrics().heightPixels;
                 float radiusPx = 80 * getResources().getDisplayMetrics().density;
-                boolean isCorner = (x <= radiusPx && y <= radiusPx) // Top-Left
-                                || (x >= width - radiusPx && y <= radiusPx) // Top-Right
-                                || (x <= radiusPx && y >= height - radiusPx) // Bottom-Left
+                boolean isCorner = (x <= radiusPx && y >= height - radiusPx) // Bottom-Left
                                 || (x >= width - radiusPx && y >= height - radiusPx); // Bottom-Right
                 if (isCorner) {
                     long now = System.currentTimeMillis();
