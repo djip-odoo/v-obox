@@ -23,6 +23,12 @@ tasks:
     summary: Builds the application
     cmds:
       - task: "{{.GOOS}}:build"
+        vars:
+          DEV: '{{.DEV}}'
+          ARCH: '{{.ARCH}}'
+          EXTRA_TAGS: '{{.EXTRA_TAGS}}'
+          OBFUSCATED: '{{.OBFUSCATED}}'
+          GARBLE_ARGS: '{{.GARBLE_ARGS}}'
 
   package:
     summary: Packages a production build of the application
@@ -43,6 +49,13 @@ tasks:
     summary: Runs the application in development mode
     cmds:
       - wails3 dev -config ./build/config.yml -port {{.VITE_PORT}}
+
+  dev:windows:
+    summary: Runs the application in development mode for Windows
+    cmds:
+      - task: windows:dev
+        vars:
+          VITE_PORT: '{{.VITE_PORT}}'
 
   setup:docker:
     summary: Builds Docker image for cross-compilation (~800MB download)

@@ -17,3 +17,7 @@ func ConfigureWebviewSettings() {
 // ApplyWebviewZoom is a no-op fallback on non-Linux platforms.
 func ApplyWebviewZoom(zoom float64) {
 }
+
+// SetNativeFullscreen is a no-op fallback on non-Linux platforms.
+func SetNativeFullscreen(fullscreen bool) {
+}

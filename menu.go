@@ -33,22 +33,6 @@ func createMenu(app *application.App, appService *App) *application.Menu {
 		appService.DownloadLogs()
 	})
 
-	appMenu.Add("Open Web App").OnClick(func(_ *application.Context) {
-		url := appService.config.GetWebViewURL()
-		if url != "" {
-			appService.NavigateToWebapp(url)
-		}
-	})
-
-	appMenu.Add("Switch to App UI").OnClick(func(_ *application.Context) {
-		appService.NavigateToLocalUI()
-	})
-
-	appMenu.Add("Return to Proxy Settings").SetAccelerator("Escape").OnClick(func(_ *application.Context) {
-		logger.Infof("Return to Proxy Settings requested from menu")
-		appService.NavigateToLocalUI()
-	})
-
 	appMenu.AddSeparator()
 
 	appMenu.Add("Quit").OnClick(func(_ *application.Context) {

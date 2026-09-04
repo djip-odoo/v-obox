@@ -130,6 +130,30 @@ static void set_menubars_visible(int visible) {
     g_idle_add(set_all_menubars_visible_idle, GINT_TO_POINTER(visible));
 }
 
+static gboolean set_native_fullscreen_idle(gpointer data) {
+    gboolean fullscreen = GPOINTER_TO_INT(data);
+    GListModel *toplevels = gtk_window_get_toplevels();
+    guint n = g_list_model_get_n_items(toplevels);
+    for (guint i = 0; i < n; i++) {
+        GtkWindow *w = GTK_WINDOW(g_list_model_get_item(toplevels, i));
+        if (w) {
+            if (fullscreen) {
+                gtk_window_fullscreen(w);
+                find_and_set_menubar_visibility(GTK_WIDGET(w), GINT_TO_POINTER(0));
+            } else {
+                gtk_window_unfullscreen(w);
+                find_and_set_menubar_visibility(GTK_WIDGET(w), GINT_TO_POINTER(1));
+            }
+            g_object_unref(w);
+        }
+    }
+    return G_SOURCE_REMOVE;
+}
+
+static void set_window_fullscreen_native(int fullscreen) {
+    g_idle_add(set_native_fullscreen_idle, GINT_TO_POINTER(fullscreen));
+}
+
 static gboolean configure_webviews_idle(gpointer data) {
     GListModel *toplevels = gtk_window_get_toplevels();
     guint n = g_list_model_get_n_items(toplevels);
@@ -214,5 +238,14 @@ func ConfigureWebviewSettings() {
 func ApplyWebviewZoom(zoom float64) {
 	if zoom > 0 {
 		C.set_webview_zoom_level(C.double(zoom))
+	}
+}
+
+// SetNativeFullscreen directly sets the GTK window fullscreen state on Linux.
+func SetNativeFullscreen(fullscreen bool) {
+	if fullscreen {
+		C.set_window_fullscreen_native(1)
+	} else {
+		C.set_window_fullscreen_native(0)
 	}
 }

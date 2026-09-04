@@ -401,18 +401,27 @@ func (a *App) NavigateToWebapp(url string) {
 		menubar.ApplyWebviewZoom(zoom)
 		a.mainWindow.SetURL(url)
 		a.mainWindow.ExecJS(fmt.Sprintf("window.location.href = %q;", url))
-		if zoom > 0 {
-			go func() {
-				time.Sleep(500 * time.Millisecond)
-				if a.isWebappActive.Load() && a.mainWindow != nil {
-					a.mainWindow.ExecJS(fmt.Sprintf("document.documentElement.style.zoom = '%f';", zoom))
-				}
-				time.Sleep(1500 * time.Millisecond)
-				if a.isWebappActive.Load() && a.mainWindow != nil {
-					a.mainWindow.ExecJS(fmt.Sprintf("document.documentElement.style.zoom = '%f';", zoom))
-				}
-			}()
+		port := 4545
+		if a.webserver != nil && a.webserver.Port > 0 {
+			port = a.webserver.Port
 		}
+		gestureScript := cornerGestureJS(port)
+		go func() {
+			time.Sleep(500 * time.Millisecond)
+			if a.isWebappActive.Load() && a.mainWindow != nil {
+				a.mainWindow.ExecJS(gestureScript)
+				if zoom > 0 {
+					a.mainWindow.ExecJS(fmt.Sprintf("document.documentElement.style.zoom = '%f';", zoom))
+				}
+			}
+			time.Sleep(1500 * time.Millisecond)
+			if a.isWebappActive.Load() && a.mainWindow != nil {
+				a.mainWindow.ExecJS(gestureScript)
+				if zoom > 0 {
+					a.mainWindow.ExecJS(fmt.Sprintf("document.documentElement.style.zoom = '%f';", zoom))
+				}
+			}
+		}()
 		a.EmitEvent("webview-config-changed")
 	}
 }
@@ -449,13 +458,6 @@ func (a *App) SetWebViewEnabled(v bool) error {
 	if err := a.config.SetWebViewEnabled(v); err != nil {
 		return err
 	}
-	if a.isWebappActive.Load() {
-		a.SetWindowFullscreen(v)
-		if a.webserver != nil {
-			a.webserver.PostWebviewAction("lockdown", "", v, 1.0)
-		}
-	}
-	a.EmitEvent("kiosk-state-changed", v)
 	a.EmitEvent("webview-config-changed")
 	return nil
 }
@@ -468,10 +470,12 @@ func (a *App) SetWindowFullscreen(fullscreen bool) {
 			a.mainWindow.Fullscreen()
 			a.mainWindow.HideMenuBar()
 			menubar.SetNativeMenubarVisible(false)
+			menubar.SetNativeFullscreen(true)
 		} else {
 			a.mainWindow.UnFullscreen()
 			a.mainWindow.ShowMenuBar()
 			menubar.SetNativeMenubarVisible(true)
+			menubar.SetNativeFullscreen(false)
 		}
 	}
 }

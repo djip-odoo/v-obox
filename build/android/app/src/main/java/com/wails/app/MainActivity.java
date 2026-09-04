@@ -1347,13 +1347,14 @@ public class MainActivity extends AppCompatActivity {
 
     private long lastCornerTapTime = 0;
     private int cornerTapCount = 0;
+    private volatile boolean isWebappActive = false;
 
     @Override
     public boolean dispatchTouchEvent(MotionEvent ev) {
         if (ev.getAction() == MotionEvent.ACTION_DOWN) {
             String currentUrl = webView != null ? webView.getUrl() : null;
             boolean isExternal = isExternalWebapp(currentUrl);
-            if (isKioskFullscreen || isExternal) {
+            if (isKioskFullscreen || isExternal || isWebappActive) {
                 float x = ev.getX();
                 float y = ev.getY();
                 int width = getResources().getDisplayMetrics().widthPixels;
@@ -1459,6 +1460,7 @@ public class MainActivity extends AppCompatActivity {
             }
             runOnUiThread(() -> {
                 if (isSuccess) {
+                    isWebappActive = false;
                     setFullscreenMode(false);
                     if (webView != null) {
                         webView.setInitialScale(0);
@@ -1501,6 +1503,34 @@ public class MainActivity extends AppCompatActivity {
 
     private void startWebviewActionPoller() {
         Thread t = new Thread(() -> {
+            // Initial check for kiosk auto-launch
+            try {
+                java.net.URL cfgUrl = new java.net.URL("http://127.0.0.1:4545/api/webview");
+                java.net.HttpURLConnection cfgConn = (java.net.HttpURLConnection) cfgUrl.openConnection();
+                cfgConn.setConnectTimeout(1500);
+                cfgConn.setReadTimeout(1500);
+                if (cfgConn.getResponseCode() == 200) {
+                    java.io.InputStream is = cfgConn.getInputStream();
+                    java.util.Scanner s = new java.util.Scanner(is).useDelimiter("\\A");
+                    String resp = s.hasNext() ? s.next() : "";
+                    org.json.JSONObject obj = new org.json.JSONObject(resp);
+                    String startupUrl = obj.optString("url", "");
+                    boolean enabled = obj.optBoolean("enabled", false);
+                    double zoom = obj.optDouble("zoom", 1.0);
+                    if (!startupUrl.isEmpty() && enabled) {
+                        if (zoom > 0) currentWebappZoom = zoom;
+                        isWebappActive = true;
+                        runOnUiThread(() -> {
+                            setFullscreenMode(true);
+                            if (webView != null) {
+                                webView.setInitialScale(0);
+                                webView.loadUrl(startupUrl);
+                            }
+                        });
+                    }
+                }
+            } catch (Exception ignored) {}
+
             long lastId = 0;
             while (!isDestroyed() && !isFinishing()) {
                 try {
@@ -1524,6 +1554,7 @@ public class MainActivity extends AppCompatActivity {
                                 if (openZoom > 0) {
                                     currentWebappZoom = openZoom;
                                 }
+                                isWebappActive = true;
                                 runOnUiThread(() -> {
                                     if (fs) {
                                         setFullscreenMode(true);
@@ -1536,6 +1567,7 @@ public class MainActivity extends AppCompatActivity {
                                     }
                                 });
                             } else if ("close".equals(action)) {
+                                isWebappActive = false;
                                 runOnUiThread(() -> {
                                     setFullscreenMode(false);
                                     if (webView != null) {

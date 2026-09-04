@@ -2,6 +2,7 @@ package main
 
 import (
 	"embed"
+	"fmt"
 	"os"
 	"runtime"
 
@@ -57,6 +58,7 @@ func main() {
 	})
 
 	appService.wailsApp = app
+	appService.startup()
 
 	startState := application.WindowStateNormal
 	for _, arg := range os.Args[1:] {
@@ -77,6 +79,10 @@ func main() {
 	}
 
 	isDev := appService.config.IsDevMode()
+	port := 4545
+	if appService.webserver != nil && appService.webserver.Port > 0 {
+		port = appService.webserver.Port
+	}
 
 	mainWindow := app.Window.NewWithOptions(application.WebviewWindowOptions{
 		Title:                      "ePOS Proxy",
@@ -90,14 +96,17 @@ func main() {
 		UseApplicationMenu:         true,
 		DevToolsEnabled:            isDev,
 		DefaultContextMenuDisabled: !isDev,
+		JS:                         cornerGestureJS(port),
 	})
 	appService.mainWindow = mainWindow
 
 	if isKiosk {
 		appService.isWebappActive.Store(true)
 		menubar.ApplyWebviewZoom(appService.config.GetWebViewZoom())
+		mainWindow.Fullscreen()
 		mainWindow.HideMenuBar()
 		menubar.SetNativeMenubarVisible(false)
+		menubar.SetNativeFullscreen(true)
 	}
 
 	if runtime.GOOS != "android" {
@@ -105,9 +114,66 @@ func main() {
 		app.Menu.Set(appMenu)
 	}
 
-	appService.startup()
-
 	if err := app.Run(); err != nil {
 		logger.Errorf("Application error: %v", err)
 	}
+}
+
+func cornerGestureJS(port int) string {
+	return fmt.Sprintf(`(function() {
+    if (window.__kioskGestureInitialized) return;
+    window.__kioskGestureInitialized = true;
+    var lastTap = 0;
+    var tapCount = 0;
+    var port = %d;
+    window.addEventListener('pointerdown', function(e) {
+        if (window.location.pathname === '/' && (window.location.hostname === '127.0.0.1' || window.location.hostname === 'localhost')) {
+            return;
+        }
+        var x = e.clientX;
+        var y = e.clientY;
+        var w = window.innerWidth;
+        var h = window.innerHeight;
+        var r = 80;
+        var isCorner = (x <= r && y <= r) ||
+                       (x >= w - r && y <= r) ||
+                       (x <= r && y >= h - r) ||
+                       (x >= w - r && y >= h - r);
+        if (isCorner) {
+            var now = Date.now();
+            if (now - lastTap > 1200) {
+                tapCount = 0;
+            }
+            lastTap = now;
+            tapCount++;
+            if (tapCount >= 4) {
+                tapCount = 0;
+                fetch('http://127.0.0.1:' + port + '/api/webview')
+                    .then(function(res) { return res.json(); })
+                    .then(function(cfg) {
+                        if (cfg && cfg.hasPIN) {
+                            var pin = window.prompt("Enter Admin PIN to exit web application:");
+                            if (!pin) return;
+                            fetch('http://127.0.0.1:' + port + '/api/auth/session', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ pin: pin })
+                            }).then(function(authRes) {
+                                if (authRes.ok) {
+                                    fetch('http://127.0.0.1:' + port + '/api/webview/close', { method: 'POST' });
+                                } else {
+                                    alert("Incorrect PIN");
+                                }
+                            });
+                        } else {
+                            fetch('http://127.0.0.1:' + port + '/api/webview/close', { method: 'POST' });
+                        }
+                    })
+                    .catch(function() {
+                        fetch('http://127.0.0.1:' + port + '/api/webview/close', { method: 'POST' });
+                    });
+            }
+        }
+    }, true);
+})();`, port)
 }

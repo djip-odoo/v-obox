@@ -164,6 +164,13 @@ tasks:
     cmds:
       - '{{.BIN_DIR}}/{{.APP_NAME}}.exe'
 
+  dev:
+    summary: Runs the application in development mode on Windows
+    cmds:
+      - wails3 dev -config ./build/config.yml -port {{.VITE_PORT | default 9245}}
+    env:
+      GOOS: windows
+
   sign:
     summary: Signs the Windows executable
     desc: |

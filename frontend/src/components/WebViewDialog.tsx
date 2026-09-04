@@ -53,7 +53,7 @@ export default function WebViewDialog() {
 
   const isUrlValid = isValidUrl(url);
   const isKioskCurrentlyActive = Boolean(cfg?.isActive);
-  const canEnable = Boolean(isUrlValid && cfg?.hasPIN);
+  const canEnable = Boolean(isUrlValid);
 
   /*
    * Keep URL and Zoom synchronized with remote or Go backend updates.
@@ -213,14 +213,11 @@ export default function WebViewDialog() {
     setLocalError(null);
     const newEnabled = !cfg?.enabled;
 
-    if (newEnabled && !cfg?.hasPIN) {
-      setLocalError("Set an admin PIN before enabling lockdown mode.");
-      return;
-    }
-
-    const pinVerified = await showPINDialog();
-    if (!pinVerified) {
-      return;
+    if (!newEnabled && cfg?.hasPIN) {
+      const pinVerified = await showPINDialog();
+      if (!pinVerified) {
+        return;
+      }
     }
 
     try {
@@ -602,68 +599,70 @@ export default function WebViewDialog() {
         {/* ============================================================
             LOCKDOWN & SECURITY TOGGLE
         ============================================================ */}
-        {isAndroid && <section className="rounded-xl border border-gray-200 bg-white p-4 shadow-xs">
-          <div className="flex items-center justify-between">
-            <div className="pr-4">
-              <div className="flex items-center gap-2">
-                <h3 className="text-xs font-bold uppercase tracking-wider text-gray-700">
-                  Lockdown Mode (Fullscreen Kiosk)
-                </h3>
+        {isAndroid && (
+          <section className="rounded-xl border border-gray-200 bg-white p-4 shadow-xs">
+            <div className="flex items-center justify-between">
+              <div className="pr-4">
+                <div className="flex items-center gap-2">
+                  <h3 className="text-xs font-bold uppercase tracking-wider text-gray-700">
+                    Lockdown Mode (Fullscreen Kiosk)
+                  </h3>
+                </div>
+                <p className="mt-0.5 text-xs text-gray-500 leading-relaxed">
+                  When active, the POS opens in full screen and prevents accidental exits. Requires admin PIN to leave.
+                </p>
               </div>
-              <p className="mt-0.5 text-xs text-gray-500 leading-relaxed">
-                When active, the POS opens in full screen and prevents accidental exits. Requires admin PIN to leave.
-              </p>
-            </div>
 
-            <button
-              type="button"
-              disabled={!canEnable}
-              onClick={handleToggleLockdown}
-              aria-label={cfg?.enabled ? "Disable lockdown mode" : "Enable lockdown mode"}
-              className={`
-                relative h-6 w-11 shrink-0 rounded-full transition-colors
-                ${cfg?.enabled ? "bg-odoo" : "bg-gray-300"}
-                ${canEnable ? "cursor-pointer" : "cursor-not-allowed opacity-40"}
-              `}
-            >
-              <span
-                className={`
-                  absolute top-1 h-4 w-4 rounded-full bg-white shadow-sm transition-transform
-                  ${cfg?.enabled ? "left-6" : "left-1"}
-                `}
-              />
-            </button>
-          </div>
-
-          {!cfg?.hasPIN && (
-            <div className="mt-3 flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 p-2.5 text-xs text-amber-800">
-              <svg className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v3m0 4h.01M10.29 3.86l-8.1 14a2 2 0 001.73 3h16.16a2 2 0 001.73-3l-8.1-14a2 2 0 00-3.42 0z" />
-              </svg>
-              <div>
-                <span className="font-semibold">Admin PIN required:</span> Set a PIN in the App menu before enabling lockdown mode.
-              </div>
-            </div>
-          )}
-
-          {/* Android Default Launcher Button if supported */}
-          {isWails && backendService.isAndroidLauncherSupported?.() && (
-            <div className="mt-3 pt-3 border-t border-gray-100 flex items-center justify-between">
-              <div>
-                <div className="text-xs font-semibold text-gray-800">Default Home Launcher</div>
-                <div className="text-[11px] text-gray-500">Set this proxy as the default Android home app.</div>
-              </div>
               <button
-                id="set-default-launcher-btn"
                 type="button"
-                onClick={setDefaultLauncher}
-                className="rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 shadow-xs hover:bg-gray-50 cursor-pointer"
+                disabled={!canEnable}
+                onClick={handleToggleLockdown}
+                aria-label={cfg?.enabled ? "Disable lockdown mode" : "Enable lockdown mode"}
+                className={`
+                  relative h-6 w-11 shrink-0 rounded-full transition-colors
+                  ${cfg?.enabled ? "bg-odoo" : "bg-gray-300"}
+                  ${canEnable ? "cursor-pointer" : "cursor-not-allowed opacity-40"}
+                `}
               >
-                Set Launcher
+                <span
+                  className={`
+                    absolute top-1 h-4 w-4 rounded-full bg-white shadow-sm transition-transform
+                    ${cfg?.enabled ? "left-6" : "left-1"}
+                  `}
+                />
               </button>
             </div>
-          )}
-        </section>}
+
+            {!cfg?.hasPIN && (
+              <div className="mt-3 flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 p-2.5 text-xs text-amber-800">
+                <svg className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v3m0 4h.01M10.29 3.86l-8.1 14a2 2 0 001.73 3h16.16a2 2 0 001.73-3l-8.1-14a2 2 0 00-3.42 0z" />
+                </svg>
+                <div>
+                  <span className="font-semibold">Admin PIN required:</span> Set a PIN in the App menu before enabling lockdown mode.
+                </div>
+              </div>
+            )}
+
+            {/* Android Default Launcher Button if supported */}
+            {isWails && backendService.isAndroidLauncherSupported?.() && (
+              <div className="mt-3 pt-3 border-t border-gray-100 flex items-center justify-between">
+                <div>
+                  <div className="text-xs font-semibold text-gray-800">Default Home Launcher</div>
+                  <div className="text-[11px] text-gray-500">Set this proxy as the default Android home app.</div>
+                </div>
+                <button
+                  id="set-default-launcher-btn"
+                  type="button"
+                  onClick={setDefaultLauncher}
+                  className="rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 shadow-xs hover:bg-gray-50 cursor-pointer"
+                >
+                  Set Launcher
+                </button>
+              </div>
+            )}
+          </section>
+        )}
 
         {/* ============================================================
             REMOTE ACCESS SECTION (QR + IP)
@@ -687,12 +686,11 @@ export default function WebViewDialog() {
             </div>
 
             <div className="flex flex-col sm:flex-row items-center gap-4 bg-gray-50/70 p-3.5 rounded-xl border border-gray-200/80">
-              <div className="shrink-0 rounded-lg border border-gray-200 bg-white p-2 shadow-xs">
+              <div className="shrink-0 rounded-lg border border-gray-200 bg-white p-2 shadow-xs mx-auto">
                 <QRCodeSVG value={serverUrl} size={105} level="M" />
               </div>
             </div>
             <div className="min-w-0 flex-1 text-center sm:text-left">
-              <div className="text-xs font-bold text-gray-800">Direct Network Address</div>
               <div className="mt-1.5 flex items-center gap-2 rounded-lg border border-gray-300 bg-white p-1.5 shadow-xs">
                 <span className="min-w-0 flex-1 px-2 py-0.5 text-xs font-mono text-gray-800 select-all break-all">
                   {serverUrl}
@@ -715,20 +713,16 @@ export default function WebViewDialog() {
         {/* ============================================================
             SECURITY / GESTURE NOTICE
         ============================================================ */}
-        {
-          isAndroid &&
-          <div className="flex items-start gap-2.5 rounded-xl bg-slate-50 border border-slate-200/80 p-3 text-xs text-slate-600">
-            <svg className="mt-0.5 h-4 w-4 shrink-0 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg>
-            <p className="text-[11px] leading-relaxed">
-              {isWails
-                ? "To exit fullscreen kiosk mode while running the POS, quickly tap any screen corner 4 times and enter your admin PIN."
-                : "Kiosk fullscreen mode runs directly on the local display. You can control and configure settings remotely from this interface."}
-            </p>
-          </div>
-        }
-
+        <div className="flex items-start gap-2.5 rounded-xl bg-slate-50 border border-slate-200/80 p-3 text-xs text-slate-600">
+          <svg className="mt-0.5 h-4 w-4 shrink-0 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+          </svg>
+          <p className="text-[11px] leading-relaxed">
+            {isWails
+              ? "To exit fullscreen kiosk mode while running the POS, quickly tap any screen corner 4 times and enter your admin PIN."
+              : "Kiosk fullscreen mode runs directly on the local display. You can control and configure settings remotely from this interface."}
+          </p>
+        </div>
       </div>
     </Dialog>
   );
