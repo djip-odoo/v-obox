@@ -469,11 +469,32 @@ func (a *App) SetWindowFullscreen(fullscreen bool) {
 		if fullscreen {
 			a.mainWindow.Fullscreen()
 			a.mainWindow.HideMenuBar()
+			a.mainWindow.SetMenu(nil)
+			if a.wailsApp != nil {
+				a.wailsApp.Menu.Set(nil)
+			}
 			menubar.SetNativeMenubarVisible(false)
 			menubar.SetNativeFullscreen(true)
+			go func() {
+				for _, delay := range []time.Duration{100 * time.Millisecond, 300 * time.Millisecond, 800 * time.Millisecond} {
+					time.Sleep(delay)
+					if a.isWebappActive.Load() || a.config.GetWebViewEnabled() {
+						a.mainWindow.Fullscreen()
+						a.mainWindow.HideMenuBar()
+						a.mainWindow.SetMenu(nil)
+						menubar.SetNativeMenubarVisible(false)
+						menubar.SetNativeFullscreen(true)
+					}
+				}
+			}()
 		} else {
 			a.mainWindow.UnFullscreen()
 			a.mainWindow.ShowMenuBar()
+			if a.wailsApp != nil && runtime.GOOS != "android" {
+				appMenu := createMenu(a.wailsApp, a)
+				a.wailsApp.Menu.Set(appMenu)
+				a.mainWindow.SetMenu(appMenu)
+			}
 			menubar.SetNativeMenubarVisible(true)
 			menubar.SetNativeFullscreen(false)
 		}

@@ -28,7 +28,7 @@ type WebViewContextType = {
     saveURL: (url: string) => Promise<void>;
     saveZoom: (zoom: number) => Promise<void>;
     savePIN: (pin: string) => Promise<void>;
-    toggleEnabled: (v: boolean) => Promise<void>;
+    toggleEnabledLockDown: (v: boolean) => Promise<void>;
     validatePIN: (pin: string) => Promise<boolean>;
     exitKiosk: () => Promise<void>;
     enterKiosk: () => Promise<void>;
@@ -53,7 +53,6 @@ export const WebViewContextWrapper = ({
   const [config, setConfig] = useState<WebViewConfig | null>(null);
   const [isKioskActive, setIsKioskActive] = useState(false);
   const [reloadNonce, setReloadNonce] = useState(0);
-  const initialStartupChecked = useRef(false);
 
   const refresh = useCallback(async () => {
     try {
@@ -129,7 +128,7 @@ export const WebViewContextWrapper = ({
     setConfig(cfg);
   };
 
-  const toggleEnabled = async (v: boolean) => {
+  const toggleEnabledLockDown = async (v: boolean) => {
     await backendService.setWebViewEnabled(v);
     const cfg = await backendService.getWebViewConfig();
     setConfig(cfg);
@@ -190,7 +189,7 @@ export const WebViewContextWrapper = ({
           saveURL,
           saveZoom,
           savePIN,
-          toggleEnabled,
+          toggleEnabledLockDown,
           validatePIN,
           enterKiosk,
           exitKiosk,

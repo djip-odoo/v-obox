@@ -225,7 +225,7 @@ export default function WebViewDialog() {
         await actions.saveURL(url.trim());
         lastSavedUrlRef.current = url.trim();
       }
-      await actions.toggleEnabled(newEnabled);
+      await actions.toggleEnabledLockDown(newEnabled);
 
       toastContext.actions.showToast(
         newEnabled ? "Lockdown mode enabled" : "Lockdown mode disabled",
@@ -654,7 +654,15 @@ export default function WebViewDialog() {
                 <button
                   id="set-default-launcher-btn"
                   type="button"
-                  onClick={setDefaultLauncher}
+                  onClick={async () => {
+                    if (cfg?.hasPIN) {
+                      const pinVerified = await showPINDialog();
+                      if (!pinVerified) {
+                        return;
+                      }
+                    }
+                    setDefaultLauncher()
+                  }}
                   className="rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 shadow-xs hover:bg-gray-50 cursor-pointer"
                 >
                   Set Launcher

@@ -101,12 +101,33 @@ static void setup_kiosk_gestures(void) {
     g_idle_add(setup_gestures_idle, NULL);
 }
 
+static gboolean contains_or_is_webview(GtkWidget *widget) {
+    if (!widget) return FALSE;
+    if (WEBKIT_IS_WEB_VIEW(widget)) return TRUE;
+    for (GtkWidget *child = gtk_widget_get_first_child(widget); child != NULL; child = gtk_widget_get_next_sibling(child)) {
+        if (contains_or_is_webview(child)) return TRUE;
+    }
+    return FALSE;
+}
+
 static void find_and_set_menubar_visibility(GtkWidget *widget, gpointer data) {
     if (!widget) return;
+    if (WEBKIT_IS_WEB_VIEW(widget)) {
+        return;
+    }
     gboolean visible = GPOINTER_TO_INT(data);
     const char *name = G_OBJECT_TYPE_NAME(widget);
-    if (name && (g_str_has_prefix(name, "GtkPopover") || g_str_has_prefix(name, "GtkMenu") || g_str_has_prefix(name, "GtkHeaderBar"))) {
+    if (name && (g_str_has_prefix(name, "GtkPopover") ||
+                 g_str_has_prefix(name, "GtkMenu") ||
+                 g_str_has_prefix(name, "GtkHeaderBar") ||
+                 g_str_has_suffix(name, "MenuBar") ||
+                 g_str_has_suffix(name, "MenuButton"))) {
         gtk_widget_set_visible(widget, visible);
+        return;
+    }
+    if (!contains_or_is_webview(widget)) {
+        gtk_widget_set_visible(widget, visible);
+        return;
     }
     for (GtkWidget *child = gtk_widget_get_first_child(widget); child != NULL; child = gtk_widget_get_next_sibling(child)) {
         find_and_set_menubar_visibility(child, data);
@@ -114,11 +135,16 @@ static void find_and_set_menubar_visibility(GtkWidget *widget, gpointer data) {
 }
 
 static gboolean set_all_menubars_visible_idle(gpointer data) {
+    gboolean visible = GPOINTER_TO_INT(data);
     GListModel *toplevels = gtk_window_get_toplevels();
     guint n = g_list_model_get_n_items(toplevels);
     for (guint i = 0; i < n; i++) {
         GtkWindow *w = GTK_WINDOW(g_list_model_get_item(toplevels, i));
         if (w) {
+            GtkWidget *titlebar = gtk_window_get_titlebar(w);
+            if (titlebar) {
+                gtk_widget_set_visible(titlebar, visible);
+            }
             find_and_set_menubar_visibility(GTK_WIDGET(w), data);
             g_object_unref(w);
         }
@@ -139,9 +165,19 @@ static gboolean set_native_fullscreen_idle(gpointer data) {
         if (w) {
             if (fullscreen) {
                 gtk_window_fullscreen(w);
+                gtk_window_set_decorated(w, FALSE);
+                GtkWidget *titlebar = gtk_window_get_titlebar(w);
+                if (titlebar) {
+                    gtk_widget_set_visible(titlebar, FALSE);
+                }
                 find_and_set_menubar_visibility(GTK_WIDGET(w), GINT_TO_POINTER(0));
             } else {
                 gtk_window_unfullscreen(w);
+                gtk_window_set_decorated(w, TRUE);
+                GtkWidget *titlebar = gtk_window_get_titlebar(w);
+                if (titlebar) {
+                    gtk_widget_set_visible(titlebar, TRUE);
+                }
                 find_and_set_menubar_visibility(GTK_WIDGET(w), GINT_TO_POINTER(1));
             }
             g_object_unref(w);

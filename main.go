@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"runtime"
+	"time"
 
 	"epos-proxy/internal/logger"
 	"epos-proxy/override/menubar"
@@ -93,7 +94,7 @@ func main() {
 		StartState:                 startState,
 		BackgroundColour:           application.NewRGB(255, 255, 255),
 		URL:                        startURL,
-		UseApplicationMenu:         true,
+		UseApplicationMenu:         !isKiosk,
 		DevToolsEnabled:            isDev,
 		DefaultContextMenuDisabled: !isDev,
 		JS:                         cornerGestureJS(port),
@@ -105,11 +106,23 @@ func main() {
 		menubar.ApplyWebviewZoom(appService.config.GetWebViewZoom())
 		mainWindow.Fullscreen()
 		mainWindow.HideMenuBar()
+		mainWindow.SetMenu(nil)
 		menubar.SetNativeMenubarVisible(false)
 		menubar.SetNativeFullscreen(true)
-	}
-
-	if runtime.GOOS != "android" {
+		go func() {
+			for _, delay := range []time.Duration{100 * time.Millisecond, 300 * time.Millisecond, 800 * time.Millisecond, 1500 * time.Millisecond} {
+				time.Sleep(delay)
+				if appService.isWebappActive.Load() {
+					mainWindow.Fullscreen()
+					mainWindow.HideMenuBar()
+					mainWindow.SetMenu(nil)
+					menubar.SetNativeMenubarVisible(false)
+					menubar.SetNativeFullscreen(true)
+					menubar.ApplyWebviewZoom(appService.config.GetWebViewZoom())
+				}
+			}
+		}()
+	} else if runtime.GOOS != "android" {
 		appMenu := createMenu(app, appService)
 		app.Menu.Set(appMenu)
 	}
