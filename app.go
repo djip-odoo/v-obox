@@ -557,6 +557,37 @@ func buildZoomJS(zoom float64) string {
             window.__eposZoomObserver.observe(document.documentElement || document, { childList: true, subtree: true });
         } catch(e) {}
     }
+    try {
+        if (!window.__eposReloadInterceptorInstalled) {
+            window.__eposReloadInterceptorInstalled = true;
+            try {
+                if (window.Location && window.Location.prototype) {
+                    var origReload = window.Location.prototype.reload;
+                    window.Location.prototype.reload = function() {
+                        try {
+                            var xhr = new XMLHttpRequest();
+                            xhr.open('POST', 'http://127.0.0.1:4545/api/webview/reload', true);
+                            xhr.send();
+                        } catch(e) {}
+                        if (origReload) origReload.apply(this, arguments);
+                    };
+                }
+            } catch(e) {}
+            var navEntries = window.performance && window.performance.getEntriesByType && window.performance.getEntriesByType('navigation');
+            var isReload = (navEntries && navEntries.length > 0 && navEntries[0].type === 'reload') ||
+                           (window.performance && window.performance.navigation && window.performance.navigation.type === 1);
+            if (isReload && !sessionStorage.getItem('__epos_reloaded')) {
+                try { sessionStorage.setItem('__epos_reloaded', '1'); } catch(e) {}
+                try {
+                    var xhr = new XMLHttpRequest();
+                    xhr.open('POST', 'http://127.0.0.1:4545/api/webview/reload', true);
+                    xhr.send();
+                } catch(e) {}
+            } else {
+                try { sessionStorage.removeItem('__epos_reloaded'); } catch(e) {}
+            }
+        }
+    } catch(e) {}
 })();`, zoom)
 }
 
@@ -606,7 +637,15 @@ func (a *App) SetWindowFullscreen(fullscreen bool) {
 // ReloadKiosk reloads the active top-level webview.
 func (a *App) ReloadKiosk() {
 	if a.mainWindow != nil {
-		a.mainWindow.Reload()
+		url := ""
+		if a.config != nil {
+			url = a.config.GetWebViewURL()
+		}
+		if url != "" && a.isWebappActive.Load() {
+			a.NavigateToWebapp(url)
+		} else {
+			a.mainWindow.Reload()
+		}
 	}
 	a.EmitEvent("kiosk-reload")
 }

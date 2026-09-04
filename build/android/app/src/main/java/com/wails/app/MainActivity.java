@@ -93,6 +93,8 @@ public class MainActivity extends AppCompatActivity {
     private File pendingCaptureFile;
     private boolean pendingCaptureIsVideo;
     private volatile double currentWebappZoom = 1.0;
+    private volatile String configuredWebappUrl = "";
+    private long lastWebappReloadTimestamp = 0;
 
     private boolean isExternalWebapp(String url) {
         return url != null && !url.isEmpty() && !url.contains(WAILS_HOST) && !url.startsWith("http://127.0.0.1:4545");
@@ -353,10 +355,20 @@ public class MainActivity extends AppCompatActivity {
                     }
                 }
             }
+
+            @Override
+            public void doUpdateVisitedHistory(WebView view, String url, boolean isReload) {
+                super.doUpdateVisitedHistory(view, url, isReload);
+                if (isReload && (isWebappActive || isExternalWebapp(url))) {
+                    Log.i(TAG, "Webapp in-page reload detected via doUpdateVisitedHistory: " + url);
+                    reloadWholeWebapp();
+                }
+            }
         });
 
-        // Add JavaScript interface for Go communication
+        // Add JavaScript interface for Go communication and Kiosk controls
         webView.addJavascriptInterface(new WailsJSBridge(bridge, webView), "wails");
+        webView.addJavascriptInterface(new KioskJSInterface(), "_eposKiosk");
 
         // Forward console logs to logcat and handle webapp permissions / dialogs
         webView.setWebChromeClient(new WebChromeClient() {
@@ -819,6 +831,34 @@ public class MainActivity extends AppCompatActivity {
             "      window.__eposZoomObserver.observe(document.documentElement || document, { childList: true, subtree: true });" +
             "    } catch(e) {}" +
             "  }" +
+            "  try {" +
+            "    if (!window.__eposReloadInterceptorInstalled) {" +
+            "      window.__eposReloadInterceptorInstalled = true;" +
+            "      try {" +
+            "        if (window.Location && window.Location.prototype) {" +
+            "          var origReload = window.Location.prototype.reload;" +
+            "          window.Location.prototype.reload = function() {" +
+            "            if (window._eposKiosk && typeof window._eposKiosk.requestReload === 'function') {" +
+            "              window._eposKiosk.requestReload();" +
+            "              return;" +
+            "            }" +
+            "            if (origReload) origReload.apply(this, arguments);" +
+            "          };" +
+            "        }" +
+            "      } catch(e) {}" +
+            "      var navEntries = window.performance && window.performance.getEntriesByType && window.performance.getEntriesByType('navigation');" +
+            "      var isReload = (navEntries && navEntries.length > 0 && navEntries[0].type === 'reload') ||" +
+            "                     (window.performance && window.performance.navigation && window.performance.navigation.type === 1);" +
+            "      if (isReload && !sessionStorage.getItem('__epos_reloaded')) {" +
+            "        try { sessionStorage.setItem('__epos_reloaded', '1'); } catch(e) {}" +
+            "        if (window._eposKiosk && typeof window._eposKiosk.requestReload === 'function') {" +
+            "          window._eposKiosk.requestReload();" +
+            "        }" +
+            "      } else {" +
+            "        try { sessionStorage.removeItem('__epos_reloaded'); } catch(e) {}" +
+            "      }" +
+            "    }" +
+            "  } catch(e) {}" +
             "})();";
     }
 
@@ -838,6 +878,75 @@ public class MainActivity extends AppCompatActivity {
                 } else {
                     webView.evaluateJavascript(buildZoomJavaScript(1.0), null);
                 }
+            }
+        });
+    }
+
+    public class KioskJSInterface {
+        @android.webkit.JavascriptInterface
+        public void requestReload() {
+            Log.i(TAG, "KioskJSInterface.requestReload invoked from webview JS");
+            reloadWholeWebapp();
+        }
+    }
+
+    private String fetchConfiguredWebappUrl() {
+        if (configuredWebappUrl != null && !configuredWebappUrl.isEmpty()) {
+            return configuredWebappUrl;
+        }
+        try {
+            java.net.URL cfgUrl = new java.net.URL("http://127.0.0.1:4545/api/webview");
+            java.net.HttpURLConnection cfgConn = (java.net.HttpURLConnection) cfgUrl.openConnection();
+            cfgConn.setConnectTimeout(1000);
+            cfgConn.setReadTimeout(1000);
+            if (cfgConn.getResponseCode() == 200) {
+                java.io.InputStream is = cfgConn.getInputStream();
+                java.util.Scanner s = new java.util.Scanner(is).useDelimiter("\\A");
+                String resp = s.hasNext() ? s.next() : "";
+                org.json.JSONObject obj = new org.json.JSONObject(resp);
+                String u = obj.optString("url", "");
+                if (!u.isEmpty()) {
+                    configuredWebappUrl = u;
+                    return u;
+                }
+            }
+        } catch (Exception ignored) {}
+        return configuredWebappUrl;
+    }
+
+    /**
+     * Reloads the entire webapp cleanly from its configured URL, restoring all sessions,
+     * indexedDB, and local storage data rather than executing an in-page reload of a wiped state.
+     */
+    public void reloadWholeWebapp() {
+        runOnUiThread(() -> {
+            long now = System.currentTimeMillis();
+            if (now - lastWebappReloadTimestamp < 2000) {
+                return;
+            }
+            lastWebappReloadTimestamp = now;
+            if (webView != null) {
+                String target = configuredWebappUrl;
+                if (target == null || target.isEmpty()) {
+                    new Thread(() -> {
+                        String fetched = fetchConfiguredWebappUrl();
+                        runOnUiThread(() -> {
+                            if (webView != null && fetched != null && !fetched.isEmpty()) {
+                                Log.i(TAG, "Reloading whole webapp with fetched URL: " + fetched);
+                                isWebappActive = true;
+                                applyWebViewZoom(currentWebappZoom);
+                                webView.loadUrl(fetched);
+                            } else if (webView != null) {
+                                webView.reload();
+                            }
+                        });
+                    }).start();
+                    return;
+                }
+                Log.i(TAG, "Reloading whole webapp URL: " + target);
+                isWebappActive = true;
+                applyWebViewZoom(currentWebappZoom);
+                webView.loadUrl(target);
             }
         });
     }
@@ -1626,6 +1735,9 @@ public class MainActivity extends AppCompatActivity {
                     String startupUrl = obj.optString("url", "");
                     boolean enabled = obj.optBoolean("enabled", false);
                     double zoom = obj.optDouble("zoom", 1.0);
+                    if (!startupUrl.isEmpty()) {
+                        configuredWebappUrl = startupUrl;
+                    }
                     if (!startupUrl.isEmpty() && enabled) {
                         if (zoom > 0) currentWebappZoom = zoom;
                         isWebappActive = true;
@@ -1658,6 +1770,9 @@ public class MainActivity extends AppCompatActivity {
                             lastId = id;
                             if ("open".equals(action)) {
                                 String targetUrl = obj.optString("url", "");
+                                if (!targetUrl.isEmpty()) {
+                                    configuredWebappUrl = targetUrl;
+                                }
                                 boolean fs = obj.optBoolean("fullscreen", false);
                                 double openZoom = obj.optDouble("zoom", 1.0);
                                 if (openZoom > 0) {
@@ -1691,9 +1806,7 @@ public class MainActivity extends AppCompatActivity {
                                 });
                             } else if ("reload".equals(action)) {
                                 runOnUiThread(() -> {
-                                    if (webView != null) {
-                                        webView.reload();
-                                    }
+                                    reloadWholeWebapp();
                                 });
                             } else if ("lockdown".equals(action)) {
                                 boolean fs = obj.optBoolean("fullscreen", false);
