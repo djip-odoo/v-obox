@@ -92,6 +92,11 @@ public class MainActivity extends AppCompatActivity {
     private static final int CAMERA_PERMISSION_REQUEST = 7010;
     private File pendingCaptureFile;
     private boolean pendingCaptureIsVideo;
+    private volatile double currentWebappZoom = 1.0;
+
+    private boolean isExternalWebapp(String url) {
+        return url != null && !url.isEmpty() && !url.contains(WAILS_HOST) && !url.startsWith("http://127.0.0.1:4545");
+    }
 
     // System-event sources (battery/power, screen lock, network). Registered in
     // onCreate, torn down in onDestroy. Each forwards a "system:*" event to JS
@@ -145,6 +150,7 @@ public class MainActivity extends AppCompatActivity {
     @SuppressLint("SetJavaScriptEnabled")
     private void setupWebView() {
         webView = findViewById(R.id.webview);
+        webView.setInitialScale(0);
         bridge.setWebView(webView);
 
         // Enable third-party cookies for seamless cross-origin and Odoo POS session syncing
@@ -155,6 +161,7 @@ public class MainActivity extends AppCompatActivity {
         // Configure WebView settings
         WebSettings settings = webView.getSettings();
         settings.setJavaScriptEnabled(true);
+        settings.setTextZoom(100);
         settings.setDomStorageEnabled(true);
         settings.setDatabaseEnabled(true);
         settings.setAllowFileAccess(true);
@@ -314,6 +321,24 @@ public class MainActivity extends AppCompatActivity {
                 // Now that JS listeners are mounted, push a snapshot of the
                 // current battery / network / theme so the UI starts populated.
                 emitSystemSnapshot();
+
+                if (view != null && url != null) {
+                    if (isExternalWebapp(url)) {
+                        view.setInitialScale(0);
+                        if (currentWebappZoom > 0 && Math.abs(currentWebappZoom - 1.0) > 0.01) {
+                            view.evaluateJavascript(
+                                "document.documentElement.style.zoom = '" + currentWebappZoom + "';", null);
+                        } else {
+                            view.evaluateJavascript(
+                                "document.documentElement.style.zoom = '1.0';", null);
+                        }
+                    } else {
+                        // Wails UI: always 100% standard mobile scale
+                        view.setInitialScale(0);
+                        view.evaluateJavascript(
+                            "document.documentElement.style.zoom = '1.0';", null);
+                    }
+                }
             }
         });
 
@@ -399,7 +424,11 @@ public class MainActivity extends AppCompatActivity {
     private void loadApplication() {
         String url = WAILS_SCHEME + "://" + WAILS_HOST + "/";
         if (DEBUG) Log.d(TAG, "Loading URL: " + url);
-        webView.loadUrl(url);
+        if (webView != null) {
+            webView.setInitialScale(0);
+            webView.evaluateJavascript("document.documentElement.style.zoom = '1.0';", null);
+            webView.loadUrl(url);
+        }
     }
 
     /**
@@ -703,6 +732,35 @@ public class MainActivity extends AppCompatActivity {
             Log.e(TAG, "Failed to copy picked document", e);
             return null;
         }
+    }
+
+    /**
+     * Apply display zoom strictly to the external Web App without affecting the Wails UI,
+     * and without using setInitialScale which forces desktop viewport mode on mobile.
+     */
+    public void applyWebViewZoom(double zoom) {
+        if (zoom <= 0) zoom = 1.0;
+        this.currentWebappZoom = zoom;
+        runOnUiThread(() -> {
+            if (webView != null) {
+                String currentUrl = webView.getUrl();
+                if (isExternalWebapp(currentUrl)) {
+                    webView.setInitialScale(0);
+                    if (Math.abs(currentWebappZoom - 1.0) > 0.01) {
+                        webView.evaluateJavascript(
+                            "document.documentElement.style.zoom = '" + currentWebappZoom + "';", null);
+                    } else {
+                        webView.evaluateJavascript(
+                            "document.documentElement.style.zoom = '1.0';", null);
+                    }
+                } else {
+                    // Wails UI must always remain at standard 1.0 scale
+                    webView.setInitialScale(0);
+                    webView.evaluateJavascript(
+                        "document.documentElement.style.zoom = '1.0';", null);
+                }
+            }
+        });
     }
 
     /**
@@ -1294,8 +1352,8 @@ public class MainActivity extends AppCompatActivity {
     public boolean dispatchTouchEvent(MotionEvent ev) {
         if (ev.getAction() == MotionEvent.ACTION_DOWN) {
             String currentUrl = webView != null ? webView.getUrl() : null;
-            boolean isExternalWebapp = currentUrl != null && !currentUrl.startsWith(WAILS_SCHEME + "://" + WAILS_HOST);
-            if (isKioskFullscreen || isExternalWebapp) {
+            boolean isExternal = isExternalWebapp(currentUrl);
+            if (isKioskFullscreen || isExternal) {
                 float x = ev.getX();
                 float y = ev.getY();
                 int width = getResources().getDisplayMetrics().widthPixels;
@@ -1403,6 +1461,8 @@ public class MainActivity extends AppCompatActivity {
                 if (isSuccess) {
                     setFullscreenMode(false);
                     if (webView != null) {
+                        webView.setInitialScale(0);
+                        webView.evaluateJavascript("document.documentElement.style.zoom = '1.0';", null);
                         webView.loadUrl(WAILS_SCHEME + "://" + WAILS_HOST + "/");
                     }
                 } else {
@@ -1460,6 +1520,10 @@ public class MainActivity extends AppCompatActivity {
                             if ("open".equals(action)) {
                                 String targetUrl = obj.optString("url", "");
                                 boolean fs = obj.optBoolean("fullscreen", false);
+                                double openZoom = obj.optDouble("zoom", 1.0);
+                                if (openZoom > 0) {
+                                    currentWebappZoom = openZoom;
+                                }
                                 runOnUiThread(() -> {
                                     if (fs) {
                                         setFullscreenMode(true);
@@ -1467,6 +1531,7 @@ public class MainActivity extends AppCompatActivity {
                                         setFullscreenMode(false);
                                     }
                                     if (webView != null && !targetUrl.isEmpty()) {
+                                        webView.setInitialScale(0);
                                         webView.loadUrl(targetUrl);
                                     }
                                 });
@@ -1474,6 +1539,8 @@ public class MainActivity extends AppCompatActivity {
                                 runOnUiThread(() -> {
                                     setFullscreenMode(false);
                                     if (webView != null) {
+                                        webView.setInitialScale(0);
+                                        webView.evaluateJavascript("document.documentElement.style.zoom = '1.0';", null);
                                         webView.loadUrl(WAILS_SCHEME + "://" + WAILS_HOST + "/");
                                     }
                                 });
@@ -1488,6 +1555,9 @@ public class MainActivity extends AppCompatActivity {
                                 runOnUiThread(() -> {
                                     setFullscreenMode(fs);
                                 });
+                            } else if ("zoom".equals(action)) {
+                                double zoomLevel = obj.optDouble("zoom", 1.0);
+                                applyWebViewZoom(zoomLevel);
                             }
                         }
                     } else {

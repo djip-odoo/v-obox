@@ -187,6 +187,14 @@ func (a *App) startup() {
 		a.EmitEvent("kiosk-state-changed", enabled)
 	})
 	a.webserver.SetConfigCallback(func() {
+		// Re-apply zoom to the desktop webview when config is changed remotely
+		if a.isWebappActive.Load() && a.mainWindow != nil {
+			zoom := a.config.GetWebViewZoom()
+			if zoom > 0 {
+				menubar.ApplyWebviewZoom(zoom)
+				a.mainWindow.ExecJS(fmt.Sprintf("document.documentElement.style.zoom = '%f';", zoom))
+			}
+		}
 		a.EmitEvent("webview-config-changed")
 	})
 	a.webserver.SetKioskReloadCallback(func() {
@@ -388,9 +396,22 @@ func (a *App) NavigateToWebapp(url string) {
 			a.SetWindowFullscreen(false)
 		}
 		menubar.ConfigureWebviewSettings()
-		menubar.ApplyWebviewZoom(a.config.GetWebViewZoom())
+		zoom := a.config.GetWebViewZoom()
+		menubar.ApplyWebviewZoom(zoom)
 		a.mainWindow.SetURL(url)
 		a.mainWindow.ExecJS(fmt.Sprintf("window.location.href = %q;", url))
+		if zoom > 0 {
+			go func() {
+				time.Sleep(500 * time.Millisecond)
+				if a.isWebappActive.Load() && a.mainWindow != nil {
+					a.mainWindow.ExecJS(fmt.Sprintf("document.documentElement.style.zoom = '%f';", zoom))
+				}
+				time.Sleep(1500 * time.Millisecond)
+				if a.isWebappActive.Load() && a.mainWindow != nil {
+					a.mainWindow.ExecJS(fmt.Sprintf("document.documentElement.style.zoom = '%f';", zoom))
+				}
+			}()
+		}
 		a.EmitEvent("webview-config-changed")
 	}
 }
@@ -411,6 +432,12 @@ func (a *App) NavigateToLocalUI() {
 		localURL := fmt.Sprintf("http://127.0.0.1:%d/", port)
 		a.mainWindow.SetURL(localURL)
 		a.mainWindow.ExecJS(fmt.Sprintf("document.documentElement.style.zoom = '1.0'; window.location.href = %q;", localURL))
+		go func() {
+			time.Sleep(500 * time.Millisecond)
+			if !a.isWebappActive.Load() && a.mainWindow != nil {
+				a.mainWindow.ExecJS("document.documentElement.style.zoom = '1.0';")
+			}
+		}()
 		a.EmitEvent("webview-config-changed")
 	}
 }
