@@ -185,7 +185,10 @@ func (a *App) startup() {
 	// Notify the desktop frontend when kiosk status or config is modified remotely
 	a.webserver.SetKioskCallback(func(enabled bool) {
 		a.EmitEvent("kiosk-state-changed", enabled)
-		a.SetWindowFullscreen(enabled)
+		if a.isWebappActive.Load() {
+			a.SetWindowFullscreen(enabled)
+		}
+		a.EmitEvent("webview-config-changed")
 	})
 	a.webserver.SetConfigCallback(func() {
 		// Re-apply zoom to the desktop webview when config is changed remotely
@@ -193,19 +196,13 @@ func (a *App) startup() {
 			zoom := a.config.GetWebViewZoom()
 			if zoom > 0 {
 				menubar.ApplyWebviewZoom(zoom)
-				a.mainWindow.ExecJS(fmt.Sprintf("document.documentElement.style.zoom = '%f';", zoom))
+				a.mainWindow.ExecJS(buildZoomJS(zoom))
 			}
 		}
 		a.EmitEvent("webview-config-changed")
 	})
 	a.webserver.SetKioskReloadCallback(func() {
 		a.ReloadKiosk()
-	})
-	a.webserver.SetKioskCallback(func(enabled bool) {
-		if a.isWebappActive.Load() {
-			a.SetWindowFullscreen(enabled)
-		}
-		a.EmitEvent("webview-config-changed")
 	})
 	a.webserver.SetOpenWebappCallback(func(url string) {
 		a.NavigateToWebapp(url)
@@ -387,7 +384,7 @@ func (a *App) SetWebViewZoom(zoom float64) error {
 	if a.isWebappActive.Load() {
 		menubar.ApplyWebviewZoom(zoom)
 		if a.mainWindow != nil {
-			a.mainWindow.ExecJS(fmt.Sprintf("document.documentElement.style.zoom = '%f';", zoom))
+			a.mainWindow.ExecJS(buildZoomJS(zoom))
 		}
 	}
 	if a.webserver != nil {
@@ -438,19 +435,13 @@ func (a *App) NavigateToWebapp(url string) {
 			port = a.webserver.Port
 		}
 		gestureScript := cornerGestureJS(port, a.config.HasWebViewPIN())
+		zoomScript := buildZoomJS(zoom)
 		go func() {
-			time.Sleep(500 * time.Millisecond)
-			if a.isWebappActive.Load() && a.mainWindow != nil {
-				a.mainWindow.ExecJS(gestureScript)
-				if zoom > 0 {
-					a.mainWindow.ExecJS(fmt.Sprintf("document.documentElement.style.zoom = '%f';", zoom))
-				}
-			}
-			time.Sleep(1500 * time.Millisecond)
-			if a.isWebappActive.Load() && a.mainWindow != nil {
-				a.mainWindow.ExecJS(gestureScript)
-				if zoom > 0 {
-					a.mainWindow.ExecJS(fmt.Sprintf("document.documentElement.style.zoom = '%f';", zoom))
+			for _, delay := range []time.Duration{150 * time.Millisecond, 400 * time.Millisecond, 800 * time.Millisecond, 1500 * time.Millisecond, 3000 * time.Millisecond} {
+				time.Sleep(delay)
+				if a.isWebappActive.Load() && a.mainWindow != nil {
+					a.mainWindow.ExecJS(gestureScript)
+					a.mainWindow.ExecJS(zoomScript)
 				}
 			}
 		}()
@@ -472,11 +463,101 @@ func (a *App) NavigateToLocalUI() {
 		go func() {
 			time.Sleep(300 * time.Millisecond)
 			if !a.isWebappActive.Load() && a.mainWindow != nil {
-				a.mainWindow.ExecJS("document.documentElement.style.zoom = '1.0';")
+				a.mainWindow.ExecJS(buildZoomJS(1.0))
 			}
 		}()
 	}
 	a.EmitEvent("webview-config-changed")
+}
+
+func buildZoomJS(zoom float64) string {
+	if zoom <= 0 {
+		zoom = 1.0
+	}
+	return fmt.Sprintf(`(function() {
+    var z = %f;
+    function applyZoom() {
+        if ((window.location.hostname === '127.0.0.1' || window.location.hostname === 'localhost' || window.location.hostname === 'wails.localhost') && (window.location.pathname === '/' || window.location.pathname === '')) {
+            return;
+        }
+        var styleId = '__epos_zoom_style__';
+        var style = document.getElementById(styleId);
+        if (!z || Math.abs(z - 1.0) < 0.001) {
+            if (style && style.parentNode) {
+                style.parentNode.removeChild(style);
+            }
+            if (document.documentElement) {
+                document.documentElement.style.zoom = '';
+                document.documentElement.style.minHeight = '';
+                document.documentElement.style.minWidth = '';
+                document.documentElement.style.height = '';
+                document.documentElement.style.width = '';
+            }
+            if (document.body) {
+                document.body.style.minHeight = '';
+                document.body.style.height = '';
+            }
+            return;
+        }
+        if (!style) {
+            style = document.createElement('style');
+            style.id = styleId;
+            var target = document.head || document.documentElement;
+            if (target) {
+                target.appendChild(style);
+            }
+        }
+        var inv = (100.0 / z).toFixed(3);
+        if (style) {
+            style.textContent = 
+                'html { ' +
+                '  zoom: ' + z + ' !important; ' +
+                '  min-height: ' + inv + 'vh !important; ' +
+                '  min-width: ' + inv + 'vw !important; ' +
+                '  height: ' + inv + 'vh !important; ' +
+                '  width: ' + inv + 'vw !important; ' +
+                '} ' +
+                'body { ' +
+                '  min-height: 100%% !important; ' +
+                '  height: 100%% !important; ' +
+                '} ' +
+                '.pos, .point-of-sale, .o_action_manager, .o_web_client, #app, #root, main, [role="main"] { ' +
+                '  min-height: 100%% !important; ' +
+                '  height: 100%% !important; ' +
+                '}';
+        }
+        if (document.documentElement) {
+            document.documentElement.style.zoom = '' + z;
+            document.documentElement.style.minHeight = inv + 'vh';
+            document.documentElement.style.minWidth = inv + 'vw';
+            document.documentElement.style.height = inv + 'vh';
+            document.documentElement.style.width = inv + 'vw';
+        }
+        if (document.body) {
+            document.body.style.minHeight = '100%%';
+            document.body.style.height = '100%%';
+        }
+    }
+    applyZoom();
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', applyZoom);
+    }
+    window.addEventListener('load', applyZoom);
+    window.addEventListener('pageshow', applyZoom);
+    var delays = [150, 400, 800, 1500, 3000];
+    for (var i = 0; i < delays.length; i++) {
+        setTimeout(applyZoom, delays[i]);
+    }
+    if (window.MutationObserver && !window.__eposZoomObserver) {
+        try {
+            window.__eposZoomObserver = new MutationObserver(function() {
+                var s = document.getElementById('__epos_zoom_style__');
+                if (!s) applyZoom();
+            });
+            window.__eposZoomObserver.observe(document.documentElement || document, { childList: true, subtree: true });
+        } catch(e) {}
+    }
+})();`, zoom)
 }
 
 // SetWebViewEnabled persists the lockdown (fullscreen kiosk) mode flag and toggles fullscreen if webapp is active.

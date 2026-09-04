@@ -314,6 +314,24 @@ public class MainActivity extends AppCompatActivity {
             }
 
             @Override
+            public void onPageStarted(WebView view, String url, android.graphics.Bitmap favicon) {
+                super.onPageStarted(view, url, favicon);
+                if (view != null && isExternalWebapp(url)) {
+                    isWebappActive = true;
+                    applyWebViewZoom(currentWebappZoom);
+                }
+            }
+
+            @Override
+            public void onPageCommitVisible(WebView view, String url) {
+                super.onPageCommitVisible(view, url);
+                if (view != null && isExternalWebapp(url)) {
+                    isWebappActive = true;
+                    applyWebViewZoom(currentWebappZoom);
+                }
+            }
+
+            @Override
             public void onPageFinished(WebView view, String url) {
                 super.onPageFinished(view, url);
                 if (DEBUG) Log.d(TAG, "Page loaded: " + url);
@@ -325,22 +343,13 @@ public class MainActivity extends AppCompatActivity {
                 if (view != null && url != null) {
                     if (isExternalWebapp(url)) {
                         isWebappActive = true;
-                        view.setInitialScale(0);
-                        if (currentWebappZoom > 0 && Math.abs(currentWebappZoom - 1.0) > 0.01) {
-                            view.evaluateJavascript(
-                                "document.documentElement.style.zoom = '" + currentWebappZoom + "';", null);
-                        } else {
-                            view.evaluateJavascript(
-                                "document.documentElement.style.zoom = '1.0';", null);
-                        }
+                        applyWebViewZoom(currentWebappZoom);
                         checkAndEnforceExternalWebappLockdown();
                     } else {
                         // Wails UI: always 100% standard mobile scale, unpinned and non-fullscreen
                         isWebappActive = false;
                         setFullscreenMode(false);
-                        view.setInitialScale(0);
-                        view.evaluateJavascript(
-                            "document.documentElement.style.zoom = '1.0';", null);
+                        applyWebViewZoom(1.0);
                     }
                 }
             }
@@ -351,6 +360,13 @@ public class MainActivity extends AppCompatActivity {
 
         // Forward console logs to logcat and handle webapp permissions / dialogs
         webView.setWebChromeClient(new WebChromeClient() {
+            @Override
+            public void onProgressChanged(WebView view, int newProgress) {
+                super.onProgressChanged(view, newProgress);
+                if (view != null && isExternalWebapp(view.getUrl()) && newProgress >= 25) {
+                    applyWebViewZoom(currentWebappZoom);
+                }
+            }
             @Override
             public boolean onConsoleMessage(ConsoleMessage consoleMessage) {
                 Log.d("Wails/JS", consoleMessage.message() + " -- From line "
@@ -430,7 +446,7 @@ public class MainActivity extends AppCompatActivity {
         if (DEBUG) Log.d(TAG, "Loading URL: " + url);
         if (webView != null) {
             webView.setInitialScale(0);
-            webView.evaluateJavascript("document.documentElement.style.zoom = '1.0';", null);
+            applyWebViewZoom(1.0);
             webView.loadUrl(url);
         }
     }
@@ -738,9 +754,78 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
+    public String buildZoomJavaScript(double zoom) {
+        if (zoom <= 0) zoom = 1.0;
+        return "(function() {" +
+            "  var z = " + zoom + ";" +
+            "  function applyZoom() {" +
+            "    var styleId = '__epos_zoom_style__';" +
+            "    var style = document.getElementById(styleId);" +
+            "    if (Math.abs(z - 1.0) < 0.001) {" +
+            "      if (style && style.parentNode) {" +
+            "        style.parentNode.removeChild(style);" +
+            "      }" +
+            "      if (document.documentElement) {" +
+            "        document.documentElement.style.zoom = '';" +
+            "        document.documentElement.style.minHeight = '';" +
+            "        document.documentElement.style.minWidth = '';" +
+            "        document.documentElement.style.height = '';" +
+            "        document.documentElement.style.width = '';" +
+            "      }" +
+            "      if (document.body) {" +
+            "        document.body.style.minHeight = '';" +
+            "        document.body.style.height = '';" +
+            "      }" +
+            "      return;" +
+            "    }" +
+            "    if (!style) {" +
+            "      style = document.createElement('style');" +
+            "      style.id = styleId;" +
+            "      var target = document.head || document.documentElement;" +
+            "      if (target) target.appendChild(style);" +
+            "    }" +
+            "    var inv = (100.0 / z).toFixed(3);" +
+            "    if (style) {" +
+            "      style.textContent = 'html { zoom: ' + z + ' !important; min-height: ' + inv + 'vh !important; min-width: ' + inv + 'vw !important; height: ' + inv + 'vh !important; width: ' + inv + 'vw !important; } body { min-height: 100% !important; height: 100% !important; } .pos, .point-of-sale, .o_action_manager, .o_web_client, #app, #root, main, [role=\"main\"] { min-height: 100% !important; height: 100% !important; }';" +
+            "    }" +
+            "    if (document.documentElement) {" +
+            "      document.documentElement.style.zoom = '' + z;" +
+            "      document.documentElement.style.minHeight = inv + 'vh';" +
+            "      document.documentElement.style.minWidth = inv + 'vw';" +
+            "      document.documentElement.style.height = inv + 'vh';" +
+            "      document.documentElement.style.width = inv + 'vw';" +
+            "    }" +
+            "    if (document.body) {" +
+            "      document.body.style.minHeight = '100%';" +
+            "      document.body.style.height = '100%';" +
+            "    }" +
+            "  }" +
+            "  applyZoom();" +
+            "  if (document.readyState === 'loading') {" +
+            "    document.addEventListener('DOMContentLoaded', applyZoom);" +
+            "  }" +
+            "  window.addEventListener('load', applyZoom);" +
+            "  window.addEventListener('pageshow', applyZoom);" +
+            "  var delays = [150, 400, 800, 1500, 3000];" +
+            "  for (var i = 0; i < delays.length; i++) {" +
+            "    setTimeout(applyZoom, delays[i]);" +
+            "  }" +
+            "  if (window.MutationObserver && !window.__eposZoomObserver) {" +
+            "    try {" +
+            "      window.__eposZoomObserver = new MutationObserver(function() {" +
+            "        var s = document.getElementById('__epos_zoom_style__');" +
+            "        if (!s) applyZoom();" +
+            "      });" +
+            "      window.__eposZoomObserver.observe(document.documentElement || document, { childList: true, subtree: true });" +
+            "    } catch(e) {}" +
+            "  }" +
+            "})();";
+    }
+
     /**
-     * Apply display zoom strictly to the external Web App without affecting the Wails UI,
-     * and without using setInitialScale which forces desktop viewport mode on mobile.
+     * Apply display zoom strictly to the external Web App without affecting the Wails UI.
+     * Injects a self-healing viewport-filling stylesheet so the bottom never remains empty,
+     * and persists through navigation and location.reload().
      */
     public void applyWebViewZoom(double zoom) {
         if (zoom <= 0) zoom = 1.0;
@@ -749,19 +834,9 @@ public class MainActivity extends AppCompatActivity {
             if (webView != null) {
                 String currentUrl = webView.getUrl();
                 if (isExternalWebapp(currentUrl)) {
-                    webView.setInitialScale(0);
-                    if (Math.abs(currentWebappZoom - 1.0) > 0.01) {
-                        webView.evaluateJavascript(
-                            "document.documentElement.style.zoom = '" + currentWebappZoom + "';", null);
-                    } else {
-                        webView.evaluateJavascript(
-                            "document.documentElement.style.zoom = '1.0';", null);
-                    }
+                    webView.evaluateJavascript(buildZoomJavaScript(currentWebappZoom), null);
                 } else {
-                    // Wails UI must always remain at standard 1.0 scale
-                    webView.setInitialScale(0);
-                    webView.evaluateJavascript(
-                        "document.documentElement.style.zoom = '1.0';", null);
+                    webView.evaluateJavascript(buildZoomJavaScript(1.0), null);
                 }
             }
         });
@@ -1497,7 +1572,7 @@ public class MainActivity extends AppCompatActivity {
                     stopKioskLockTask();
                     if (webView != null) {
                         webView.setInitialScale(0);
-                        webView.evaluateJavascript("document.documentElement.style.zoom = '1.0';", null);
+                        applyWebViewZoom(1.0);
                         webView.loadUrl(WAILS_SCHEME + "://" + WAILS_HOST + "/");
                     }
                 } else {
@@ -1610,7 +1685,7 @@ public class MainActivity extends AppCompatActivity {
                                     stopKioskLockTask();
                                     if (webView != null) {
                                         webView.setInitialScale(0);
-                                        webView.evaluateJavascript("document.documentElement.style.zoom = '1.0';", null);
+                                        applyWebViewZoom(1.0);
                                         webView.loadUrl(WAILS_SCHEME + "://" + WAILS_HOST + "/");
                                     }
                                 });

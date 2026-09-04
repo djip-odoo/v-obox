@@ -90,6 +90,11 @@ func main() {
 		port = appService.webserver.Port
 	}
 
+	initJS := cornerGestureJS(port, appService.config.HasWebViewPIN())
+	if zoom := appService.config.GetWebViewZoom(); zoom > 0 {
+		initJS += "\n" + buildZoomJS(zoom)
+	}
+
 	mainWindow := app.Window.NewWithOptions(application.WebviewWindowOptions{
 		Title:                      "ePOS Proxy",
 		Width:                      800,
@@ -102,7 +107,7 @@ func main() {
 		UseApplicationMenu:         !isKiosk,
 		DevToolsEnabled:            isDev,
 		DefaultContextMenuDisabled: !isDev,
-		JS:                         cornerGestureJS(port, appService.config.HasWebViewPIN()),
+		JS:                         initJS,
 	})
 	appService.mainWindow = mainWindow
 
