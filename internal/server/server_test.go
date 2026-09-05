@@ -334,4 +334,13 @@ func TestServer_AuthAndPrivilegedRoutes(t *testing.T) {
 	testutil.ExpectedNoError(t, err)
 	testutil.ExpectedEqual(t, respReload.StatusCode, http.StatusOK)
 	testutil.ExpectedTrue(t, reloadCalled)
+
+	// Test GET /api/webview/reload with Bearer token
+	reloadCalled = false
+	reqGetReload := httptest.NewRequest("GET", "/api/webview/reload", nil)
+	reqGetReload.Header.Set("Authorization", "Bearer "+token)
+	respGetReload, err := s.app.Test(reqGetReload)
+	testutil.ExpectedNoError(t, err)
+	testutil.ExpectedEqual(t, respGetReload.StatusCode, http.StatusOK)
+	testutil.ExpectedTrue(t, reloadCalled)
 }

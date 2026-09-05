@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"net"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -14,6 +15,7 @@ import (
 	"epos-proxy/internal/escpos"
 	"epos-proxy/internal/logger"
 	"epos-proxy/internal/printer"
+	"epos-proxy/internal/util"
 
 	"github.com/gofiber/fiber/v3"
 	"github.com/google/uuid"
@@ -121,6 +123,14 @@ func (s *Server) isAuthenticated(c fiber.Ctx) bool {
 	if ip == "127.0.0.1" || ip == "::1" || ip == "localhost" {
 		return true
 	}
+	parsedIP := net.ParseIP(ip)
+	if parsedIP != nil && parsedIP.IsLoopback() {
+		return true
+	}
+	netInfo := util.GetNetworkInfo()
+	if netInfo.IP != "" && ip == netInfo.IP {
+		return true
+	}
 
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -200,6 +210,7 @@ func New(port int, mgr *printer.Manager, cfg *config.Manager, distFS fs.FS) *Ser
 	app.Post("/api/webview/zoom", srv.requireAuth, srv.handleSetWebViewZoom)
 	app.Post("/api/webview/enabled", srv.requireAuth, srv.handleSetWebViewEnabled)
 	app.Post("/api/webview/reload", srv.requireAuth, srv.handleReloadWebView)
+	app.Get("/api/webview/reload", srv.requireAuth, srv.handleReloadWebView)
 	app.Post("/api/webview/open", srv.requireAuth, srv.handleOpenWebView)
 	app.Post("/api/webview/close", srv.requireAuth, srv.handleCloseWebView)
 	app.Get("/api/webview/close", srv.requireAuth, srv.handleCloseWebView)

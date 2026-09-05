@@ -21,3 +21,12 @@ func ApplyWebviewZoom(zoom float64) {
 // SetNativeFullscreen is a no-op fallback on non-Linux platforms.
 func SetNativeFullscreen(fullscreen bool) {
 }
+
+// RegisterKioskReloadCallback is a no-op fallback on non-Linux platforms.
+func RegisterKioskReloadCallback(callback func()) {
+}
+
+// RegisterWebviewPageLoadCallback is a no-op fallback on non-Linux platforms.
+func RegisterWebviewPageLoadCallback(callback func()) {
+}
+

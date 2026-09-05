@@ -8,16 +8,25 @@ package menubar
 #include <webkit/webkit.h>
 
 extern void onKioskExitGesture(void);
+extern void onKioskReloadRequested(void);
+extern void onWebviewPageCommitted(void);
 
 static guint32 last_tap_time = 0;
 static int tap_count = 0;
 
 static double current_zoom_level = 1.0;
 
+static void on_script_message_received(WebKitUserContentManager *manager, JSCValue *value, gpointer user_data) {
+    onKioskReloadRequested();
+}
+
 static void on_webview_load_changed(WebKitWebView *web_view, WebKitLoadEvent load_event, gpointer user_data) {
     if (load_event == WEBKIT_LOAD_COMMITTED || load_event == WEBKIT_LOAD_FINISHED) {
         if (current_zoom_level > 0) {
             webkit_web_view_set_zoom_level(web_view, current_zoom_level);
+        }
+        if (load_event == WEBKIT_LOAD_COMMITTED) {
+            onWebviewPageCommitted();
         }
     }
 }
@@ -44,6 +53,14 @@ static void configure_webkit_view(GtkWidget *widget, gpointer data) {
         if (current_zoom_level > 0) {
             webkit_web_view_set_zoom_level(wv, current_zoom_level);
         }
+
+        WebKitUserContentManager *ucm = webkit_web_view_get_user_content_manager(wv);
+        if (ucm && !g_object_get_data(G_OBJECT(ucm), "epos_kiosk_handler_registered")) {
+            g_object_set_data(G_OBJECT(ucm), "epos_kiosk_handler_registered", GINT_TO_POINTER(1));
+            g_signal_connect(ucm, "script-message-received::eposKiosk", G_CALLBACK(on_script_message_received), NULL);
+            webkit_user_content_manager_register_script_message_handler(ucm, "eposKiosk", NULL);
+        }
+
         g_signal_handlers_disconnect_by_func(wv, G_CALLBACK(on_webview_load_changed), NULL);
         g_signal_connect(wv, "load-changed", G_CALLBACK(on_webview_load_changed), NULL);
     }
@@ -245,7 +262,11 @@ static void set_webview_zoom_level(double zoom) {
 */
 import "C"
 
-var kioskExitCallback func()
+var (
+	kioskExitCallback       func()
+	kioskReloadCallback     func()
+	webviewPageLoadCallback func()
+)
 
 //export onKioskExitGesture
 func onKioskExitGesture() {
@@ -254,10 +275,34 @@ func onKioskExitGesture() {
 	}
 }
 
+//export onKioskReloadRequested
+func onKioskReloadRequested() {
+	if kioskReloadCallback != nil {
+		kioskReloadCallback()
+	}
+}
+
+//export onWebviewPageCommitted
+func onWebviewPageCommitted() {
+	if webviewPageLoadCallback != nil {
+		webviewPageLoadCallback()
+	}
+}
+
 // RegisterKioskExitGesture hooks native window events on Linux to detect the 4-tap corner gesture.
 func RegisterKioskExitGesture(callback func()) {
 	kioskExitCallback = callback
 	C.setup_kiosk_gestures()
+}
+
+// RegisterKioskReloadCallback registers a callback invoked when webapp requests reload or clears storage.
+func RegisterKioskReloadCallback(callback func()) {
+	kioskReloadCallback = callback
+}
+
+// RegisterWebviewPageLoadCallback registers a callback invoked whenever a webview page is committed (navigation/reload).
+func RegisterWebviewPageLoadCallback(callback func()) {
+	webviewPageLoadCallback = callback
 }
 
 // SetNativeMenubarVisible toggles the visibility of the native GTK menubar on Linux.
@@ -289,3 +334,4 @@ func SetNativeFullscreen(fullscreen bool) {
 		C.set_window_fullscreen_native(0)
 	}
 }
+

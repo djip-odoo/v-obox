@@ -91,9 +91,11 @@ func main() {
 	}
 
 	initJS := cornerGestureJS(port, appService.config.HasWebViewPIN())
-	if zoom := appService.config.GetWebViewZoom(); zoom > 0 {
-		initJS += "\n" + buildZoomJS(zoom)
+	zoom := appService.config.GetWebViewZoom()
+	if zoom <= 0 {
+		zoom = 1.0
 	}
+	initJS += "\n" + buildZoomJS(zoom, port, appService.config.GetWebViewURL())
 
 	mainWindow := app.Window.NewWithOptions(application.WebviewWindowOptions{
 		Title:                      "ePOS Proxy",

@@ -196,13 +196,37 @@ func (a *App) startup() {
 			zoom := a.config.GetWebViewZoom()
 			if zoom > 0 {
 				menubar.ApplyWebviewZoom(zoom)
-				a.mainWindow.ExecJS(buildZoomJS(zoom))
+				port := 4545
+				targetUrl := ""
+				if a.config != nil {
+					targetUrl = a.config.GetWebViewURL()
+				}
+				a.mainWindow.ExecJS(buildZoomJS(zoom, port, targetUrl))
 			}
 		}
 		a.EmitEvent("webview-config-changed")
 	})
 	a.webserver.SetKioskReloadCallback(func() {
 		a.ReloadKiosk()
+	})
+	menubar.RegisterKioskReloadCallback(func() {
+		logger.Infof("Native WebKitGTK kiosk reload requested from webapp")
+		a.ReloadKiosk()
+	})
+	menubar.RegisterWebviewPageLoadCallback(func() {
+		if a.isWebappActive.Load() && a.mainWindow != nil {
+			zoom := a.config.GetWebViewZoom()
+			port := 4545
+			if a.webserver != nil && a.webserver.Port > 0 {
+				port = a.webserver.Port
+			}
+			targetUrl := ""
+			if a.config != nil {
+				targetUrl = a.config.GetWebViewURL()
+			}
+			a.mainWindow.ExecJS(cornerGestureJS(port, a.config.HasWebViewPIN()))
+			a.mainWindow.ExecJS(buildZoomJS(zoom, port, targetUrl))
+		}
 	})
 	a.webserver.SetOpenWebappCallback(func(url string) {
 		a.NavigateToWebapp(url)
@@ -384,7 +408,15 @@ func (a *App) SetWebViewZoom(zoom float64) error {
 	if a.isWebappActive.Load() {
 		menubar.ApplyWebviewZoom(zoom)
 		if a.mainWindow != nil {
-			a.mainWindow.ExecJS(buildZoomJS(zoom))
+			port := 4545
+			if a.webserver != nil && a.webserver.Port > 0 {
+				port = a.webserver.Port
+			}
+			targetUrl := ""
+			if a.config != nil {
+				targetUrl = a.config.GetWebViewURL()
+			}
+			a.mainWindow.ExecJS(buildZoomJS(zoom, port, targetUrl))
 		}
 	}
 	if a.webserver != nil {
@@ -429,13 +461,20 @@ func (a *App) NavigateToWebapp(url string) {
 		menubar.ConfigureWebviewSettings()
 		menubar.ApplyWebviewZoom(zoom)
 		a.mainWindow.SetURL(url)
-		a.mainWindow.ExecJS(fmt.Sprintf("window.location.href = %q;", url))
+		a.mainWindow.ExecJS(fmt.Sprintf(`(function() {
+			window.__eposReloading = false;
+			try {
+				window.location.replace(%q);
+			} catch(e) {
+				window.location.href = %q;
+			}
+		})();`, url, url))
 		port := 4545
 		if a.webserver != nil && a.webserver.Port > 0 {
 			port = a.webserver.Port
 		}
 		gestureScript := cornerGestureJS(port, a.config.HasWebViewPIN())
-		zoomScript := buildZoomJS(zoom)
+		zoomScript := buildZoomJS(zoom, port, url)
 		go func() {
 			for _, delay := range []time.Duration{150 * time.Millisecond, 400 * time.Millisecond, 800 * time.Millisecond, 1500 * time.Millisecond, 3000 * time.Millisecond} {
 				time.Sleep(delay)
@@ -463,19 +502,27 @@ func (a *App) NavigateToLocalUI() {
 		go func() {
 			time.Sleep(300 * time.Millisecond)
 			if !a.isWebappActive.Load() && a.mainWindow != nil {
-				a.mainWindow.ExecJS(buildZoomJS(1.0))
+				port := 4545
+				if a.webserver != nil && a.webserver.Port > 0 {
+					port = a.webserver.Port
+				}
+				a.mainWindow.ExecJS(buildZoomJS(1.0, port, ""))
 			}
 		}()
 	}
 	a.EmitEvent("webview-config-changed")
 }
 
-func buildZoomJS(zoom float64) string {
+func buildZoomJS(zoom float64, port int, targetUrl string) string {
 	if zoom <= 0 {
 		zoom = 1.0
 	}
+	if port <= 0 {
+		port = 4545
+	}
 	return fmt.Sprintf(`(function() {
     var z = %f;
+    var targetKioskUrl = %q;
     function applyZoom() {
         if ((window.location.hostname === '127.0.0.1' || window.location.hostname === 'localhost' || window.location.hostname === 'wails.localhost') && (window.location.pathname === '/' || window.location.pathname === '')) {
             return;
@@ -560,35 +607,205 @@ func buildZoomJS(zoom float64) string {
     try {
         if (!window.__eposReloadInterceptorInstalled) {
             window.__eposReloadInterceptorInstalled = true;
+            var lastTriggerTime = 0;
+            function triggerReloadKiosk() {
+                var now = Date.now();
+                if (now - lastTriggerTime < 1500) return;
+                lastTriggerTime = now;
+                console.log('[EposProxy] triggerReloadKiosk invoked');
+
+                // 1. Android native JavascriptInterface
+                if (window._eposKiosk && typeof window._eposKiosk.requestReload === 'function') {
+                    try { window._eposKiosk.requestReload(); } catch(e) {}
+                }
+                // 2. Linux WebKitGTK native message handler
+                if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.eposKiosk) {
+                    try { window.webkit.messageHandlers.eposKiosk.postMessage("reload"); } catch(e) {}
+                }
+                // 3. Instant in-page navigation if target URL is set and page has navigated away
+                if (targetKioskUrl && window.location.href !== targetKioskUrl) {
+                    try {
+                        window.location.replace(targetKioskUrl);
+                        return;
+                    } catch(e) {}
+                }
+                // 4. HTTP fallback
+                var reloadUrl = 'http://127.0.0.1:%d/api/webview/reload';
+                try {
+                    if (navigator.sendBeacon) {
+                        navigator.sendBeacon(reloadUrl);
+                    }
+                } catch(e) {}
+                try {
+                    var xhr = new XMLHttpRequest();
+                    xhr.open('POST', reloadUrl, true);
+                    xhr.send();
+                } catch(e) {}
+                try {
+                    var img = new Image();
+                    img.src = reloadUrl + '?t=' + now;
+                } catch(e) {}
+            }
+
+            // 1. Intercept location.reload
             try {
                 if (window.Location && window.Location.prototype) {
-                    var origReload = window.Location.prototype.reload;
                     window.Location.prototype.reload = function() {
-                        try {
-                            var xhr = new XMLHttpRequest();
-                            xhr.open('POST', 'http://127.0.0.1:4545/api/webview/reload', true);
-                            xhr.send();
-                        } catch(e) {}
-                        if (origReload) origReload.apply(this, arguments);
+                        triggerReloadKiosk();
                     };
                 }
             } catch(e) {}
+
+            // 2. Intercept history.go(0)
+            try {
+                if (window.history) {
+                    var origGo = window.history.go;
+                    window.history.go = function(delta) {
+                        if (delta === 0 || delta === undefined) {
+                            triggerReloadKiosk();
+                            return;
+                        }
+                        if (origGo) return origGo.apply(this, arguments);
+                    };
+                }
+            } catch(e) {}
+
+            // 3. Intercept localStorage.clear() and sessionStorage.clear()
+            try {
+                if (window.Storage && window.Storage.prototype) {
+                    var origStorageClear = window.Storage.prototype.clear;
+                    window.Storage.prototype.clear = function() {
+                        try {
+                            if (origStorageClear) origStorageClear.apply(this, arguments);
+                        } finally {
+                            triggerReloadKiosk();
+                        }
+                    };
+                }
+            } catch(e) {}
+
+            try {
+                if (window.localStorage) {
+                    var origLocalClear = window.localStorage.clear;
+                    window.localStorage.clear = function() {
+                        try {
+                            if (origLocalClear) origLocalClear.apply(this, arguments);
+                        } finally {
+                            triggerReloadKiosk();
+                        }
+                    };
+                }
+            } catch(e) {}
+
+            try {
+                if (window.sessionStorage) {
+                    var origSessionClear = window.sessionStorage.clear;
+                    window.sessionStorage.clear = function() {
+                        try {
+                            if (origSessionClear) origSessionClear.apply(this, arguments);
+                        } finally {
+                            triggerReloadKiosk();
+                        }
+                    };
+                }
+            } catch(e) {}
+
+            // 4. Intercept indexedDB.deleteDatabase
+            try {
+                if (window.indexedDB && window.indexedDB.deleteDatabase) {
+                    var origDeleteDB = window.indexedDB.deleteDatabase;
+                    window.indexedDB.deleteDatabase = function() {
+                        var req = origDeleteDB.apply(this, arguments);
+                        triggerReloadKiosk();
+                        return req;
+                    };
+                }
+            } catch(e) {}
+
+            // 5. Check if current page was loaded via reload
             var navEntries = window.performance && window.performance.getEntriesByType && window.performance.getEntriesByType('navigation');
             var isReload = (navEntries && navEntries.length > 0 && navEntries[0].type === 'reload') ||
                            (window.performance && window.performance.navigation && window.performance.navigation.type === 1);
-            if (isReload && !sessionStorage.getItem('__epos_reloaded')) {
-                try { sessionStorage.setItem('__epos_reloaded', '1'); } catch(e) {}
-                try {
-                    var xhr = new XMLHttpRequest();
-                    xhr.open('POST', 'http://127.0.0.1:4545/api/webview/reload', true);
-                    xhr.send();
-                } catch(e) {}
-            } else {
-                try { sessionStorage.removeItem('__epos_reloaded'); } catch(e) {}
+            if (isReload) {
+                triggerReloadKiosk();
             }
+
+            // 6. Self-heal Odoo device_identifier sequence if localStorage was cleared
+            try {
+                var origGetItem = Storage.prototype.getItem;
+                Storage.prototype.getItem = function(key) {
+                    var val = origGetItem.apply(this, arguments);
+                    if ((!val || val === 'null') && typeof key === 'string' && key.indexOf('unique_device_identifier') !== -1) {
+                        var fallback = JSON.stringify({
+                            device_identifier: 'kiosk_device_' + (window.crypto && window.crypto.randomUUID ? window.crypto.randomUUID() : Date.now()),
+                            next_number: 1,
+                            unsynced_number_stack: []
+                        });
+                        try { this.setItem(key, fallback); } catch(e) {}
+                        return fallback;
+                    }
+                    return val;
+                };
+            } catch(e) {}
+
+            // 7. Intercept console.error for fatal Odoo initialization errors
+            try {
+                var origConsoleErr = console.error;
+                console.error = function() {
+                    try {
+                        var str = Array.prototype.slice.call(arguments).map(String).join(' ').toLowerCase();
+                        if (str.indexOf('device_identifier') !== -1 || str.indexOf('indexeddb db is null') !== -1) {
+                            triggerReloadKiosk();
+                        }
+                    } catch(e) {}
+                    if (origConsoleErr) origConsoleErr.apply(console, arguments);
+                };
+            } catch(e) {}
+
+            // 8. Click interception on reload/retry/close buttons in error dialogs
+            document.addEventListener('click', function(e) {
+                var el = e.target;
+                while (el && el !== document) {
+                    var txt = (el.innerText || el.textContent || '').trim().toLowerCase();
+                    if (txt === 'reload' || txt === 'refresh' || txt === 'recharger' || txt === 'close' || txt === 'fermer') {
+                        if (el.closest && (el.closest('.o_error_dialog') || el.closest('.modal') || el.closest('[role="dialog"]'))) {
+                            setTimeout(triggerReloadKiosk, 50);
+                            break;
+                        }
+                    }
+                    el = el.parentElement;
+                }
+            }, true);
+
+            // 9. Auto-detect and recover from error modals on screen
+            try {
+                setInterval(function() {
+                    var modals = document.querySelectorAll('.o_error_dialog, .o_dialog_error, .modal.show, [role="dialog"]');
+                    for (var i = 0; i < modals.length; i++) {
+                        var m = modals[i];
+                        var txt = (m.innerText || m.textContent || '').toLowerCase();
+                        if (txt.indexOf('something went wrong') !== -1 || txt.indexOf('oops!') !== -1 || txt.indexOf('technical details') !== -1) {
+                            triggerReloadKiosk();
+                            break;
+                        }
+                    }
+                }, 1000);
+            } catch(e) {}
+
+            // 10. Auto-recover from fatal Odoo session initialization errors
+            window.addEventListener('error', function(e) {
+                var msg = (e && e.message) ? e.message.toLowerCase() : '';
+                if (msg.includes('device_identifier') || 
+                    msg.includes('pos_session') ||
+                    (msg.includes('indexeddb') && msg.includes('null')) ||
+                    msg.includes('cannot read properties of null') ||
+                    msg.includes('cannot read properties of undefined')) {
+                    triggerReloadKiosk();
+                }
+            });
         }
     } catch(e) {}
-})();`, zoom)
+})();`, zoom, targetUrl, port)
 }
 
 // SetWebViewEnabled persists the lockdown (fullscreen kiosk) mode flag and toggles fullscreen if webapp is active.
@@ -634,18 +851,21 @@ func (a *App) SetWindowFullscreen(fullscreen bool) {
 	}
 }
 
-// ReloadKiosk reloads the active top-level webview.
+// ReloadKiosk reloads the active top-level webview with the configured whole webapp URL.
 func (a *App) ReloadKiosk() {
 	if a.mainWindow != nil {
 		url := ""
 		if a.config != nil {
 			url = a.config.GetWebViewURL()
 		}
-		if url != "" && a.isWebappActive.Load() {
+		if url != "" {
 			a.NavigateToWebapp(url)
 		} else {
 			a.mainWindow.Reload()
 		}
+	}
+	if a.webserver != nil {
+		a.webserver.PostWebviewAction("reload", "", false, 1.0)
 	}
 	a.EmitEvent("kiosk-reload")
 }

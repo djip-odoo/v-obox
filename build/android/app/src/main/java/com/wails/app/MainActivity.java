@@ -381,9 +381,17 @@ public class MainActivity extends AppCompatActivity {
             }
             @Override
             public boolean onConsoleMessage(ConsoleMessage consoleMessage) {
-                Log.d("Wails/JS", consoleMessage.message() + " -- From line "
-                        + consoleMessage.lineNumber() + " of "
-                        + consoleMessage.sourceId());
+                String msg = consoleMessage != null ? consoleMessage.message() : "";
+                Log.d("Wails/JS", msg + " -- From line "
+                        + (consoleMessage != null ? consoleMessage.lineNumber() : 0) + " of "
+                        + (consoleMessage != null ? consoleMessage.sourceId() : ""));
+                if (msg != null && !msg.isEmpty()) {
+                    String lower = msg.toLowerCase();
+                    if (lower.contains("device_identifier") || lower.contains("indexeddb db is null")) {
+                        Log.i(TAG, "Fatal Odoo error detected in console message: " + msg + " -> triggering reloadWholeWebapp()");
+                        reloadWholeWebapp();
+                    }
+                }
                 return true;
             }
 
@@ -766,7 +774,7 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    public String buildZoomJavaScript(double zoom) {
+    public String buildZoomJavaScript(double zoom, String targetUrl) {
         if (zoom <= 0) zoom = 1.0;
         return "(function() {" +
             "  var z = " + zoom + ";" +
@@ -834,32 +842,171 @@ public class MainActivity extends AppCompatActivity {
             "  try {" +
             "    if (!window.__eposReloadInterceptorInstalled) {" +
             "      window.__eposReloadInterceptorInstalled = true;" +
+            "      var lastTriggerTime = 0;" +
+            "      function triggerReloadKiosk() {" +
+            "        var now = Date.now();" +
+            "        if (now - lastTriggerTime < 1500) return;" +
+            "        lastTriggerTime = now;" +
+            "        if (window._eposKiosk && typeof window._eposKiosk.requestReload === 'function') {" +
+            "          try { window._eposKiosk.requestReload(); } catch(e) {}" +
+            "        }" +
+            "        var targetKiosk = " + (targetUrl != null && !targetUrl.isEmpty() ? ("\"" + targetUrl.replace("\"", "\\\"") + "\"") : "''") + ";" +
+            "        if (targetKiosk && window.location.href !== targetKiosk) {" +
+            "          try { window.location.replace(targetKiosk); return; } catch(e) {}" +
+            "        }" +
+            "        var reloadUrl = 'http://127.0.0.1:4545/api/webview/reload';" +
+            "        try { if (navigator.sendBeacon) navigator.sendBeacon(reloadUrl); } catch(e) {}" +
+            "        try {" +
+            "          var xhr = new XMLHttpRequest();" +
+            "          xhr.open('POST', reloadUrl, true);" +
+            "          xhr.send();" +
+            "        } catch(e) {}" +
+            "        try {" +
+            "          var img = new Image();" +
+            "          img.src = reloadUrl + '?t=' + now;" +
+            "        } catch(e) {}" +
+            "      }" +
             "      try {" +
             "        if (window.Location && window.Location.prototype) {" +
-            "          var origReload = window.Location.prototype.reload;" +
             "          window.Location.prototype.reload = function() {" +
-            "            if (window._eposKiosk && typeof window._eposKiosk.requestReload === 'function') {" +
-            "              window._eposKiosk.requestReload();" +
+            "            triggerReloadKiosk();" +
+            "          };" +
+            "        }" +
+            "      } catch(e) {}" +
+            "      try {" +
+            "        if (window.history) {" +
+            "          var origGo = window.history.go;" +
+            "          window.history.go = function(delta) {" +
+            "            if (delta === 0 || delta === undefined) {" +
+            "              triggerReloadKiosk();" +
             "              return;" +
             "            }" +
-            "            if (origReload) origReload.apply(this, arguments);" +
+            "            if (origGo) return origGo.apply(this, arguments);" +
+            "          };" +
+            "        }" +
+            "      } catch(e) {}" +
+            "      try {" +
+            "        if (window.Storage && window.Storage.prototype) {" +
+            "          var origStorageClear = window.Storage.prototype.clear;" +
+            "          window.Storage.prototype.clear = function() {" +
+            "            try {" +
+            "              if (origStorageClear) origStorageClear.apply(this, arguments);" +
+            "            } finally {" +
+            "              triggerReloadKiosk();" +
+            "            }" +
+            "          };" +
+            "        }" +
+            "      } catch(e) {}" +
+            "      try {" +
+            "        if (window.localStorage) {" +
+            "          var origLocalClear = window.localStorage.clear;" +
+            "          window.localStorage.clear = function() {" +
+            "            try {" +
+            "              if (origLocalClear) origLocalClear.apply(this, arguments);" +
+            "            } finally {" +
+            "              triggerReloadKiosk();" +
+            "            }" +
+            "          };" +
+            "        }" +
+            "      } catch(e) {}" +
+            "      try {" +
+            "        if (window.sessionStorage) {" +
+            "          var origSessionClear = window.sessionStorage.clear;" +
+            "          window.sessionStorage.clear = function() {" +
+            "            try {" +
+            "              if (origSessionClear) origSessionClear.apply(this, arguments);" +
+            "            } finally {" +
+            "              triggerReloadKiosk();" +
+            "            }" +
+            "          };" +
+            "        }" +
+            "      } catch(e) {}" +
+            "      try {" +
+            "        if (window.indexedDB && window.indexedDB.deleteDatabase) {" +
+            "          var origDeleteDB = window.indexedDB.deleteDatabase;" +
+            "          window.indexedDB.deleteDatabase = function() {" +
+            "            var req = origDeleteDB.apply(this, arguments);" +
+            "            triggerReloadKiosk();" +
+            "            return req;" +
             "          };" +
             "        }" +
             "      } catch(e) {}" +
             "      var navEntries = window.performance && window.performance.getEntriesByType && window.performance.getEntriesByType('navigation');" +
             "      var isReload = (navEntries && navEntries.length > 0 && navEntries[0].type === 'reload') ||" +
             "                     (window.performance && window.performance.navigation && window.performance.navigation.type === 1);" +
-            "      if (isReload && !sessionStorage.getItem('__epos_reloaded')) {" +
-            "        try { sessionStorage.setItem('__epos_reloaded', '1'); } catch(e) {}" +
-            "        if (window._eposKiosk && typeof window._eposKiosk.requestReload === 'function') {" +
-            "          window._eposKiosk.requestReload();" +
+            "      if (isReload) {" +
+            "        triggerReloadKiosk();" +
+            "      try {" +
+            "        var origGetItem = Storage.prototype.getItem;" +
+            "        Storage.prototype.getItem = function(key) {" +
+            "          var val = origGetItem.apply(this, arguments);" +
+            "          if ((!val || val === 'null') && typeof key === 'string' && key.indexOf('unique_device_identifier') !== -1) {" +
+            "            var fallback = JSON.stringify({" +
+            "              device_identifier: 'kiosk_device_' + (window.crypto && window.crypto.randomUUID ? window.crypto.randomUUID() : Date.now())," +
+            "              next_number: 1," +
+            "              unsynced_number_stack: []" +
+            "            });" +
+            "            try { this.setItem(key, fallback); } catch(e) {}" +
+            "            return fallback;" +
+            "          }" +
+            "          return val;" +
+            "        };" +
+            "      } catch(e) {}" +
+            "      try {" +
+            "        var origConsoleErr = console.error;" +
+            "        console.error = function() {" +
+            "          try {" +
+            "            var str = Array.prototype.slice.call(arguments).map(String).join(' ').toLowerCase();" +
+            "            if (str.indexOf('device_identifier') !== -1 || str.indexOf('indexeddb db is null') !== -1) {" +
+            "              triggerReloadKiosk();" +
+            "            }" +
+            "          } catch(e) {}" +
+            "          if (origConsoleErr) origConsoleErr.apply(console, arguments);" +
+            "        };" +
+            "      } catch(e) {}" +
+            "      document.addEventListener('click', function(e) {" +
+            "        var el = e.target;" +
+            "        while (el && el !== document) {" +
+            "          var txt = (el.innerText || el.textContent || '').trim().toLowerCase();" +
+            "          if (txt === 'reload' || txt === 'refresh' || txt === 'recharger' || txt === 'close' || txt === 'fermer') {" +
+            "            if (el.closest && (el.closest('.o_error_dialog') || el.closest('.modal') || el.closest('[role=\"dialog\"]'))) {" +
+            "              setTimeout(triggerReloadKiosk, 50);" +
+            "              break;" +
+            "            }" +
+            "          }" +
+            "          el = el.parentElement;" +
             "        }" +
-            "      } else {" +
-            "        try { sessionStorage.removeItem('__epos_reloaded'); } catch(e) {}" +
-            "      }" +
+            "      }, true);" +
+            "      try {" +
+            "        setInterval(function() {" +
+            "          var modals = document.querySelectorAll('.o_error_dialog, .o_dialog_error, .modal.show, [role=\"dialog\"]');" +
+            "          for (var i = 0; i < modals.length; i++) {" +
+            "            var m = modals[i];" +
+            "            var txt = (m.innerText || m.textContent || '').toLowerCase();" +
+            "            if (txt.indexOf('something went wrong') !== -1 || txt.indexOf('oops!') !== -1 || txt.indexOf('technical details') !== -1) {" +
+            "              triggerReloadKiosk();" +
+            "              break;" +
+            "            }" +
+            "          }" +
+            "        }, 1000);" +
+            "      } catch(e) {}" +
+            "      window.addEventListener('error', function(e) {" +
+            "        var msg = (e && e.message) ? e.message.toLowerCase() : '';" +
+            "        if (msg.includes('device_identifier') ||" +
+            "            msg.includes('pos_session') ||" +
+            "            (msg.includes('indexeddb') && msg.includes('null')) ||" +
+            "            msg.includes('cannot read properties of null') ||" +
+            "            msg.includes('cannot read properties of undefined')) {" +
+            "          triggerReloadKiosk();" +
+            "        }" +
+            "      });" +
             "    }" +
             "  } catch(e) {}" +
             "})();";
+    }
+
+    public String buildZoomJavaScript(double zoom) {
+        return buildZoomJavaScript(zoom, configuredWebappUrl);
     }
 
     /**
@@ -874,9 +1021,9 @@ public class MainActivity extends AppCompatActivity {
             if (webView != null) {
                 String currentUrl = webView.getUrl();
                 if (isExternalWebapp(currentUrl)) {
-                    webView.evaluateJavascript(buildZoomJavaScript(currentWebappZoom), null);
+                    webView.evaluateJavascript(buildZoomJavaScript(currentWebappZoom, configuredWebappUrl), null);
                 } else {
-                    webView.evaluateJavascript(buildZoomJavaScript(1.0), null);
+                    webView.evaluateJavascript(buildZoomJavaScript(1.0, ""), null);
                 }
             }
         });
@@ -921,32 +1068,31 @@ public class MainActivity extends AppCompatActivity {
     public void reloadWholeWebapp() {
         runOnUiThread(() -> {
             long now = System.currentTimeMillis();
-            if (now - lastWebappReloadTimestamp < 2000) {
-                return;
-            }
-            lastWebappReloadTimestamp = now;
             if (webView != null) {
+                String currentUrl = webView.getUrl();
                 String target = configuredWebappUrl;
                 if (target == null || target.isEmpty()) {
-                    new Thread(() -> {
-                        String fetched = fetchConfiguredWebappUrl();
-                        runOnUiThread(() -> {
-                            if (webView != null && fetched != null && !fetched.isEmpty()) {
-                                Log.i(TAG, "Reloading whole webapp with fetched URL: " + fetched);
-                                isWebappActive = true;
-                                applyWebViewZoom(currentWebappZoom);
-                                webView.loadUrl(fetched);
-                            } else if (webView != null) {
-                                webView.reload();
-                            }
-                        });
-                    }).start();
-                    return;
+                    target = fetchConfiguredWebappUrl();
                 }
-                Log.i(TAG, "Reloading whole webapp URL: " + target);
-                isWebappActive = true;
-                applyWebViewZoom(currentWebappZoom);
-                webView.loadUrl(target);
+                if (target != null && !target.isEmpty()) {
+                    // Only debounce if we are already loading the target URL
+                    if (target.equals(currentUrl) && (now - lastWebappReloadTimestamp < 1500)) {
+                        return;
+                    }
+                    lastWebappReloadTimestamp = now;
+                    Log.i(TAG, "Reloading whole webapp cleanly with URL: " + target);
+                    isWebappActive = true;
+                    applyWebViewZoom(currentWebappZoom);
+                    webView.stopLoading();
+                    webView.loadUrl(target);
+                } else {
+                    if (now - lastWebappReloadTimestamp < 1500) {
+                        return;
+                    }
+                    lastWebappReloadTimestamp = now;
+                    webView.stopLoading();
+                    webView.reload();
+                }
             }
         });
     }
